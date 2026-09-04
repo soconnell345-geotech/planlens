@@ -34,6 +34,10 @@ dependencies = [
 [project.optional-dependencies]
 # Raster/scanned-sheet ingest (OpenCV Hough/contour tracing).
 raster = ["opencv-python-headless>=4.8"]
+# OCR leg (planlens.ocr): RapidOCR, Apache-2.0, ~60 MB incl. onnxruntime;
+# PP-OCR models ship in the wheel — no runtime downloads, no system
+# binaries, no GPL. Needed for text on SHX-plotted and scanned sheets.
+ocr = ["rapidocr-onnxruntime>=1.2"]
 
 [tool.setuptools.packages.find]
 include = ["planlens*"]
