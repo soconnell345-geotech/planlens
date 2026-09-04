@@ -19,8 +19,20 @@ line/polyline endpoints under candidate (rotation, scale) hypotheses;
 the (rotation, scale, offset) cell with the most consistent votes wins
 and is refined by a least-squares scale+offset solve on the matched
 pairs. Returns a dict with the transform, the vote/match counts, and an
-``apply`` mapping — or ``None`` when no hypothesis earns enough votes
-(reported, never guessed).
+``apply`` mapping — or ``None`` when no hypothesis earns enough votes.
+
+CAVEAT (independent verification, 2026-09-05): ``n_matched``/``rms``
+are NOT trustworthy fit-quality signals in the degenerate-scale regime.
+When a candidate scale shrinks the anchor cloud to a small fraction of
+the page, dense linework matches anything: random anchors can return
+"matched 10/10, rms < 1 pt" near scale ~ 1.0 on a 1:72 plot, and noisy
+anchors can win with the WRONG rotation rather than returning ``None``.
+Trust a fit only when the scaled anchor extent spans a meaningful
+fraction of the drawing extent (check ``scale`` times the anchor-cloud
+size against the page); an explicit extent guard is a known next step.
+With exact CAD anchors spanning the sheet (the scoring use case) the
+fit is excellent — 0.02-0.03 pt rms, 100% anchors matched on the
+validation sheets.
 """
 
 from __future__ import annotations

@@ -48,13 +48,22 @@ native CAD entities can be located on the plotted page.
   recovery on no-text-layer plots (88-92% truth-text coverage, median
   coordinate error 1.4-7 pt on the validation sheets), plot-transform
   fitting (0.02-0.03 pt rms on rotated real plots).
-- **Partially proven on real sheets**: leader detection reads both
-  triangle and stroke-cluster arrowheads (11/25 native-truth tips on
-  the validation set, up from 0/25 with triangles alone; residuals are
-  tips with no plotted arrow fragments or sparse dots inside stipple
-  texture). Dimension detection is fixture-proven but real plots often
-  split the dimension line around centered text — a pairing leg for
-  that style is the known next step.
+- **Partially proven on real sheets**: leader detection reaches 11/25
+  native-truth tips on the validation set (up from 0/25). Independent
+  verification attributes that gain to the plot-transform fit plus
+  fold-blind triangle alignment — the newer stroke-cluster arrowhead
+  model contributes no additional matched tips yet and is groundwork
+  for the sparse-dot regime, not the source of the number. Residuals
+  are tips with no plotted arrow fragments at all, or dots inside
+  stipple below any principled density gate.
+- **Not yet usable on stroked/no-text real plots**: dimension
+  detection. On such sheets the confidence renormalization admits
+  arrow/hatch misreads at high confidence (measured ~0 precision
+  against native truth on the worst validation sheet at default
+  thresholds); real plots also split the dimension line around
+  centered text, which the current model does not pair. Both are
+  documented next steps — treat real-sheet dimension output as noise
+  until then. (Synthetic/fixture dimension detection is proven.)
 - **Best-effort tier**: revision clouds (drafting-practice dependent).
 
 ## Install
@@ -64,3 +73,12 @@ pip install planlens            # DXF + vector-PDF ingest
 pip install "planlens[raster]"  # + raster/scanned-sheet tracing
 pip install "planlens[ocr]"     # + optical text for stroked/scanned sheets
 ```
+
+The `[ocr]` extra installs RapidOCR + onnxruntime with PP-OCR models
+inside the wheel (no runtime downloads; all-permissive licenses:
+Apache-2.0/MIT/BSD). Clean-environment weight is roughly 170 MB —
+rapidocr requires full `opencv-python` (~112 MB), which coexists
+uneasily with the `[raster]` extra's `opencv-python-headless` (two
+distributions own the `cv2` namespace; installing both works but
+uninstalling either can break the other). Resolving the opencv-variant
+story is a known open item.

@@ -150,7 +150,14 @@ def ocr_text_items(filepath: Optional[str] = None,
         png_lo, _, _, _ = _render_page_png(filepath, content, page, 100.0)
         lo = cv2.imdecode(np.frombuffer(png_lo, np.uint8), cv2.IMREAD_COLOR)
         best_rot, best_chars = 0, -1
-        for rot in (0, 90):
+        # All four rotations (verifier finding, 2026-09-05: probing only
+        # 0/90 left 180-presented text to RapidOCR's angle classifier,
+        # which silently flips the line and returns a 180-reversed corner
+        # order — positions land one string-width away with no error).
+        # KNOWN RESIDUAL: when char counts tie across a 180 pair the
+        # earlier rotation wins and flipped lines can still slip through;
+        # a box-orientation cls-flip detector is the documented next step.
+        for rot in (0, 90, 180, 270):
             chars = sum(len(str(t)) for _b, t, c in _run(lo, rot)
                         if _conf(c) >= min_confidence)
             if chars > best_chars:
