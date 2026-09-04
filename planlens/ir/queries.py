@@ -671,6 +671,225 @@ def _arrowhead_candidates(ir: DrawingIR, max_arrowhead_size: float):
         yield e, pts
 
 
+class _ClusterCand:
+    """A fill/stroke-cluster arrowhead candidate (not a single entity).
+
+    Real agency plots frequently render a filled arrowhead as a CLUSTER of
+    tiny strokes — solid-fill micro-dots (~0.06 pt segments) or a hatch fan
+    of short parallel strokes — rather than one closed triangle. Verified on
+    the Mecklenburg ground-truth plots (2026-09-04): sheet 21.01's native
+    LEADER tips carry clusters of 3-25 line fragments of 0.06-3 pt within a
+    3-7 pt span, while sheet 10.31A's multileader arrowheads ARE closed
+    triangles. Both representations feed the same composition scoring.
+    """
+
+    __slots__ = ("id", "member_ids", "bbox")
+
+    def __init__(self, rep_id: str, member_ids: List[str], bbox):
+        self.id = "cluster:" + rep_id
+        self.member_ids = member_ids
+        self.bbox = bbox
+
+
+def _pca_axis(pts: List[Point]) -> Tuple[Point, float]:
+    """(unit major axis, elongation ratio major/minor) of a point set."""
+    n = len(pts)
+    if n < 2:
+        return (1.0, 0.0), 1.0
+    mx = sum(p[0] for p in pts) / n
+    my = sum(p[1] for p in pts) / n
+    sxx = sum((p[0] - mx) ** 2 for p in pts) / n
+    syy = sum((p[1] - my) ** 2 for p in pts) / n
+    sxy = sum((p[0] - mx) * (p[1] - my) for p in pts) / n
+    tr, det = sxx + syy, sxx * syy - sxy * sxy
+    disc = max(0.0, tr * tr * 0.25 - det)
+    l1 = tr * 0.5 + math.sqrt(disc)
+    l2 = max(tr * 0.5 - math.sqrt(disc), 1e-12)
+    if abs(sxy) > 1e-12:
+        ax = _unit_vec(l1 - syy, sxy)
+    elif sxx >= syy:
+        ax = (1.0, 0.0)
+    else:
+        ax = (0.0, 1.0)
+    return ax, math.sqrt(l1 / l2)
+
+
+def _cluster_arrowhead_candidates(ir: DrawingIR, max_arrowhead_size: float,
+                                  min_shaft_length: float):
+    """Yield (cand, verts, "fill_cluster") for stroke-cluster arrowheads.
+
+    Shaft-endpoint-driven by design: rather than clustering every tiny
+    fragment on the sheet (SHX lettering strokes thousands of them — 3,417
+    tiny segments on ground-truth sheet 21.01), only the neighborhoods of
+    LONG line/polyline endpoints are examined, because an arrowhead exists
+    only at the end of a shaft. Gates, each empirically motivated:
+
+    - **membership**: >= 3 small open fragments (length and bbox diagonal
+      <= 0.6 x max_arrowhead_size) centered within 0.4 x max_arrowhead_size
+      (the core radius) of the shaft endpoint;
+    - **density spike** (the stipple/glyph guard): core fragment density
+      must be >= 2x the local background density in the surrounding annulus
+      (0.4x .. 1.0x max_arrowhead_size) — see the inline comment;
+    - **anchoring**: cluster centroid within 0.6 x max_arrowhead_size of the
+      endpoint (the arrow straddles its tip).
+
+    ``verts`` are member bbox centers (the same role triangle vertices play
+    for centroid/apex math downstream). Deduplicated by representative
+    (lexicographically smallest) member id, so a tip shared by two shafts
+    yields one candidate.
+    """
+    small_cap = 0.6 * max_arrowhead_size
+    small = []
+    for e in ir.entities:
+        if e.KIND not in ("line", "polyline"):
+            continue
+        if isinstance(e, Polyline) and e.closed:
+            continue
+        b = e.bbox
+        if b is None or _bbox_diag(b) > small_cap:
+            continue
+        if e.length() > small_cap:
+            continue
+        small.append((e, (0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3]))))
+    if not small:
+        return
+
+    cell = max(max_arrowhead_size, 1e-9)
+    cells: Dict[Tuple[int, int], list] = {}
+    for e, c in small:
+        cells.setdefault((int(c[0] // cell), int(c[1] // cell)), []).append(
+            (e, c))
+
+    def _near(pt, radius):
+        cx, cy = int(pt[0] // cell), int(pt[1] // cell)
+        reach = int(math.ceil(radius / cell))
+        out = []
+        for gx in range(cx - reach, cx + reach + 1):
+            for gy in range(cy - reach, cy + reach + 1):
+                for e, c in cells.get((gx, gy), ()):
+                    if math.hypot(c[0] - pt[0], c[1] - pt[1]) <= radius:
+                        out.append((e, c))
+        return out
+
+    r_core = 0.4 * max_arrowhead_size
+    r_out = 1.0 * max_arrowhead_size
+    area_core = math.pi * r_core * r_core
+    area_ann = math.pi * (r_out * r_out - r_core * r_core)
+    seen: set = set()
+    for shaft in ir.entities:
+        if shaft.KIND not in ("line", "polyline"):
+            continue
+        if isinstance(shaft, Polyline) and shaft.closed:
+            continue
+        if shaft.length() < min_shaft_length:
+            continue
+        pts = shaft.points()
+        if len(pts) < 2:
+            continue
+        for tip in (tuple(pts[0]), tuple(pts[-1])):
+            members = _near(tip, r_core)
+            if len(members) < 3:
+                continue
+            # DENSITY-SPIKE gate (the stipple/glyph guard): an arrowhead is
+            # a local fragment-density spike AT a shaft endpoint. Uniform
+            # stipple texture and running SHX lettering carry comparable
+            # density in the surrounding annulus and are rejected; a clean
+            # background (no annulus fragments) passes outright. Verified
+            # against ground-truth sheet 21.01, whose arrowheads sit INSIDE
+            # stippled regions — an absolute isolation cap rejects every
+            # real tip there, while background stipple holds the core/
+            # annulus density ratio near 1.
+            wider = _near(tip, r_out)
+            n_ann = len(wider) - len(members)
+            d_core = len(members) / area_core
+            d_ann = n_ann / area_ann
+            if d_ann > 0 and d_core / d_ann < 2.0:
+                continue
+            xs0 = [c for _, c in members]
+            cx = sum(p[0] for p in xs0) / len(xs0)
+            cy = sum(p[1] for p in xs0) / len(xs0)
+            if math.hypot(cx - tip[0], cy - tip[1]) > 0.6 * max_arrowhead_size:
+                continue
+            bbs = [e.bbox for e, _ in members]
+            union = (min(b[0] for b in bbs), min(b[1] for b in bbs),
+                     max(b[2] for b in bbs), max(b[3] for b in bbs))
+            # ASPECT gate (the running-lettering guard): an arrowhead's
+            # fragment cloud is roughly as wide as it is long (dot blob,
+            # hatch fan), while SHX text passing through the core is a
+            # high-aspect ribbon (a 30 x 2 pt strip of glyph strokes) that
+            # the density gate alone cannot always reject.
+            uw = max(union[2] - union[0], 1e-9)
+            uh = max(union[3] - union[1], 1e-9)
+            if max(uw, uh) / min(uw, uh) > 6.0:
+                continue
+            rep = min(e.id for e, _ in members)
+            if rep in seen:
+                continue
+            seen.add(rep)
+            cand = _ClusterCand(rep, [e.id for e, _ in members], union)
+            yield cand, [c for _, c in members], "fill_cluster"
+
+
+def _arrowhead_candidates_all(ir: DrawingIR, max_arrowhead_size: float,
+                              min_shaft_length: float):
+    """Both arrowhead representations, tagged: (cand, verts, kind).
+
+    ``kind`` is ``"triangle"`` (closed/open small 3-5-gon — the Phase-1/2
+    model) or ``"fill_cluster"`` (stroke-cluster — the Phase-3 leg). The
+    composition functions score both identically and record the kind in
+    each proposal's evidence.
+    """
+    for cand, verts in _arrowhead_candidates(ir, max_arrowhead_size):
+        yield cand, verts, "triangle"
+    yield from _cluster_arrowhead_candidates(ir, max_arrowhead_size,
+                                             min_shaft_length)
+
+
+def _triangle_alignment(verts: List[Point], shaft_dir: Point
+                        ) -> Tuple[float, float]:
+    """(score, angle_deg): best fold-blind vertex-axis alignment vs shaft.
+
+    For each vertex, take the direction from the centroid of the OTHER
+    vertices to it (the axis a true apex defines) and score the sign-blind
+    |cos| against the shaft's terminal direction; the best vertex wins.
+    Sign-blind and best-vertex on purpose: a leader drawn to the arrow APEX
+    and a multileader whose shaft stops at the arrow BASE (verified style
+    on ground-truth sheet 10.31A) put the shaft endpoint at opposite ends
+    of the same triangle — apex-nearest-endpoint selection misreads the
+    base-anchored style and scored those real arrowheads ~0.1.
+    """
+    best, best_deg = 0.0, 90.0
+    for v in verts:
+        others = [p for p in verts if p != v]
+        if not others:
+            continue
+        c = _centroid(others)
+        d = _unit_vec(v[0] - c[0], v[1] - c[1])
+        fold = _fold_alignment(d, shaft_dir)
+        if fold > best:
+            best = fold
+            best_deg = math.degrees(math.acos(max(-1.0, min(1.0, fold))))
+    return best, round(best_deg, 1)
+
+
+def _cluster_alignment(verts: List[Point], shaft_dir: Point
+                       ) -> Tuple[float, float]:
+    """(score, angle_deg) for a fill-cluster arrowhead vs the shaft axis.
+
+    An elongated cluster (a hatch-fan or streak of dots) should lie along
+    the shaft; alignment is the sign-blind |cos| of its PCA major axis vs
+    the shaft's terminal direction. A near-isotropic dot blob carries no
+    direction information, so it scores a NEUTRAL 0.7 — neither rewarded
+    nor punished for shape (documented; keeps dot-style arrowheads viable
+    without inflating glyph blobs, which the isolation gate already drops).
+    """
+    axis, elong = _pca_axis(verts)
+    if elong < 1.6:
+        return 0.7, -1.0
+    fold = _fold_alignment(axis, shaft_dir)
+    return fold, round(math.degrees(math.acos(max(-1.0, min(1.0, fold)))), 1)
+
+
 def _ending_near_from_grid(grid: "_EndpointGrid", point: Point,
                            radius: float) -> List[Dict[str, Any]]:
     """Same result shape/order as :func:`entities_ending_near`, via a
@@ -783,10 +1002,13 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                          entity_types=["line", "polyline"])
     texts = [e for e in ir.entities if isinstance(e, TextItem)]
     proposals = []
-    for cand, verts in _arrowhead_candidates(ir, max_arrowhead_size):
+    for cand, verts, arrow_kind in _arrowhead_candidates_all(
+            ir, max_arrowhead_size, min_shaft_length):
+        member_ids = set(getattr(cand, "member_ids", ()))
         centroid = _centroid(verts)
         shaft_hits = _ending_near_from_grid(grid, centroid, search_radius)
         shaft_hits = [h for h in shaft_hits if h["id"] != cand.id
+                     and h["id"] not in member_ids
                      and not (h["type"] == "polyline" and h.get("closed"))
                      and h.get("length", 0.0) >= min_shaft_length]
         if not shaft_hits:
@@ -805,13 +1027,10 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             term_a, term_b = shaft_pts[1], shaft_pts[0]
         shaft_dir = _unit_vec(term_b[0] - term_a[0], term_b[1] - term_a[1])
 
-        apex = min(verts, key=lambda p: math.hypot(p[0] - tip_xy[0],
-                                                   p[1] - tip_xy[1]))
-        others = [p for p in verts if p != apex] or verts
-        base_mid = _centroid(others)
-        arrow_dir = _unit_vec(apex[0] - base_mid[0], apex[1] - base_mid[1])
-
-        align_score, align_deg = _alignment_score(shaft_dir, arrow_dir)
+        if arrow_kind == "fill_cluster":
+            align_score, align_deg = _cluster_alignment(verts, shaft_dir)
+        else:
+            align_score, align_deg = _triangle_alignment(verts, shaft_dir)
 
         text_hit, text_dist = None, None
         for t in texts:
@@ -825,8 +1044,16 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
         n_vertices_shaft = shaft_ref.get("n_vertices", 2)
         simplicity = _chain_simplicity_score(n_vertices_shaft)
 
-        confidence = round(0.45 * align_score + 0.35 * text_score
-                           + 0.20 * simplicity, 3)
+        if texts:
+            confidence = round(0.45 * align_score + 0.35 * text_score
+                               + 0.20 * simplicity, 3)
+        else:
+            # No text layer at all (SHX-stroked plot): tail text is
+            # unknowable from vector geometry, so renormalize confidence
+            # over the observable components instead of forever capping
+            # every proposal at 0.65. The evidence flag records this.
+            confidence = round((0.45 * align_score + 0.20 * simplicity)
+                               / 0.65, 3)
         if confidence < min_confidence:
             continue
 
@@ -841,11 +1068,13 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             "text_distance": _r(text_dist) if text_dist is not None else None,
             "confidence": confidence,
             "evidence": {
+                "arrowhead_kind": arrow_kind,
                 "alignment_score": _r(align_score, 3),
                 "alignment_deg": _r(align_deg, 1),
                 "text_proximity_score": _r(text_score, 3),
                 "chain_simplicity_score": _r(simplicity, 3),
                 "n_shaft_vertices": n_vertices_shaft,
+                **({} if texts else {"text_unavailable": True}),
             },
             "proposal_only": True,
         })
@@ -935,19 +1164,24 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     text_radius = (text_radius if text_radius is not None
                    else max_arrowhead_size * 4.0)
 
-    arrowheads = list(_arrowhead_candidates(ir, max_arrowhead_size))
+    # Same shaft-vs-arrowhead scale gate as find_leaders (see there): keeps
+    # glyph-scale micro-strokes from pairing into junk dimension proposals.
+    min_shaft_length = 2.0 * max_arrowhead_size
+
+    arrowheads = list(_arrowhead_candidates_all(ir, max_arrowhead_size,
+                                                min_shaft_length))
     if not arrowheads:
         return []
-    arrow_ids = {e.id for e, _ in arrowheads}
+    arrow_ids = {e.id for e, _, _ in arrowheads}
 
     # Grid the arrowhead centroids (dense sheets carry thousands of shafts;
     # a per-shaft linear scan over candidates is O(n*m) and hits a wall).
     cell = max(search_radius, 1e-9)
     acells: Dict[Tuple[int, int], list] = {}
-    for cand, verts in arrowheads:
+    for cand, verts, kind in arrowheads:
         c = _centroid(verts)
         key = (int(c[0] // cell), int(c[1] // cell))
-        acells.setdefault(key, []).append((cand, verts, c))
+        acells.setdefault(key, []).append((cand, verts, c, kind))
 
     def _arrow_near(tip):
         cx, cy = int(tip[0] // cell), int(tip[1] // cell)
@@ -962,9 +1196,6 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     # linework can put thousands of endpoints near one tip (profiled at
     # 49 s of by_id on a real 10k-entity sheet).
     ent_by_id = {e.id: e for e in ir.entities}
-    # Same shaft-vs-arrowhead scale gate as find_leaders (see there): keeps
-    # glyph-scale micro-strokes from pairing into junk dimension proposals.
-    min_shaft_length = 2.0 * max_arrowhead_size
 
     proposals = []
     for shaft in ir.entities:
@@ -993,15 +1224,15 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
         per_end = []
         for end_label, tip in ends:
             best = None
-            for cand, verts, c in _arrow_near(tip):
+            sdir = _shaft_terminal_dir(shaft_pts, end_label)
+            for cand, verts, c, kind in _arrow_near(tip):
                 d = math.hypot(c[0] - tip[0], c[1] - tip[1])
                 if d <= search_radius and (best is None or d < best[1]):
-                    apex = min(verts, key=lambda p: math.hypot(
-                        p[0] - tip[0], p[1] - tip[1]))
-                    others = [p for p in verts if p != apex] or verts
-                    arrow_dir = _unit_vec(apex[0] - _centroid(others)[0],
-                                          apex[1] - _centroid(others)[1])
-                    best = (cand, d, arrow_dir)
+                    if kind == "fill_cluster":
+                        a_score = _cluster_alignment(verts, sdir)[0]
+                    else:
+                        a_score = _triangle_alignment(verts, sdir)[0]
+                    best = (cand, d, a_score, kind)
             per_end.append((end_label, tip, best))
 
         if any(b is None for _, _, b in per_end):
@@ -1009,15 +1240,14 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
         if per_end[0][2][0].id == per_end[1][2][0].id:
             continue  # ... and they must be two DISTINCT arrowheads
 
-        align_scores = []
-        for end_label, tip, (cand, d, arrow_dir) in per_end:
-            shaft_dir = _shaft_terminal_dir(shaft_pts, end_label)
-            align_scores.append(_fold_alignment(shaft_dir, arrow_dir))
-        align = sum(align_scores) / len(align_scores)
+        align = sum(b[2] for _, _, b in per_end) / len(per_end)
 
         # Extension (witness) lines: something ELSE terminating near each tip,
         # roughly perpendicular to the shaft's terminal axis at that end.
+        # Cluster members must not double as witness lines.
         used_ids = {shaft.id} | {b[0].id for _, _, b in per_end}
+        for _, _, b in per_end:
+            used_ids |= set(getattr(b[0], "member_ids", ()))
         ext_ids: List[str] = []
         ext_ends = 0
         for end_label, tip, _b in per_end:
@@ -1055,8 +1285,13 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                 text_dist = d
         text_score = _text_proximity_score(text_dist, text_radius)
 
-        confidence = round(0.40 * align + 0.30 * text_score
-                           + 0.30 * ext_score, 3)
+        if texts:
+            confidence = round(0.40 * align + 0.30 * text_score
+                               + 0.30 * ext_score, 3)
+        else:
+            # No text layer (SHX plot) — same renormalization rationale as
+            # find_leaders: score the observable components.
+            confidence = round((0.40 * align + 0.30 * ext_score) / 0.70, 3)
         if confidence < min_confidence:
             continue
 
@@ -1075,10 +1310,12 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             "text_distance": _r(text_dist) if text_dist is not None else None,
             "confidence": confidence,
             "evidence": {
+                "arrowhead_kinds": [b[3] for _, _, b in per_end],
                 "alignment_score": _r(align, 3),
                 "text_proximity_score": _r(text_score, 3),
                 "extension_line_score": _r(ext_score, 3),
                 "n_extension_ends": ext_ends,
+                **({} if texts else {"text_unavailable": True}),
             },
             "proposal_only": True,
         })
