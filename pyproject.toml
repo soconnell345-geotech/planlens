@@ -37,6 +37,12 @@ raster = ["opencv-python-headless>=4.8"]
 # OCR leg (planlens.ocr): RapidOCR, Apache-2.0, ~60 MB incl. onnxruntime;
 # PP-OCR models ship in the wheel — no runtime downloads, no system
 # binaries, no GPL. Needed for text on SHX-plotted and scanned sheets.
+# NOTE: every rapidocr distribution hard-requires the full (GUI)
+# opencv-python, which conflicts-in-namespace with [raster]'s headless
+# build — pip cannot express "either variant". This extra is the
+# batteries-included DESKTOP path; server/headless deploys (Databricks,
+# TinyApps) should use the verified --no-deps recipe in README
+# "Install" instead, which runs the whole OCR leg on headless alone.
 ocr = ["rapidocr-onnxruntime>=1.2"]
 
 [tool.setuptools.packages.find]

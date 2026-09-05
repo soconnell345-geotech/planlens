@@ -89,9 +89,31 @@ pip install "planlens[ocr]"     # + optical text for stroked/scanned sheets
 
 The `[ocr]` extra installs RapidOCR + onnxruntime with PP-OCR models
 inside the wheel (no runtime downloads; all-permissive licenses:
-Apache-2.0/MIT/BSD). Clean-environment weight is roughly 170 MB —
-rapidocr requires full `opencv-python` (~112 MB), which coexists
-uneasily with the `[raster]` extra's `opencv-python-headless` (two
-distributions own the `cv2` namespace; installing both works but
-uninstalling either can break the other). Resolving the opencv-variant
-story is a known open item.
+Apache-2.0/MIT/BSD).
+
+**OpenCV variants — pick per environment.** Every published rapidocr
+distribution (`rapidocr-onnxruntime` 1.x and the unified `rapidocr`
+2/3.x alike) hard-requires the full GUI `opencv-python` (~112 MB),
+while the `[raster]` extra uses `opencv-python-headless`; pip cannot
+express "either variant", and installing both leaves two distributions
+owning the `cv2` namespace (works, but uninstalling either can break
+the other). Decision:
+
+- **Desktop / notebook**: `pip install "planlens[raster,ocr]"` as
+  above — the GUI build wins the namespace and everything works.
+- **Server / headless deploy** (Databricks, TinyApps — no GUI libs):
+  skip the `[ocr]` extra and install the engine without its metadata
+  deps; the OCR leg needs only the cv2 APIs headless provides
+  (verified end-to-end in a clean headless-only venv, 2026-09-05):
+
+  ```
+  pip install "planlens[raster]"
+  pip install --no-deps "rapidocr-onnxruntime==1.2.3"
+  pip install "onnxruntime>=1.7" pyclipper shapely pillow pyyaml six
+  ```
+
+  Pin the rapidocr version you validated — `--no-deps` means ITS
+  dependency list is being supplied by hand, so an unpinned upgrade
+  could silently need something new. (1.2.3 is the newest wheel that
+  installs on Python 3.14 today; newer versions keep the same runtime
+  set — re-verify when bumping.)
