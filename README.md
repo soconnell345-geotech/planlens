@@ -57,37 +57,55 @@ native CAD entities can be located on the plotted page.
   still passes), and native DXF annotation ingest (LEADER/MULTILEADER/
   DIMENSION/ATTRIB as first-class entities at confidence 1.0, surfaced
   by find_leaders/find_dimensions as evidence "native_dxf"; the
-  ground-truth extractor lives at planlens.dxf.truth and reproduces the
-  committed corpus's MODEL-SPACE annotation content exactly — it does
-  not yet extract paper-space layouts, which the committed files also
-  carry, so regenerating the corpus with it would drop those blocks).
-- **Partially proven on real sheets**: leader detection reaches 21/25
-  native-truth tips on the validation set (11/25 before the 2026-09-05
-  arrowhead-representation work; 0/25 before the plot-transform fit).
-  The 2026-09-05 gain came from accepting 3-vertex OPEN arrow chains —
-  real plotters draw an arrow outline minus one whole edge, in both
-  base+leg and chevron flavors — behind a shape gate calibrated to
-  measured real arrows. PRECISION IS SHEET-DEPENDENT and verified by
-  rendering: the gate does NOT filter SHX letterforms on
-  annotation-free, lettering-heavy sheets (hundreds of
-  letterform leader proposals at default confidence there — treat
-  leader RECALL as proven and leader precision as unproven outside
-  annotation-rich sheets). Dimension detection on the same sheets
-  reaches 13/16 native defpoints (from 1/16) via a split-shaft
-  pairing leg: two collinear opposed-arrow half-shafts around a
-  centered text gap, plus the outside-arrows narrow style, both with
-  witness-line corroboration; proposal ends are the arrow apexes (the
-  CAD defpoints). Witness lines require arrowhead-scale length and
-  un-corroborated no-text proposals cap at confidence 0.45 — the
-  worst sheet's default output went from 44 proposals at ~0 precision
-  to 11 with 8 touching native truth. Independent render-adjudication
-  of every non-matching detection (2026-09-05): on the curb-ramp
-  sheet 9 of 10 were REAL manually-drafted dimensions the native
-  truth cannot record (measured precision ~14/15); on note-heavy SHX
-  sheets confidence 1.0 does NOT preclude glyph junk (21.01: ~5/14
-  semantic precision) — verify visually there. Residual misses:
-  tips with no plotted arrow fragments, sparse dots inside stipple,
-  and witness-crossing vertical dimension layouts (not yet modeled).
+  ground-truth extractor lives at planlens.dxf.truth, extracts model
+  AND paper-space layouts, and regenerates the committed corpus
+  byte-for-byte — verified against all 10 files 2026-09-05). DXF
+  INSERT block references now EXPLODE into IR primitives (exact
+  insert transform via ezdxf virtual_entities, nested references
+  included, style="block:<name>" provenance, depth/entity caps) —
+  previously most standard-detail linework hid inside INSERTs
+  (measured +561 and +1700 entities on two corpus sheets).
+- **Proven recall on the native-truth corpus (Phase 3.2,
+  2026-09-05)**: leader detection reaches 25/25 native-truth tips and
+  dimension detection 16/16 native defpoints at the scorer's 0.3
+  observational threshold (21/25 and 13/16 after Phase 3.1; 11/25 and
+  1/16 after Phase 3; 0/25 before the plot-transform fit). What moved
+  each number: Phase 3.1's misses were NOT missing arrowhead
+  representations — every missed tip's arrow was already a candidate;
+  the leaders were being consumed by FALSE dimension proposals that
+  claimed their arrowheads (exclude_dimensions arbitration), and the
+  dimension misses were narrow constructs whose short shafts the
+  min-length floor rejected. The Phase-3.2 fixes: (a) dimension-arrow
+  attachment is now SIGNED — an arrow attaches only when its
+  intrinsic apex axis points outward along the line within 30 deg
+  (measured +1.000 on every true dimension arrow vs -0.998..+0.208
+  for the impostors); (b) short both-triangle continuous shafts are
+  accepted (the narrow 'T=' style: a 9.7 pt shaft between outward
+  arrows); (c) continuous proposal ends are the arrow APEXES = the
+  CAD defpoints (match distance ~0.0 pt on the recovered dims). At
+  the DEFAULT 0.5 confidence, 23/25 tips remain (two sparse-dot tips
+  surface only at 0.45, below the call threshold, honestly capped).
+- **Leader precision on lettering-heavy sheets (measured, Phase
+  3.2)**: two structural confidence CAPS (to 0.45, never deletions)
+  cut the worst zero-annotation notes sheet from 295 to 2 leader
+  proposals at default confidence — two orders of magnitude — with
+  corpus recall unchanged: a real arrow POINTS along its shaft
+  (signed intrinsic-axis alignment >= cos 30 deg; letterform chevrons
+  vs neighboring strokes are near-random) and a shaft ENDS at its
+  arrowhead (endpoint within 0.75x arrowhead scale of the candidate;
+  measured 2.2-5.4 pt on every genuine leader vs p50 9.6 pt for
+  sign-passing letter junk). Across the seven sheets with no native
+  annotations: 295->2, 273->10, 91->6, 77->19, 57->23, 151->20,
+  137->38 at default confidence (some survivors on the detail sheets
+  may be REAL manually drafted leaders that native truth cannot
+  record — render-verify before treating counts as pure FP).
+  Dimension proposals on the pure-notes sheets are now ZERO at 0.3+.
+  Caveats that remain true: the scorer's greedy 18-pt match can ride
+  a nearby capped proposal, confidence 1.0 does not preclude glyph
+  junk on dense SHX sheets (verify visually), and manually drafted
+  dimensions are invisible to native truth (independent 2026-09-05
+  render-adjudication found ~14/15 semantic precision on the
+  curb-ramp sheet's "false" dims — most were real).
 - **Best-effort tier**: revision clouds (drafting-practice dependent).
 
 ## Install
