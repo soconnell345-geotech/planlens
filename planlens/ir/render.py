@@ -18,12 +18,23 @@ lookup to interpret.
 
 It is **not** the same as a :class:`planlens.ir.results.DrawingIR` built with
 the (default) ``origin="bottom_left"`` convention, where y is flipped to
-increase upward. Converting an IR point to this module's frame:
+increase upward — and on a page with a /Rotate value the two frames differ
+by MORE than a y-flip. The vector ingest reads ``get_drawings()`` in the
+UNROTATED page space and y-flips with the ROTATED page height (empirically
+pinned 2026-09-05, all four rotations), while this module's render clip
+lives in the rotated/visual space. The manual conversion
 
     x_pdf = x_ir
-    y_pdf = page_height_pt - y_ir      # only when the IR used bottom_left
+    y_pdf = page_height_pt - y_ir      # bottom_left IRs, ROTATION 0 ONLY
 
-A ``coordinate_space="page", origin="top_left"`` IR needs no conversion.
+is therefore correct ONLY on rotation-0 pages; on rotated plots (e.g. every
+sheet of the Mecklenburg validation set, /Rotate 270) it points at unrelated
+content — the independent-verifier finding that motivated ``frame="ir"``.
+Pass ``frame="ir"`` and this module performs the full conversion (un-flip
+with the rotated height, then the page's rotation matrix) for both ``bbox``
+and ``marks``; :func:`ir_to_page_point` exposes the same mapping for
+callers that need raw coordinates. A ``coordinate_space="page",
+origin="top_left"`` IR needs no conversion on unrotated pages.
 """
 
 from __future__ import annotations
@@ -91,11 +102,45 @@ def clip_rect_for_bbox(
     return (x0, y0, x1, y1)
 
 
+def ir_to_page_point(x_ir: float, y_ir: float, page) -> Point:
+    """Map a bottom-left-origin IR point onto ``page``'s render frame.
+
+    Handles page /Rotate correctly: the ingest y-flips UNROTATED
+    ``get_drawings()`` coordinates with the ROTATED page height, so the
+    inverse is that same un-flip followed by the page's rotation matrix.
+    ``page`` is an open ``fitz.Page``. On rotation-0 pages this reduces to
+    the classic ``(x, height - y)``.
+    """
+    y_unrot = page.rect.height - float(y_ir)
+    m = page.rotation_matrix
+    x_u, y_u = float(x_ir), y_unrot
+    return (m.a * x_u + m.c * y_u + m.e,
+            m.b * x_u + m.d * y_u + m.f)
+
+
+def _ir_bbox_to_page(bbox: BBox, page) -> BBox:
+    corners = [ir_to_page_point(bbox[0], bbox[1], page),
+               ir_to_page_point(bbox[2], bbox[3], page),
+               ir_to_page_point(bbox[0], bbox[3], page),
+               ir_to_page_point(bbox[2], bbox[1], page)]
+    xs = [c[0] for c in corners]
+    ys = [c[1] for c in corners]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
 def _draw_marks(page, marks: Sequence[Mark], radius: float,
                 mark_color, fill_color, text_color) -> None:
+    # Mark coordinates arrive in the rotated/visual frame (same as the
+    # render clip), but PyMuPDF's draw_* / insert_text expect UNROTATED
+    # page coordinates — on /Rotate pages the two differ (the marks half
+    # of the 2026-09-05 rotation finding). Derotate each point at draw
+    # time so both frames stay consistent for the caller.
+    dm = page.derotation_matrix
     fs = max(4.0, min(10.0, radius * 1.6))
     for i, m in enumerate(marks):
         x, y, label = (m[0], m[1], m[2]) if len(m) >= 3 else (m[0], m[1], str(i + 1))
+        x, y = (dm.a * float(x) + dm.c * float(y) + dm.e,
+                dm.b * float(x) + dm.d * float(y) + dm.f)
         center = (float(x), float(y))
         page.draw_circle(center, radius, color=mark_color, fill=fill_color,
                          width=1.2)
@@ -115,6 +160,7 @@ def render_region(
     marks: Optional[Sequence[Mark]] = None,
     mark_radius: float = DEFAULT_MARK_RADIUS,
     mark_color: Tuple[float, float, float] = (1.0, 0.0, 0.0),
+    frame: str = "page",
 ) -> bytes:
     """Render a zoomed-in crop of a PDF page to PNG bytes.
 
@@ -142,6 +188,11 @@ def render_region(
         question. Drawn directly on the page before rendering (PyMuPDF), so
         marks outside the final crop are simply not visible.
     mark_radius, mark_color : mark circle styling (PDF points / RGB 0-1).
+    frame : str
+        ``"page"`` (default): ``bbox``/``marks`` are already in PyMuPDF's
+        rotated render frame. ``"ir"``: they are bottom-left-origin IR
+        coordinates and are converted internally — REQUIRED for correct
+        results on /Rotate pages (see the module docstring).
 
     Returns
     -------
@@ -154,6 +205,16 @@ def render_region(
             raise ValueError(
                 f"Page {page} out of range (document has {len(doc)} pages)")
         pg = doc[page]
+        if frame not in ("page", "ir"):
+            raise ValueError("frame must be 'page' or 'ir'")
+        if frame == "ir":
+            # Bottom-left-origin IR coordinates: full rotation-aware
+            # conversion (a bare y-flip mispoints on /Rotate pages).
+            if bbox is not None:
+                bbox = _ir_bbox_to_page(bbox, pg)
+            if marks:
+                marks = [(*ir_to_page_point(m[0], m[1], pg), *m[2:])
+                         for m in marks]
         page_rect = (0.0, 0.0, pg.rect.width, pg.rect.height)
         clip = clip_rect_for_bbox(bbox, page_rect, pad_frac=pad_frac)
 
@@ -170,5 +231,5 @@ def render_region(
         doc.close()  # any mark annotations are discarded, never saved
 
 
-__all__ = ["render_region", "clip_rect_for_bbox", "MIN_CROP_SIZE",
-          "DEFAULT_MARK_RADIUS"]
+__all__ = ["render_region", "clip_rect_for_bbox", "ir_to_page_point",
+           "MIN_CROP_SIZE", "DEFAULT_MARK_RADIUS"]

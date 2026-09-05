@@ -48,8 +48,9 @@ native CAD entities can be located on the plotted page.
 - **Proven on real agency sheets**: bubble callouts (40/40 count match
   on a dense municipal standard detail), region rendering, endpoint /
   text-anchored queries, multi-page drawing-set search, OCR text
-  recovery on no-text-layer plots (88-92% truth-text coverage, median
-  coordinate error 1.4-7 pt on the validation sheets), plot-transform
+  recovery on no-text-layer plots (88-100% truth-text coverage, median
+  coordinate error 2.2-15.5 pt per the committed ocr_coverage_check
+  convention on the validation sheets), plot-transform
   fitting (0.02-0.03 pt rms on rotated real plots; guarded against the
   degenerate-scale and chance-match regimes — random anchors on a dense
   10k-entity sheet now return None in 60/60 trials while every true fit
@@ -57,29 +58,36 @@ native CAD entities can be located on the plotted page.
   DIMENSION/ATTRIB as first-class entities at confidence 1.0, surfaced
   by find_leaders/find_dimensions as evidence "native_dxf"; the
   ground-truth extractor lives at planlens.dxf.truth and reproduces the
-  committed validation corpus exactly).
+  committed corpus's MODEL-SPACE annotation content exactly — it does
+  not yet extract paper-space layouts, which the committed files also
+  carry, so regenerating the corpus with it would drop those blocks).
 - **Partially proven on real sheets**: leader detection reaches 21/25
   native-truth tips on the validation set (11/25 before the 2026-09-05
   arrowhead-representation work; 0/25 before the plot-transform fit).
   The 2026-09-05 gain came from accepting 3-vertex OPEN arrow chains —
   real plotters draw an arrow outline minus one whole edge, in both
-  base+leg and chevron flavors — behind a shape gate (near-equal legs,
-  slender base, arrowhead-scale size) that keeps SHX glyph strokes
-  out. Dimension detection on the same sheets reaches 13/16 native
-  defpoints (from 1/16) via a split-shaft pairing leg: two collinear
-  opposed-arrow half-shafts around a centered text gap (the dominant
-  real plot style), plus the outside-arrows narrow style, both with
+  base+leg and chevron flavors — behind a shape gate calibrated to
+  measured real arrows. PRECISION IS SHEET-DEPENDENT and verified by
+  rendering: the gate does NOT filter SHX letterforms on
+  annotation-free, lettering-heavy sheets (hundreds of
+  letterform leader proposals at default confidence there — treat
+  leader RECALL as proven and leader precision as unproven outside
+  annotation-rich sheets). Dimension detection on the same sheets
+  reaches 13/16 native defpoints (from 1/16) via a split-shaft
+  pairing leg: two collinear opposed-arrow half-shafts around a
+  centered text gap, plus the outside-arrows narrow style, both with
   witness-line corroboration; proposal ends are the arrow apexes (the
-  CAD defpoints). Witness lines now require arrowhead-scale length
-  (stipple fragments no longer corroborate), and on no-text sheets an
-  un-corroborated or cluster-only proposal is capped at confidence
-  0.45 — the worst sheet's default-threshold dimension output went
-  from 44 proposals at ~0 precision to 11 with 8 touching native
-  truth (the survivors flagged as false-vs-native include what appear
-  to be manually-drafted dimensions the native truth cannot see).
-  Residual misses are tips with no plotted arrow fragments at all,
-  dots inside stipple below any principled density gate, and a few
-  dimension layouts (witness-crossing verticals) not yet modeled.
+  CAD defpoints). Witness lines require arrowhead-scale length and
+  un-corroborated no-text proposals cap at confidence 0.45 — the
+  worst sheet's default output went from 44 proposals at ~0 precision
+  to 11 with 8 touching native truth. Independent render-adjudication
+  of every non-matching detection (2026-09-05): on the curb-ramp
+  sheet 9 of 10 were REAL manually-drafted dimensions the native
+  truth cannot record (measured precision ~14/15); on note-heavy SHX
+  sheets confidence 1.0 does NOT preclude glyph junk (21.01: ~5/14
+  semantic precision) — verify visually there. Residual misses:
+  tips with no plotted arrow fragments, sparse dots inside stipple,
+  and witness-crossing vertical dimension layouts (not yet modeled).
 - **Best-effort tier**: revision clouds (drafting-practice dependent).
 
 ## Install

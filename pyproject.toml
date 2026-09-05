@@ -43,7 +43,7 @@ raster = ["opencv-python-headless>=4.8"]
 # batteries-included DESKTOP path; server/headless deploys (Databricks,
 # TinyApps) should use the verified --no-deps recipe in README
 # "Install" instead, which runs the whole OCR leg on headless alone.
-ocr = ["rapidocr-onnxruntime>=1.2"]
+ocr = ["rapidocr-onnxruntime>=1.2,<1.3"]  # <1.3: the OCR corner-role-shift correction reads engine internals (text_cls); re-verify the role table before raising
 
 [tool.setuptools.packages.find]
 include = ["planlens*"]

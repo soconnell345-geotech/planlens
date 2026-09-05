@@ -327,9 +327,15 @@ def fit_plot_transform(anchors: Sequence[Point], ir,
                 # EXACTNESS branch (see above): nearly all anchors matched
                 # AND plot-exact residuals, or the hypothesis dies. The
                 # thresholds are measured: genuine vector-plot fits sit at
-                # 0.02-0.03 pt rms with 100% matched; the best chance fit
-                # observed across random-anchor trials on a dense real
-                # sheet was 0.38 pt rms at 80% matched.
+                # 0.02-0.03 pt rms with 100% matched. This branch is NOT
+                # the primary defense — the independent verifier measured
+                # a chance fit at 0.164 pt rms / 10/10 matched with the
+                # guards disabled, close to the 0.05*match_tol cutoff.
+                # What actually kills such hypotheses in production is the
+                # EXTENT guard (their extent_frac ~0.007 << min_extent_frac)
+                # layered with the vote-significance test; the exactness
+                # bar only has to separate true fits from chance among
+                # hypotheses that already survived both.
                 if (len(pairs) < 0.9 * len(anchors)
                         or rms > 0.05 * match_tol):
                     continue

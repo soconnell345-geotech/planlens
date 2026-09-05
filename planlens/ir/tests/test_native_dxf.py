@@ -3,8 +3,12 @@
 Covers: from_dxf ingest of LEADER / MULTILEADER / DIMENSION / INSERT-ATTRIB,
 the Leader/Dimension IR schema (serialization round-trip), the natives-first
 preference in find_leaders/find_dimensions, and the planlens.dxf.truth
-ground-truth extractor (verified 10/10 byte-identical against the committed
-Mecklenburg truth corpus offline; here against a synthetic file).
+ground-truth extractor (verified against the committed Mecklenburg truth
+corpus offline: MODEL-SPACE annotation content matches all 10 files exactly,
+but the extractor emits only the model space plus an attribs field — the
+committed files also carry paper-space layout blocks it does not extract, so
+whole-file output is NOT byte-identical; independent-verifier measurement
+2026-09-05. Here it is exercised against a synthetic file).
 """
 
 from __future__ import annotations
