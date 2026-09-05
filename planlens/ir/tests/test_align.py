@@ -64,3 +64,59 @@ class TestFitPlotTransform:
     def test_too_few_anchors(self, leader_ir):
         ir, page_pts, _ = leader_ir
         assert fit_plot_transform(page_pts[:2], ir) is None
+
+
+class TestDegenerateScaleGuard:
+    """The extent guard + modal-significance test (2026-09-05).
+
+    Verified against the real ground-truth sheets offline: before the
+    guard, 10 random anchors on a dense 10k-entity plot returned
+    "matched 8/10, rms < 1 pt"; after it, 0/60 random-anchor trials fit
+    while all three true fits (rms 0.02-0.03 pt) still pass. These
+    committed tests reproduce the property on a synthetic dense sheet.
+    """
+
+    @pytest.fixture(scope="class")
+    def dense_ir(self, tmp_path_factory):
+        # A dense sheet: hundreds of short segments everywhere, so a
+        # degenerate-scale or chance-offset hypothesis has plenty of
+        # endpoints to "match".
+        import random
+
+        import fitz
+
+        from planlens.ir.tests.leader_fixtures import (
+            PAGE_HEIGHT, PAGE_WIDTH, _draw_shaft)
+
+        rng = random.Random(11)
+        doc = fitz.open()
+        page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
+        for _ in range(600):
+            x, y = rng.uniform(20, 880), rng.uniform(20, 640)
+            a = rng.uniform(0, 6.283)
+            L = rng.uniform(2, 12)
+            s = page.new_shape()
+            _draw_shaft(s, [(x, y), (x + L * math.cos(a),
+                             y + L * math.sin(a))])
+        path = str(tmp_path_factory.mktemp("dense") / "dense.pdf")
+        doc.save(path)
+        doc.close()
+        return from_pdf_vector(filepath=path)
+
+    def test_random_anchors_do_not_fit(self, dense_ir):
+        import random
+        rng = random.Random(3)
+        for _ in range(5):
+            fake = [(rng.uniform(0, 11), rng.uniform(0, 8.5))
+                    for _ in range(10)]
+            assert fit_plot_transform(fake, dense_ir) is None
+
+    def test_true_fit_reports_extent_frac(self, leader_ir):
+        ir, page_pts, chains_page = leader_ir
+        model = _inverse_model(page_pts, 270, 72.0, (30.0, 40.0))
+        chains = [_inverse_model(c, 270, 72.0, (30.0, 40.0))
+                  for c in chains_page]
+        fit = fit_plot_transform(model, ir, anchor_chains=chains,
+                                 min_votes=4)
+        assert fit is not None
+        assert fit["extent_frac"] >= 0.05

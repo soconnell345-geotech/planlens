@@ -21,18 +21,22 @@ and is refined by a least-squares scale+offset solve on the matched
 pairs. Returns a dict with the transform, the vote/match counts, and an
 ``apply`` mapping — or ``None`` when no hypothesis earns enough votes.
 
-CAVEAT (independent verification, 2026-09-05): ``n_matched``/``rms``
-are NOT trustworthy fit-quality signals in the degenerate-scale regime.
-When a candidate scale shrinks the anchor cloud to a small fraction of
-the page, dense linework matches anything: random anchors can return
-"matched 10/10, rms < 1 pt" near scale ~ 1.0 on a 1:72 plot, and noisy
-anchors can win with the WRONG rotation rather than returning ``None``.
-Trust a fit only when the scaled anchor extent spans a meaningful
-fraction of the drawing extent (check ``scale`` times the anchor-cloud
-size against the page); an explicit extent guard is a known next step.
-With exact CAD anchors spanning the sheet (the scoring use case) the
-fit is excellent — 0.02-0.03 pt rms, 100% anchors matched on the
-validation sheets.
+DEGENERATE-SCALE GUARD (was a docstring-only caveat until 2026-09-05):
+``n_matched``/``rms`` are NOT trustworthy fit-quality signals when a
+candidate scale shrinks the anchor cloud to a small fraction of the
+page — dense linework matches anything there: random anchors used to
+return "matched 10/10, rms < 1 pt" near scale ~ 1.0 on a 1:72 plot,
+and noisy anchors could win with the WRONG rotation rather than
+returning ``None``. :func:`fit_plot_transform` now REJECTS every scale
+hypothesis whose scaled anchor-cloud diagonal spans less than
+``min_extent_frac`` (default 5%) of the drawing diagonal, and reports
+the winning hypothesis's ``extent_frac`` so callers can apply a
+stricter bar. A genuinely tiny anchor cloud (all anchors inside one
+small detail) needs an explicit lower ``min_extent_frac`` from the
+caller — the honest trade for making random-anchor "fits" impossible
+by default. With exact CAD anchors spanning the sheet (the scoring use
+case) the fit is excellent — 0.02-0.03 pt rms, 100% anchors matched on
+the validation sheets.
 """
 
 from __future__ import annotations
@@ -78,13 +82,15 @@ def _ir_shaft_endpoints(ir, min_length: float) -> List[Point]:
 
 
 def _vote_offset(anchors_rs: Sequence[Point], endpoints: Sequence[Point],
-                 bin_pt: float = 2.0) -> Tuple[int, Point]:
-    """Best (votes, offset) pairing rotated+scaled anchors to IR endpoints.
+                 bin_pt: float = 2.0) -> Tuple[int, Point, int, int]:
+    """Best (votes, offset, total_votes, n_bins) for a scale hypothesis.
 
     One anchor may vote for many offsets (every endpoint within the page
     span); only the TRUE offset accumulates votes from many different
     anchors, so the modal bin identifies it. Bins are coarse (2 pt) to
     absorb plot line-weight and fit noise; refinement happens later.
+    ``total_votes``/``n_bins`` parameterize the chance-collision null the
+    caller tests the modal bin against (see :func:`_modal_significant`).
     """
     votes: Counter = Counter()
     for (ax, ay) in anchors_rs:
@@ -97,9 +103,39 @@ def _vote_offset(anchors_rs: Sequence[Point], endpoints: Sequence[Point],
                 seen.add(key)
                 votes[key] += 1
     if not votes:
-        return 0, (0.0, 0.0)
+        return 0, (0.0, 0.0), 0, 0
     (kx, ky), n = votes.most_common(1)[0]
-    return n, (kx * bin_pt, ky * bin_pt)
+    return n, (kx * bin_pt, ky * bin_pt), sum(votes.values()), len(votes)
+
+
+#: Bonferroni-style significance budget for the modal-bin test, shared
+#: across every (rotation, scale) hypothesis a fit tries. 1e-6 keeps a
+#: genuine fit (whose modal bin collects most anchors against a chance
+#: mean near 1) unequivocally in, while the dense-sheet chance extreme
+#: (modal ~ Poisson tail of ~1.7 across ~1e5 bins) stays out.
+_SIGNIFICANCE = 1e-6
+
+
+def _modal_significant(n: int, total: int, n_bins: int) -> bool:
+    """Is a modal vote count ``n`` significant vs the chance null?
+
+    On a dense sheet every anchor votes thousands of offset bins, and the
+    MAXIMUM of ~1e5 chance-mean-lambda Poisson bins reaches 8-10 votes by
+    pure collision — measured: 10 random anchors on a real 10k-entity
+    sheet "matched 8/10 with rms < 1 pt" through the old min-votes gate.
+    The modal bin is only evidence of a real transform when its count is
+    far outside the Poisson(lambda = total/n_bins) tail after a union
+    bound over the bins: Chernoff  P(X >= n) <= exp(-lam) (e lam / n)^n,
+    require  n_bins * P < _SIGNIFICANCE.
+    """
+    if n_bins <= 0 or n <= 0:
+        return False
+    lam = total / n_bins
+    if n <= lam:
+        return False
+    # log of the Chernoff bound + union bound over bins.
+    log_p = -lam + n * (1.0 + math.log(lam / n)) + math.log(n_bins)
+    return log_p < math.log(_SIGNIFICANCE)
 
 
 def _matched_pairs(anchors_rs, endpoints, offset, tol):
@@ -162,7 +198,9 @@ def fit_plot_transform(anchors: Sequence[Point], ir,
                        = None,
                        scale_hints: Optional[Sequence[float]] = None,
                        min_votes: int = 6,
-                       match_tol: float = 3.0) -> Optional[Dict[str, Any]]:
+                       match_tol: float = 3.0,
+                       min_extent_frac: float = 0.05
+                       ) -> Optional[Dict[str, Any]]:
     """Fit (rotation, scale, offset) mapping model-space anchors onto ``ir``.
 
     Parameters
@@ -186,10 +224,18 @@ def fit_plot_transform(anchors: Sequence[Point], ir,
         Minimum modal-bin votes for a hypothesis to be considered at all.
     match_tol : float
         Point tolerance for the final matched-pair refinement.
+    min_extent_frac : float
+        Degenerate-scale guard (see module docstring): a scale hypothesis
+        is considered only when it maps the anchor-cloud diagonal to at
+        least this fraction of the drawing diagonal. Below it, dense
+        linework matches anything and ``n_matched``/``rms`` lie. Lower it
+        explicitly (with care) to fit an anchor cloud that genuinely
+        occupies a tiny corner of the sheet.
 
-    Returns ``{rotation_deg, scale, offset, votes, n_matched, rms, apply}``
-    for the best hypothesis, or ``None`` if nothing reaches ``min_votes``
-    (the honest answer for an unfittable sheet).
+    Returns ``{rotation_deg, scale, offset, votes, n_matched, rms,
+    extent_frac, apply}`` for the best hypothesis, or ``None`` if nothing
+    reaches ``min_votes`` at an admissible extent (the honest answer for
+    an unfittable sheet).
     """
     anchors = [tuple(a) for a in anchors]
     if len(anchors) < 3:
@@ -205,6 +251,16 @@ def fit_plot_transform(anchors: Sequence[Point], ir,
 
     ratio_seeds = _segment_scale_votes(anchor_chains, ir)
 
+    # Degenerate-scale guard: the anchor-cloud diagonal (rotation-
+    # invariant) scaled by a hypothesis must span a meaningful fraction
+    # of the drawing diagonal, else dense linework matches anything and
+    # votes/rms mean nothing (see module docstring).
+    a_ext = _extent(anchors)
+    cloud_diag = math.hypot(a_ext[2] - a_ext[0], a_ext[3] - a_ext[1])
+    if cloud_diag <= 0:
+        return None
+    min_scale = min_extent_frac * page_diag / cloud_diag
+
     best: Optional[Dict[str, Any]] = None
     for rot in _ROTATIONS:
         rot_pts = [_rot_xy(a[0], a[1], rot) for a in anchors]
@@ -217,10 +273,20 @@ def fit_plot_transform(anchors: Sequence[Point], ir,
                  [*ratio_seeds, ir_w / tw, ir_h / th, ir_w / th, ir_h / tw,
                   72.0, 1.0, *(scale_hints or [])] if 1e-4 < s < 1e5}
         for s in seeds:
+            if s < min_scale:
+                continue
             scaled = [(p[0] * s, p[1] * s) for p in rot_pts]
-            n, off = _vote_offset(scaled, endpoints)
+            n, off, total, n_bins = _vote_offset(scaled, endpoints)
             if n < min_votes:
                 continue
+            # A vote-weak hypothesis (a small anchor cloud on a dense
+            # sheet cannot beat the chance null by count alone) is not
+            # discarded yet: it gets one more chance below via the
+            # EXACTNESS branch — vector plots are numerically exact, so a
+            # genuine transform refines to sub-0.1-pt residuals on nearly
+            # every anchor, while chance pairs scattered inside a 3-pt
+            # tolerance have no reason to co-refine anywhere near that.
+            vote_significant = _modal_significant(n, total, n_bins)
             # Refine: least-squares scale+offset on matched pairs (rotation
             # held fixed), iterated once — scale from the ratio of matched
             # spans, offset from the mean residual.
@@ -254,9 +320,22 @@ def fit_plot_transform(anchors: Sequence[Point], ir,
                                        endpoints, off_ref, match_tol)
             if not pairs:
                 continue
+            if s_ref < min_scale:
+                continue  # refinement drifted into the degenerate regime
             rms = math.sqrt(sum(d * d for _, _, d in pairs) / len(pairs))
+            if not vote_significant:
+                # EXACTNESS branch (see above): nearly all anchors matched
+                # AND plot-exact residuals, or the hypothesis dies. The
+                # thresholds are measured: genuine vector-plot fits sit at
+                # 0.02-0.03 pt rms with 100% matched; the best chance fit
+                # observed across random-anchor trials on a dense real
+                # sheet was 0.38 pt rms at 80% matched.
+                if (len(pairs) < 0.9 * len(anchors)
+                        or rms > 0.05 * match_tol):
+                    continue
             cand = {"rotation_deg": rot, "scale": s_ref, "offset": off_ref,
-                    "votes": n, "n_matched": len(pairs), "rms": round(rms, 3)}
+                    "votes": n, "n_matched": len(pairs), "rms": round(rms, 3),
+                    "extent_frac": round(s_ref * cloud_diag / page_diag, 4)}
             key = (cand["n_matched"], -cand["rms"])
             if best is None or key > (best["n_matched"], -best["rms"]):
                 best = cand

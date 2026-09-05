@@ -47,7 +47,14 @@ native CAD entities can be located on the plotted page.
   text-anchored queries, multi-page drawing-set search, OCR text
   recovery on no-text-layer plots (88-92% truth-text coverage, median
   coordinate error 1.4-7 pt on the validation sheets), plot-transform
-  fitting (0.02-0.03 pt rms on rotated real plots).
+  fitting (0.02-0.03 pt rms on rotated real plots; guarded against the
+  degenerate-scale and chance-match regimes — random anchors on a dense
+  10k-entity sheet now return None in 60/60 trials while every true fit
+  still passes), and native DXF annotation ingest (LEADER/MULTILEADER/
+  DIMENSION/ATTRIB as first-class entities at confidence 1.0, surfaced
+  by find_leaders/find_dimensions as evidence "native_dxf"; the
+  ground-truth extractor lives at planlens.dxf.truth and reproduces the
+  committed validation corpus exactly).
 - **Partially proven on real sheets**: leader detection reaches 21/25
   native-truth tips on the validation set (11/25 before the 2026-09-05
   arrowhead-representation work; 0/25 before the plot-transform fit).
