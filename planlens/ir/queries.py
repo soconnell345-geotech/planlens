@@ -943,6 +943,75 @@ def _cluster_alignment(verts: List[Point], shaft_dir: Point
     return fold, round(math.degrees(math.acos(max(-1.0, min(1.0, fold)))), 1)
 
 
+#: A drawn arrowhead's own axis must point OUTWARD along the line it
+#: terminates within 30 degrees to be accepted as a DIMENSION arrow (and to
+#: escape the leader-flow letterform cap). The value is the arrow's visible
+#: character, not a fixture fit: a plotted arrowhead's tip half-angle is
+#: ~9-16 deg (measured 9.4 deg on every Mecklenburg real arrow), so at 30
+#: deg off-axis the arrow visibly points at something ELSE. Measured
+#: populations (2026-09-05, printed in score_compositions.py's ledger):
+#: every true dimension arrow scores +1.000 (one manual-dim end +0.887);
+#: the arrowhead-stealing impostors score -0.998..+0.208.
+_ARROW_AXIS_MIN = math.cos(math.radians(30.0))
+
+
+def _intrinsic_apex_axis(verts: List[Point]) -> Tuple[Point, Point]:
+    """(apex, unit axis) intrinsic to a DRAWN arrowhead candidate.
+
+    The apex is the vertex farthest from the centroid of the other
+    vertices (for a slender arrow triangle that is the tip between the two
+    long legs — verified against every ground-truth arrow, where it
+    reproduces the CAD defpoint); the axis points from that centroid to
+    the apex, i.e. the direction the arrow POINTS. Intrinsic on purpose:
+    the earlier best-vertex-vs-shaft trick (:func:`_triangle_alignment`)
+    picks whichever vertex axis best matches the claiming line, which lets
+    ANY triangle "align" >= cos(30 deg) with ANY crossing stroke (three
+    vertex axes ~60 deg apart always bracket every direction) — the root
+    cause of dimension proposals stealing true leader arrowheads on the
+    ground-truth sheets.
+    """
+    best = None
+    for i, v in enumerate(verts):
+        others = [p for j, p in enumerate(verts) if j != i]
+        if not others:
+            continue
+        c = _centroid(others)
+        d = math.hypot(v[0] - c[0], v[1] - c[1])
+        if best is None or d > best[0]:
+            best = (d, v, c)
+    _, apex, c = best
+    return apex, _unit_vec(apex[0] - c[0], apex[1] - c[1])
+
+
+def _dim_arrow_attach(verts: List[Point], kind: str, sdir: Point
+                      ) -> Optional[Tuple[float, Point]]:
+    """(alignment score, apex) if a candidate attaches as a DIMENSION arrow
+    at a shaft end with outward terminal direction ``sdir``, else None.
+
+    A dimension arrow points OUTWARD along its dimension line — that is
+    how the construct is drafted, in every arrowhead style. For drawn
+    (triangle-family) candidates the intrinsic apex axis
+    (:func:`_intrinsic_apex_axis`) must therefore satisfy the SIGNED
+    alignment ``axis . sdir >= _ARROW_AXIS_MIN``; an arrow pointing
+    backward along the line, or off at an angle (a leader arrowhead the
+    line merely grazes, a letterform chevron), is not this line's arrow.
+    Fill-cluster candidates carry no vertex-level apex: they keep the
+    sign-blind :func:`_cluster_alignment` score (neutral 0.7 for
+    isotropic blobs) and an apex taken as the farthest member center
+    along ``sdir`` — the no-text confidence cap already disciplines
+    cluster-only dimension claims.
+    """
+    if kind == "fill_cluster":
+        score = _cluster_alignment(verts, sdir)[0]
+        apex = max(verts, key=lambda v: v[0] * sdir[0] + v[1] * sdir[1])
+        return score, apex
+    apex, ax = _intrinsic_apex_axis(verts)
+    signed = ax[0] * sdir[0] + ax[1] * sdir[1]
+    if signed < _ARROW_AXIS_MIN:
+        return None
+    return signed, apex
+
+
 def _ending_near_from_grid(grid: "_EndpointGrid", point: Point,
                            radius: float) -> List[Dict[str, Any]]:
     """Same result shape/order as :func:`entities_ending_near`, via a
@@ -1020,6 +1089,34 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
        0.20*chain_simplicity`` (weights chosen so a well-aligned, clearly
        labelled, simple 1-bend leader scores near 1.0; each factor is 0..1,
        see ``evidence`` in each proposal for the breakdown).
+
+    **Letterform discipline (two confidence CAPS, never deletions).** On
+    SHX-plotted sheets every letter is stroked line-work, and lettering-
+    heavy sheets used to drown the caller in letterform proposals at
+    default confidence (measured 295 above-0.5 proposals on a
+    zero-annotation ground-truth notes sheet, the top ones title-block
+    letters). Two structural facts about a real leader cap any proposal
+    that violates them to 0.45 (below the conventional 0.5 threshold,
+    still visible to a caller who lowers ``min_confidence``):
+
+    - **arrow direction** (``evidence.arrow_direction_violation``): a
+      drawn arrowhead POINTS outward along its shaft's terminal
+      direction — signed intrinsic-apex-axis alignment >= cos(30 deg)
+      (:func:`_intrinsic_apex_axis`; measured +1.000 on every genuine
+      ground-truth leader, near-random for letter chains vs neighboring
+      strokes);
+    - **arrow attachment** (``evidence.arrow_detached``): the shaft
+      endpoint sits within 0.75x ``max_arrowhead_size`` of the
+      candidate centroid — a shaft ENDS at its arrowhead (measured
+      2.2-5.4 pt on every genuine ground-truth leader at a 9.31 pt
+      scale) while a letter stroke merely passes near a letterform
+      chevron (measured p50 9.6 pt). Same constant as the dimension
+      leg's attach radius; fill-cluster candidates are exempt (built at
+      shaft endpoints, the test is vacuous).
+
+    Measured together on the ground-truth corpus (2026-09-05): the worst
+    lettering sheet fell 295 -> 2 above-default proposals with recall
+    unchanged (see score_compositions.py's ledger).
 
     Known false-positive source (by design, not a bug): a dimension line's
     end arrow is geometrically identical to a leader arrowhead (a small
@@ -1111,8 +1208,24 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
 
         if arrow_kind == "fill_cluster":
             align_score, align_deg = _cluster_alignment(verts, shaft_dir)
+            signed_axis = None
         else:
             align_score, align_deg = _triangle_alignment(verts, shaft_dir)
+            # SIGNED arrow-direction check (the letterform cap): a real
+            # leader arrowhead POINTS outward along its shaft's terminal
+            # direction — in the apex-anchored chevron style AND the
+            # base-anchored multileader style alike, the intrinsic apex
+            # axis (:func:`_intrinsic_apex_axis`) satisfies
+            # ``axis . shaft_dir ~ +1`` (measured +1.000 on every genuine
+            # ground-truth leader). A letterform chevron paired with a
+            # neighboring stroke has a RANDOM axis-vs-stroke direction, so
+            # most lettering junk fails the signed test (measured: 295 ->
+            # 81 above-default proposals on the worst zero-annotation
+            # sheet). Violations are CAPPED below the 0.5 call threshold,
+            # not deleted — proposals stay visible to a caller who lowers
+            # min_confidence, mirroring the dimension no-text cap.
+            _apex, _ax = _intrinsic_apex_axis(verts)
+            signed_axis = _ax[0] * shaft_dir[0] + _ax[1] * shaft_dir[1]
 
         text_hit, text_dist = None, None
         for t in texts:
@@ -1136,6 +1249,25 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             # every proposal at 0.65. The evidence flag records this.
             confidence = round((0.45 * align_score + 0.20 * simplicity)
                                / 0.65, 3)
+        arrow_backward = (signed_axis is not None
+                          and signed_axis < _ARROW_AXIS_MIN)
+        # DETACHED-ARROW cap (the other half of the letterform story): a
+        # leader shaft ENDS at its arrowhead — base-anchored or
+        # apex-anchored, the shaft endpoint sits within ~half an arrow
+        # length of the candidate centroid (measured 2.2-5.4 pt across
+        # every genuine ground-truth leader at a 9.31 pt scale), while a
+        # letter stroke merely passes NEAR a letterform chevron (measured
+        # p50 9.6 pt on the worst zero-annotation sheet, 79 of its 81
+        # sign-passing junk proposals beyond the bound). Same 0.75x-scale
+        # constant the dimension leg's attach radius uses, same
+        # cap-not-delete discipline. Cluster candidates are exempt: they
+        # are constructed AT shaft endpoints, so the test is vacuous.
+        arrow_detached = (arrow_kind != "fill_cluster"
+                          and math.hypot(centroid[0] - tip_xy[0],
+                                         centroid[1] - tip_xy[1])
+                          > 0.75 * max_arrowhead_size)
+        if arrow_backward or arrow_detached:
+            confidence = min(confidence, _UNCORROBORATED_CAP)
         if confidence < min_confidence:
             continue
 
@@ -1156,6 +1288,11 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                 "text_proximity_score": _r(text_score, 3),
                 "chain_simplicity_score": _r(simplicity, 3),
                 "n_shaft_vertices": n_vertices_shaft,
+                **({"signed_axis_alignment": _r(signed_axis, 3)}
+                   if signed_axis is not None else {}),
+                **({"arrow_direction_violation": True}
+                   if arrow_backward else {}),
+                **({"arrow_detached": True} if arrow_detached else {}),
                 **({} if texts else {"text_unavailable": True}),
             },
             "proposal_only": True,
@@ -1239,8 +1376,14 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
 
     - **Continuous** (``evidence.path = "continuous"``): one Line/open-
       Polyline shaft with an arrowhead candidate
-      (:func:`_arrowhead_candidates`) within ``search_radius`` of EACH
-      endpoint — the drafting style whose value text sits ABOVE the line.
+      (:func:`_arrowhead_candidates`) attached at EACH endpoint — the
+      drafting style whose value text sits ABOVE the line. The shaft may
+      be SHORT (down to 0.5x the arrowhead scale) when both attached
+      arrows are shape-verified triangles: real narrow dimensions plot a
+      short line between two outward arrows (ground-truth 'T=' style).
+      Proposal ends are the arrows' intrinsic APEX points — the CAD
+      defpoints — falling back to the shaft ends only conceptually (both
+      arrows are required, so apexes always exist).
     - **Split-shaft** (``evidence.path = "split_shaft"``): TWO collinear
       half-shafts around a centered text gap, each carrying ONE arrowhead at
       its OUTER end pointing outward — how native CAD dimensions plot when
@@ -1253,12 +1396,27 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
       points (the CAD defpoints), and ``evidence`` names both halves and
       the gap.
 
-    Scoring (each leg): **alignment** (0.40) — sign-blind |cos| of arrowhead
-    axis vs shaft terminal axis (mean over both arrows; the split leg also
+    **Arrow attachment is SIGNED** (:func:`_dim_arrow_attach`): a drawn
+    (triangle-family) candidate attaches at a shaft end only when its
+    intrinsic apex axis points OUTWARD along the shaft within 30 deg
+    (:data:`_ARROW_AXIS_MIN`) — a dimension arrow points along its
+    dimension line by construction. This is what stops a dimension
+    proposal from STEALING a leader's arrowhead via a crossing witness
+    line or a grazing stroke (the root cause of 4 of the 4 residual
+    ground-truth leader misses before Phase 3.2: ``exclude_dimensions``
+    dropped true leaders whose triangles a false dimension had claimed
+    with the old fold-blind best-vertex alignment, which cannot fall
+    below ~cos(30 deg) for ANY triangle vs ANY direction). Fill-cluster
+    candidates have no vertex apex and keep the sign-blind cluster
+    alignment; the no-text cap disciplines them instead.
+
+    Scoring (each leg): **alignment** (0.40) — the signed attach
+    alignment above (mean over both arrows; the split leg also
     multiplies by the halves' collinearity); **text** (0.30) — nearest
-    TextItem to the shaft midpoint (continuous) or the GAP CENTER (split)
-    within ``text_radius``; **extension lines** (0.30) — at each tip, any
-    OTHER entity of length >= 0.5x ``max_arrowhead_size`` ending within
+    TextItem to the construct midpoint (continuous) or the GAP CENTER
+    (split) within ``text_radius``; **extension lines** (0.30) — at each
+    APEX (the defpoint, where witness lines actually cross), any OTHER
+    entity of length >= 0.5x ``max_arrowhead_size`` ending within
     ``search_radius`` whose terminal direction is >= 55 deg off the shaft
     axis (the length floor keeps stipple/hatch micro-fragments from
     counting as witness lines — measured 392 sub-3-pt "witnesses" on one
@@ -1444,11 +1602,11 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                 # let glyph junk 1.4 arrow-lengths away hijack an end and
                 # misclassify a split half-shaft as two-arrowed.
                 if d <= attach_radius and (best is None or d < best[1]):
-                    if kind == "fill_cluster":
-                        a_score = _cluster_alignment(verts, sdir)[0]
-                    else:
-                        a_score = _triangle_alignment(verts, sdir)[0]
-                    best = (cand, d, a_score, kind, verts, sdir, tip)
+                    att = _dim_arrow_attach(verts, kind, sdir)
+                    if att is None:
+                        continue  # arrow does not point along this line
+                    a_score, apex = att
+                    best = (cand, d, a_score, kind, verts, sdir, tip, apex)
             per_end.append((end_label, tip, best))
 
         n_arrowed = sum(1 for _, _, b in per_end if b is not None)
@@ -1459,17 +1617,15 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             # the tip along the terminal direction) — an arrow behind the
             # tip is some other construct's arrow this shaft merely grazes.
             b = next(b for _, _, b in per_end if b is not None)
-            cand, _d, a_score, kind, verts, sdir, tip = b
+            cand, _d, a_score, kind, verts, sdir, tip, apex = b
             centroid = _centroid(verts)
             if ((centroid[0] - tip[0]) * sdir[0]
                     + (centroid[1] - tip[1]) * sdir[1]) > 0:
                 inner = (shaft_pts[0] if tip == shaft_pts[-1]
                          else shaft_pts[-1])
-                # Apex = candidate vertex farthest along the outward axis
-                # (for a cluster: the farthest member center) — the CAD
-                # defpoint the arrow points at.
-                apex = max(verts, key=lambda v: v[0] * sdir[0]
-                           + v[1] * sdir[1])
+                # Apex from the attach test (:func:`_dim_arrow_attach`):
+                # the candidate's intrinsic tip (for a cluster: the
+                # farthest member center) — the CAD defpoint.
                 halves.append({
                     "shaft": shaft, "cand": cand, "kind": kind,
                     "a_score": a_score, "outer": tip, "inner": inner,
@@ -1478,29 +1634,45 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                 })
             continue
 
-        if n_arrowed < 2 or sep < min_shaft_length:
+        if n_arrowed < 2:
+            continue
+        kinds2 = [b[3] for _, _, b in per_end]
+        # The min_shaft_length floor keeps glyph-scale strokes from pairing
+        # into junk — but a shaft carrying a SIGNED-ATTACHED drawn arrow at
+        # BOTH ends is already that strongly structured, and real narrow
+        # dimensions plot exactly this way: a short dimension line between
+        # two outward arrows whose apexes sit on the witness lines
+        # (verified on ground-truth sheet 3001, the 'T=' construct: 9.8 pt
+        # shaft between two 7.3 pt arrows at a 9.31 pt arrowhead scale).
+        if sep < min_shaft_length and kinds2 != ["triangle", "triangle"]:
             continue
         if per_end[0][2][0].id == per_end[1][2][0].id:
             continue  # the two arrowheads must be DISTINCT
 
         align = sum(b[2] for _, _, b in per_end) / len(per_end)
 
+        # Proposal ends = the arrows' intrinsic APEX points — the CAD
+        # defpoints the construct measures between (the shaft itself stops
+        # at the arrow bases in the arrows-outside plot styles). Witness
+        # lines cross at the defpoints, so the witness check runs there.
+        apexes = [b[7] for _, _, b in per_end]
+
         # Extension (witness) lines: something ELSE terminating near each
-        # tip, roughly perpendicular to the shaft's terminal axis at that
+        # apex, roughly perpendicular to the shaft's terminal axis at that
         # end. Cluster members must not double as witness lines.
         used_ids = {shaft.id} | {b[0].id for _, _, b in per_end}
         for _, _, b in per_end:
             used_ids |= set(getattr(b[0], "member_ids", ()))
         ext_ids: List[str] = []
         ext_ends = 0
-        for end_label, tip, _b in per_end:
+        for (end_label, tip, _b), apex in zip(per_end, apexes):
             shaft_dir = _shaft_terminal_dir(shaft_pts, end_label)
-            if _witness_at(tip, shaft_dir, used_ids, ext_ids):
+            if _witness_at(apex, shaft_dir, used_ids, ext_ids):
                 ext_ends += 1
         ext_score = ext_ends / 2.0
 
-        mid = (0.5 * (ends[0][1][0] + ends[1][1][0]),
-               0.5 * (ends[0][1][1] + ends[1][1][1]))
+        mid = (0.5 * (apexes[0][0] + apexes[1][0]),
+               0.5 * (apexes[0][1] + apexes[1][1]))
         text_hit, text_dist = _nearest_text(mid)
         text_score = _text_proximity_score(text_dist, text_radius)
 
@@ -1519,14 +1691,13 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             # cluster-only pair is any stipple splash at a long line's two
             # ends — page borders score 0.74+ that way, witnesses and all.
             raw = (0.40 * align + 0.30 * ext_score) / 0.70
-            kinds = [b[3] for _, _, b in per_end]
-            if ext_ends < 2 or "triangle" not in kinds:
+            if ext_ends < 2 or "triangle" not in kinds2:
                 raw = min(raw, _UNCORROBORATED_CAP)
             confidence = round(raw, 3)
         if confidence < min_confidence:
             continue
 
-        a_xy, b_xy = ends[0][1], ends[1][1]
+        a_xy, b_xy = apexes[0], apexes[1]
         proposals.append({
             "end_a_xy": [_r(a_xy[0]), _r(a_xy[1])],
             "end_b_xy": [_r(b_xy[0]), _r(b_xy[1])],
