@@ -27,8 +27,10 @@ provenance semantics, and the raster leg's honest limits.
 from planlens.ir.results import (
     Arc,
     Circle,
+    Dimension,
     DrawingIR,
     Entity,
+    Leader,
     Line,
     Polyline,
     Region,
@@ -49,6 +51,8 @@ __all__ = [
     "Circle",
     "TextItem",
     "Region",
+    "Leader",
+    "Dimension",
     "entity_from_dict",
     # ingest
     "from_dxf",

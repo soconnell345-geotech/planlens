@@ -21,7 +21,8 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from planlens.ir.results import (
-    Arc, Circle, DrawingIR, Entity, Line, Polyline, Region, TextItem, _r,
+    Arc, Circle, Dimension, DrawingIR, Entity, Leader, Line, Polyline,
+    Region, TextItem, _r,
 )
 
 Point = Tuple[float, float]
@@ -64,6 +65,17 @@ def _ref(e: Entity) -> Dict[str, Any]:
     elif isinstance(e, Region):
         d["n_vertices"] = len(e.boundary)
         d["area"] = _r(e.area())
+    elif isinstance(e, Leader):
+        d["n_vertices"] = len(e.vertices)
+        d["has_arrowhead"] = bool(e.has_arrowhead)
+        if e.text is not None:
+            d["text"] = e.text
+    elif isinstance(e, Dimension):
+        d["n_defpoints"] = len(e.defpoints)
+        if e.text is not None:
+            d["text"] = e.text
+        if e.measurement is not None:
+            d["measurement"] = _r(e.measurement, 6)
     return d
 
 
@@ -1033,6 +1045,35 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     text_radius = (text_radius if text_radius is not None
                    else max_arrowhead_size * 4.0)
 
+    # NATIVE leaders (DXF LEADER/MULTILEADER ingested as Leader entities):
+    # the source declares them, so they surface at confidence 1.0 with
+    # evidence "native_dxf" — no composition needed. Composed proposals
+    # whose tip lands on a native tip are dropped as duplicates below;
+    # composition still runs for anything drawn manually (plain line +
+    # triangle) that never became a LEADER entity.
+    native_props: List[Dict[str, Any]] = []
+    native_tips: List[Point] = []
+    for L in ir.entities:
+        if not isinstance(L, Leader) or not L.vertices:
+            continue
+        pts = [tuple(p) for p in L.vertices]
+        tip, tail = pts[0], pts[-1]
+        native_tips.append(tip)
+        native_props.append({
+            "tip_xy": [_r(tip[0]), _r(tip[1])],
+            "tail_xy": [_r(tail[0]), _r(tail[1])],
+            "vertices": [[_r(p[0]), _r(p[1])] for p in pts],
+            "arrowhead_id": None,
+            "shaft_id": L.id,
+            "text": L.text,
+            "text_id": None,
+            "text_distance": None,
+            "confidence": 1.0,
+            "evidence": {"path": "native_dxf",
+                         "has_arrowhead": bool(L.has_arrowhead)},
+            "proposal_only": True,
+        })
+
     # A leader's shaft is LONG relative to its arrowhead — by construction
     # (the default max_arrowhead_size is a fraction of typical shaft
     # length). Gating on it keeps glyph-scale micro-strokes on SHX-plotted
@@ -1128,6 +1169,14 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
         claimed = {aid for d in dims for aid in d["arrowhead_ids"]}
         proposals = [p for p in proposals
                      if p["arrowhead_id"] not in claimed]
+
+    if native_tips:
+        proposals = [
+            p for p in proposals
+            if all(math.hypot(p["tip_xy"][0] - t[0], p["tip_xy"][1] - t[1])
+                   > max_arrowhead_size for t in native_tips)]
+        proposals.extend(p for p in native_props
+                         if p["confidence"] >= min_confidence)
 
     proposals.sort(key=lambda p: p["confidence"], reverse=True)
     return proposals
@@ -1237,6 +1286,45 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     text_radius = (text_radius if text_radius is not None
                    else max_arrowhead_size * 4.0)
 
+    # NATIVE dimensions (DXF DIMENSION ingested as Dimension entities):
+    # surfaced at confidence 1.0 with evidence "native_dxf" — the ends are
+    # the entity's own defpoints (dimension-line point + the far measured
+    # origin when present). Composition still runs for manually drafted
+    # dimensions, minus any proposal whose end lands on a native defpoint.
+    native_props: List[Dict[str, Any]] = []
+    native_defpoints: List[Point] = []
+    for D in ir.entities:
+        if not isinstance(D, Dimension) or not D.defpoints:
+            continue
+        dps = [tuple(p) for p in D.defpoints]
+        native_defpoints.extend(dps)
+        a_xy = dps[0]
+        b_xy = dps[1] if len(dps) > 1 else dps[0]
+        mid = (0.5 * (a_xy[0] + b_xy[0]), 0.5 * (a_xy[1] + b_xy[1]))
+        native_props.append({
+            "end_a_xy": [_r(a_xy[0]), _r(a_xy[1])],
+            "end_b_xy": [_r(b_xy[0]), _r(b_xy[1])],
+            "midpoint_xy": [_r(mid[0]), _r(mid[1])],
+            "length": _r(math.hypot(b_xy[0] - a_xy[0], b_xy[1] - a_xy[1])),
+            "angle_deg": (_r(_seg_angle(a_xy, b_xy), 2)
+                          if a_xy != b_xy else None),
+            "shaft_id": D.id,
+            "arrowhead_ids": [],
+            "extension_line_ids": [],
+            "text": D.text,
+            "text_id": None,
+            "text_distance": None,
+            "confidence": 1.0,
+            "evidence": {
+                "path": "native_dxf",
+                "defpoints": [[_r(p[0]), _r(p[1])] for p in dps],
+                **({"measurement": _r(D.measurement, 6)}
+                   if D.measurement is not None else {}),
+                **({"dimtype": D.dimtype} if D.dimtype is not None else {}),
+            },
+            "proposal_only": True,
+        })
+
     # Same shaft-vs-arrowhead scale gate as find_leaders (see there): keeps
     # glyph-scale micro-strokes from pairing into junk dimension proposals.
     min_shaft_length = 2.0 * max_arrowhead_size
@@ -1257,7 +1345,9 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     arrowheads = list(_arrowhead_candidates_all(ir, max_arrowhead_size,
                                                 min_shaft_length))
     if not arrowheads:
-        return []
+        return sorted((p for p in native_props
+                       if p["confidence"] >= min_confidence),
+                      key=lambda p: p["confidence"], reverse=True)
     arrow_ids = {e.id for e, _, _ in arrowheads}
 
     # Grid the arrowhead centroids (dense sheets carry thousands of shafts;
@@ -1465,6 +1555,16 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     proposals.extend(_pair_split_halves(
         halves, max_arrowhead_size, texts, _witness_at, _nearest_text,
         text_radius, min_confidence))
+
+    if native_defpoints:
+        proposals = [
+            p for p in proposals
+            if all(math.hypot(p[k][0] - t[0], p[k][1] - t[1])
+                   > max_arrowhead_size
+                   for t in native_defpoints for k in ("end_a_xy",
+                                                       "end_b_xy"))]
+        proposals.extend(p for p in native_props
+                         if p["confidence"] >= min_confidence)
 
     proposals.sort(key=lambda p: p["confidence"], reverse=True)
     return proposals

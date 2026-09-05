@@ -30,8 +30,18 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 from planlens.ir.results import (
-    Arc, Circle, DrawingIR, Line, Polyline, Region, TextItem,
+    Arc, Circle, Dimension, DrawingIR, Leader, Line, Polyline, Region,
+    TextItem,
 )
+
+
+def _mtext_plain(raw: str) -> str:
+    """Strip MTEXT inline formatting codes, best-effort."""
+    try:
+        from ezdxf.tools.text import plain_mtext
+        return plain_mtext(raw)
+    except Exception:
+        return raw
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +82,13 @@ def from_dxf(filepath: str = None, content: bytes = None,
     """Build a DrawingIR from a DXF file's model space (exact coordinates).
 
     Extracts LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE/SPLINE (flattened),
-    TEXT/MTEXT and (best-effort) HATCH, each with its layer, color and linetype.
+    TEXT/MTEXT, (best-effort) HATCH, plus the NATIVE annotation entities:
+    LEADER / MULTILEADER (→ :class:`Leader`, tip-first vertices + resolved
+    annotation text), DIMENSION (→ :class:`Dimension`, defpoints /
+    text_midpoint / measurement / text), and INSERT block-reference ATTRIB
+    values (→ :class:`TextItem` with ``style="attrib:<block>:<tag>"`` — the
+    title-block metadata carrier; the block's internal geometry is not
+    exploded). Each entity carries its layer, color and linetype.
     Coordinates are converted to SI meters using ``units`` (default: the DXF
     ``$INSUNITS`` header, else 'm').
     """
@@ -177,6 +193,74 @@ def from_dxf(filepath: str = None, content: bytes = None,
                 region = _hatch_region(ent, conv, common)
                 if region is not None:
                     ir.add(region)
+            elif etype == "LEADER":
+                # Native annotation leader: exact vertices tip-first, plus
+                # the annotation text resolved through annotation_handle
+                # (an MTEXT elsewhere in the entity db). LEADER vertices
+                # can be plain tuples rather than Vec3 (ezdxf 1.4).
+                verts = [conv(v[0], v[1]) for v in ent.vertices]
+                text = None
+                handle = ent.dxf.get("annotation_handle", None)
+                if handle:
+                    annot = doc.entitydb.get(handle)
+                    if annot is not None and annot.dxftype() == "MTEXT":
+                        text = _mtext_plain(annot.text)
+                if len(verts) >= 1:
+                    ir.add(Leader(
+                        vertices=verts,
+                        has_arrowhead=bool(ent.dxf.get("has_arrowhead", 1)),
+                        text=text, **common))
+            elif etype == "MULTILEADER":
+                # One Leader per leader LINE (a multileader can point at
+                # several targets with one text). Vertices are the line's
+                # own (tip-first); the dogleg/landing is not fabricated.
+                ctx = ent.context
+                mtext = getattr(ctx, "mtext", None)
+                text = (_mtext_plain(mtext.default_content)
+                        if mtext is not None else None) or None
+                for ml_leader in ctx.leaders:
+                    for line in ml_leader.lines:
+                        verts = [conv(v.x, v.y) for v in line.vertices]
+                        if verts:
+                            ir.add(Leader(vertices=verts,
+                                          has_arrowhead=True,
+                                          text=text, **common))
+            elif etype == "DIMENSION":
+                defpoints = []
+                for attr in ("defpoint", "defpoint2", "defpoint3"):
+                    p = ent.dxf.get(attr, None)
+                    if p is not None:
+                        defpoints.append(conv(p.x, p.y))
+                tm = ent.dxf.get("text_midpoint", None)
+                try:
+                    meas = float(ent.get_measurement()) * factor
+                except Exception:
+                    meas = None
+                ir.add(Dimension(
+                    defpoints=defpoints,
+                    text_midpoint=(conv(tm.x, tm.y)
+                                   if tm is not None else None),
+                    measurement=meas,
+                    text=(ent.dxf.get("text", "") or None),
+                    dimtype=int(ent.dxf.get("dimtype", 0)), **common))
+            elif etype == "INSERT":
+                # Block reference: the block's internal geometry is NOT
+                # exploded (documented limitation), but its ATTRIB values
+                # — the title-block metadata carrier — land as TextItems
+                # with the block/tag recorded in ``style``.
+                for attrib in ent.attribs:
+                    txt = attrib.dxf.get("text", "")
+                    if not txt:
+                        continue
+                    ins = attrib.dxf.insert
+                    st = dict(common)
+                    st["style"] = (f"attrib:{ent.dxf.get('name', '?')}:"
+                                   f"{attrib.dxf.get('tag', '')}")
+                    ir.add(TextItem(
+                        content=txt, position=conv(ins.x, ins.y),
+                        rotation=attrib.dxf.get("rotation", 0.0),
+                        height=attrib.dxf.get("height", 0.0) * factor,
+                        **st))
             # other entity types are skipped (kept honest — not fabricated)
         except Exception as exc:  # pragma: no cover - malformed entity guard
             warnings.append(f"Skipped {etype} on layer '{layer}': {exc}")

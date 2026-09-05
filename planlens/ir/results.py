@@ -352,9 +352,91 @@ class Region(Entity):
         return d
 
 
+@dataclass
+class Leader(Entity):
+    """A NATIVE annotation leader (DXF LEADER / one MULTILEADER line).
+
+    First-class only when the SOURCE declares it (DXF exposes the entity
+    with exact vertices and its annotation text) — a plotted PDF has no
+    such entity, and composed leader PROPOSALS from
+    :func:`planlens.ir.queries.find_leaders` stay proposals. ``vertices``
+    run tip-first (the arrow end, the point the leader points AT) to tail
+    (where the annotation sits), matching the DXF vertex order.
+    """
+    KIND: ClassVar[str] = "leader"
+    vertices: List[Point] = field(default_factory=list)
+    has_arrowhead: bool = True
+    text: Optional[str] = None      # resolved annotation text (plain), if any
+
+    def compute_bbox(self) -> Optional[BBox]:
+        return _bbox_of_points(self.vertices)
+
+    def points(self) -> List[Point]:
+        return [tuple(p) for p in self.vertices]
+
+    def length(self) -> float:
+        pts = self.vertices
+        return sum(math.hypot(b[0] - a[0], b[1] - a[1])
+                   for a, b in zip(pts, pts[1:]))
+
+    def _geom_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {
+            "vertices": [[_r(x), _r(y)] for x, y in self.vertices],
+            "n_vertices": len(self.vertices),
+            "has_arrowhead": bool(self.has_arrowhead),
+        }
+        if self.text is not None:
+            d["text"] = self.text
+        return d
+
+
+@dataclass
+class Dimension(Entity):
+    """A NATIVE dimension entity (DXF DIMENSION), coordinates exact.
+
+    ``defpoints`` are the DXF definition points that exist on the entity
+    (dimension-line point first, then the extension-line origins when
+    present); ``measurement`` is the CAD-computed value in drawing units
+    (0.0 when the DXF rendering context cannot compute it), and ``text``
+    the displayed override ('' / '<>' mean the measured value is shown).
+    ``dimtype`` is the RAW DXF group-70 value (base type + flags).
+    """
+    KIND: ClassVar[str] = "dimension"
+    defpoints: List[Point] = field(default_factory=list)
+    text_midpoint: Optional[Point] = None
+    measurement: Optional[float] = None
+    text: Optional[str] = None
+    dimtype: Optional[int] = None
+
+    def compute_bbox(self) -> Optional[BBox]:
+        pts = list(self.defpoints)
+        if self.text_midpoint is not None:
+            pts.append(tuple(self.text_midpoint))
+        return _bbox_of_points(pts)
+
+    def points(self) -> List[Point]:
+        return [tuple(p) for p in self.defpoints]
+
+    def _geom_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {
+            "defpoints": [[_r(x), _r(y)] for x, y in self.defpoints],
+        }
+        if self.text_midpoint is not None:
+            d["text_midpoint"] = [_r(self.text_midpoint[0]),
+                                  _r(self.text_midpoint[1])]
+        if self.measurement is not None:
+            d["measurement"] = _r(self.measurement, 6)
+        if self.text is not None:
+            d["text"] = self.text
+        if self.dimtype is not None:
+            d["dimtype"] = self.dimtype
+        return d
+
+
 _ENTITY_CLASSES: Dict[str, type] = {
     cls.KIND: cls
-    for cls in (Line, Polyline, Arc, Circle, TextItem, Region)
+    for cls in (Line, Polyline, Arc, Circle, TextItem, Region,
+                Leader, Dimension)
 }
 
 
@@ -393,6 +475,17 @@ def entity_from_dict(d: Dict[str, Any]) -> Entity:
     if kind == "region":
         return Region(boundary=[tuple(p) for p in d.get("boundary", [])],
                       pattern=d.get("pattern"), **common)
+    if kind == "leader":
+        return Leader(vertices=[tuple(p) for p in d.get("vertices", [])],
+                      has_arrowhead=bool(d.get("has_arrowhead", True)),
+                      text=d.get("text"), **common)
+    if kind == "dimension":
+        tm = d.get("text_midpoint")
+        return Dimension(defpoints=[tuple(p) for p in d.get("defpoints", [])],
+                         text_midpoint=tuple(tm) if tm is not None else None,
+                         measurement=d.get("measurement"),
+                         text=d.get("text"), dimtype=d.get("dimtype"),
+                         **common)
     raise ValueError(f"Unhandled entity type '{kind}'")  # pragma: no cover
 
 
