@@ -128,9 +128,15 @@ def extract_native_annotations(filepath: Optional[str] = None,
                               "dimensions": [...], "text": [...],
                               "inserts": [...]}}}
 
-    Model-space coordinates are RAW drawing units rounded to 4 decimals;
-    MTEXT keeps its inline formatting codes; ``dimtype`` is the raw DXF
-    group-70 value. ``inserts`` additionally carry an ``attribs`` list
+    ``spaces`` carries ``"model"`` plus one entry PER PAPER-SPACE LAYOUT
+    under the layout's own name (e.g. ``"Layout1"``) — the committed
+    corpus records paper space too (empty on the Mecklenburg sheets, which
+    draw everything in model space at paper scale), so regeneration
+    reproduces the committed files byte-for-byte, layouts included.
+
+    Coordinates are RAW drawing units rounded to 4 decimals; MTEXT keeps
+    its inline formatting codes; ``dimtype`` is the raw DXF group-70
+    value. ``inserts`` additionally carry an ``attribs`` list
     (tag/text/insert/height) when the reference has attribute values — a
     superset of the original truth schema, additive only.
     """
@@ -147,7 +153,9 @@ def extract_native_annotations(filepath: Optional[str] = None,
     else:
         name = getattr(doc, "filename", None) or ""
         name = os.path.basename(name) if name else ""
-    return {
-        "source_dxf": name,
-        "spaces": {"model": _space_annotations(doc.modelspace())},
-    }
+    spaces = {"model": _space_annotations(doc.modelspace())}
+    for layout_name in doc.layout_names_in_taborder():
+        if layout_name == "Model":
+            continue
+        spaces[layout_name] = _space_annotations(doc.layout(layout_name))
+    return {"source_dxf": name, "spaces": spaces}
