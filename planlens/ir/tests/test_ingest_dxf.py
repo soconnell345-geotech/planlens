@@ -81,3 +81,72 @@ class TestDxfIngest:
     def test_requires_a_source(self):
         with pytest.raises(ValueError):
             from_dxf()
+
+
+class TestInsertExplosion:
+    """Phase-3.2: INSERT block-geometry explosion (exact transforms)."""
+
+    def test_block_geometry_exploded_with_transform(self, blocks_dxf):
+        from planlens.ir import from_dxf
+        from planlens.ir.results import Circle, Line
+        ir = from_dxf(blocks_dxf)
+        # PART at (10,5), rot 90, scale 2: line (0,0)->(1,0) maps to
+        # (10,5)->(10,7); circle center (0.5,0.5) -> (10-1, 5+1), r 0.5.
+        lines = [e for e in ir.entities if isinstance(e, Line)
+                 and (e.style or "").startswith("block:PART")]
+        assert any(abs(ln.start[0] - 10) < 1e-6 and abs(ln.end[1] - 7) < 1e-6
+                   for ln in lines)
+        circles = [e for e in ir.entities if isinstance(e, Circle)
+                   and (e.style or "").startswith("block:PART")]
+        assert any(abs(c.radius - 0.5) < 1e-6 and abs(c.center[0] - 9) < 1e-6
+                   and abs(c.center[1] - 6) < 1e-6 for c in circles)
+
+    def test_nested_reference_exploded_under_top_block_name(self, blocks_dxf):
+        from planlens.ir import from_dxf
+        from planlens.ir.results import Line
+        ir = from_dxf(blocks_dxf)
+        # ASM at (100,100) contains PART at (2,0): line lands at
+        # (102,100)->(103,100), tagged with the TOP block name.
+        lines = [e for e in ir.entities if isinstance(e, Line)
+                 and (e.style or "").startswith("block:ASM")]
+        assert any(abs(ln.start[0] - 102) < 1e-6
+                   and abs(ln.start[1] - 100) < 1e-6 for ln in lines)
+
+    def test_attribs_still_extracted(self, blocks_dxf):
+        from planlens.ir import from_dxf
+        from planlens.ir.results import TextItem
+        ir = from_dxf(blocks_dxf)
+        att = [e for e in ir.entities if isinstance(e, TextItem)
+               and (e.style or "").startswith("attrib:TBLOCK:SHEET_NO")]
+        assert len(att) == 1 and att[0].content == "S-1"
+
+    def test_explosion_metadata_and_direct_geometry_untagged(self,
+                                                             blocks_dxf):
+        from planlens.ir import from_dxf
+        from planlens.ir.results import Line
+        ir = from_dxf(blocks_dxf)
+        assert ir.metadata.get("n_block_entities", 0) >= 4
+        direct = [e for e in ir.entities if isinstance(e, Line)
+                  and e.layer == "DIRECT"]
+        assert direct and not (direct[0].style or "").startswith("block:")
+
+    def test_explode_blocks_off_keeps_old_behavior(self, blocks_dxf):
+        from planlens.ir import from_dxf
+        from planlens.ir.results import TextItem
+        ir = from_dxf(blocks_dxf, explode_blocks=False)
+        assert not any((e.style or "").startswith("block:")
+                       for e in ir.entities)
+        assert any(isinstance(e, TextItem)
+                   and (e.style or "").startswith("attrib:")
+                   for e in ir.entities)  # attribs unaffected
+
+    def test_entity_budget_cap_warns(self, blocks_dxf):
+        from planlens.ir import from_dxf
+        ir = from_dxf(blocks_dxf, max_block_entities=1)
+        assert any("entity budget" in w for w in ir.warnings)
+        assert ir.metadata.get("n_block_entities", 0) <= 2
+
+    def test_depth_cap_warns_not_crashes(self, deep_blocks_dxf):
+        from planlens.ir import from_dxf
+        ir = from_dxf(deep_blocks_dxf)
+        assert any("nesting deeper" in w for w in ir.warnings)

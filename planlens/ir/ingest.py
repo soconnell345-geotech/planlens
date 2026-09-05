@@ -76,21 +76,42 @@ def _dxf_style(entity) -> Optional[str]:
     return None
 
 
+#: INSERT explosion guards: nesting deeper than this is pathological (real
+#: title blocks nest 2-3 levels), and the entity budget stops a bomb file
+#: (a block inserted thousands of times referencing thousands of entities)
+#: from blowing the IR up — dense real sheets ingest ~10k entities total.
+_MAX_BLOCK_DEPTH = 8
+_DEFAULT_MAX_BLOCK_ENTITIES = 50_000
+
+
 def from_dxf(filepath: str = None, content: bytes = None,
              units: Optional[str] = None, flip_y: bool = False,
-             name: str = "DXF import") -> DrawingIR:
+             name: str = "DXF import", explode_blocks: bool = True,
+             max_block_entities: int = _DEFAULT_MAX_BLOCK_ENTITIES
+             ) -> DrawingIR:
     """Build a DrawingIR from a DXF file's model space (exact coordinates).
 
     Extracts LINE, LWPOLYLINE/POLYLINE, ARC, CIRCLE, ELLIPSE/SPLINE (flattened),
     TEXT/MTEXT, (best-effort) HATCH, plus the NATIVE annotation entities:
     LEADER / MULTILEADER (→ :class:`Leader`, tip-first vertices + resolved
     annotation text), DIMENSION (→ :class:`Dimension`, defpoints /
-    text_midpoint / measurement / text), and INSERT block-reference ATTRIB
-    values (→ :class:`TextItem` with ``style="attrib:<block>:<tag>"`` — the
-    title-block metadata carrier; the block's internal geometry is not
-    exploded). Each entity carries its layer, color and linetype.
-    Coordinates are converted to SI meters using ``units`` (default: the DXF
-    ``$INSUNITS`` header, else 'm').
+    text_midpoint / measurement / text), and INSERT block references. Each
+    entity carries its layer, color and linetype. Coordinates are converted
+    to SI meters using ``units`` (default: the DXF ``$INSUNITS`` header,
+    else 'm').
+
+    INSERT handling: ATTRIB values land as :class:`TextItem` with
+    ``style="attrib:<block>:<tag>"`` (the title-block metadata carrier),
+    and — with ``explode_blocks=True`` (default) — the referenced block's
+    GEOMETRY is exploded into IR primitives via ezdxf's
+    ``virtual_entities()`` (exact insert transform: position, scale,
+    rotation), recursively for nested references. Exploded entities carry
+    ``style="block:<name>"`` provenance (``|<linetype>`` appended when the
+    source entity has one), so callers can tell block geometry from
+    directly drawn model-space work. Guards: nesting is capped at
+    :data:`_MAX_BLOCK_DEPTH` levels and the total exploded-entity count at
+    ``max_block_entities`` — a pathological file cannot blow up the IR;
+    hitting either cap appends a warning instead of failing.
     """
     import os
     import tempfile
@@ -134,12 +155,19 @@ def from_dxf(filepath: str = None, content: bytes = None,
     )
 
     layers = set()
-    for ent in msp:
+    n_exploded = 0
+    depth_warned = budget_warned = False
+
+    def _handle(ent, block: Optional[str] = None, depth: int = 0):
+        nonlocal n_exploded, depth_warned, budget_warned
         etype = ent.dxftype()
         layer = getattr(ent.dxf, "layer", None)
         layers.add(layer)
+        style = _dxf_style(ent)
+        if block is not None:
+            style = f"block:{block}" + (f"|{style}" if style else "")
         common = dict(layer=layer, color=_dxf_color(ent),
-                      style=_dxf_style(ent), source="dxf", confidence=1.0)
+                      style=style, source="dxf", confidence=1.0)
         try:
             if etype == "LINE":
                 s, e = ent.dxf.start, ent.dxf.end
@@ -244,29 +272,58 @@ def from_dxf(filepath: str = None, content: bytes = None,
                     text=(ent.dxf.get("text", "") or None),
                     dimtype=int(ent.dxf.get("dimtype", 0)), **common))
             elif etype == "INSERT":
-                # Block reference: the block's internal geometry is NOT
-                # exploded (documented limitation), but its ATTRIB values
-                # — the title-block metadata carrier — land as TextItems
-                # with the block/tag recorded in ``style``.
-                for attrib in ent.attribs:
+                # Block reference: ATTRIB values — the title-block
+                # metadata carrier — land as TextItems with the block/tag
+                # recorded in ``style``; then (explode_blocks) the block's
+                # geometry is exploded via virtual_entities() with the
+                # exact insert transform, recursing into nested INSERTs
+                # under the depth/entity caps.
+                bname = ent.dxf.get("name", "?")
+                for attrib in getattr(ent, "attribs", ()) or ():
                     txt = attrib.dxf.get("text", "")
                     if not txt:
                         continue
                     ins = attrib.dxf.insert
                     st = dict(common)
-                    st["style"] = (f"attrib:{ent.dxf.get('name', '?')}:"
-                                   f"{attrib.dxf.get('tag', '')}")
+                    st["style"] = f"attrib:{bname}:" \
+                                  f"{attrib.dxf.get('tag', '')}"
                     ir.add(TextItem(
                         content=txt, position=conv(ins.x, ins.y),
                         rotation=attrib.dxf.get("rotation", 0.0),
                         height=attrib.dxf.get("height", 0.0) * factor,
                         **st))
+                if not explode_blocks:
+                    return
+                if depth >= _MAX_BLOCK_DEPTH:
+                    if not depth_warned:
+                        warnings.append(
+                            f"Block nesting deeper than {_MAX_BLOCK_DEPTH}"
+                            f" levels ('{bname}') left unexploded.")
+                        depth_warned = True
+                    return
+                top = block if block is not None else bname
+                for virt in ent.virtual_entities():
+                    if n_exploded >= max_block_entities:
+                        if not budget_warned:
+                            warnings.append(
+                                f"Block explosion stopped at the "
+                                f"{max_block_entities}-entity budget; "
+                                f"remaining block geometry omitted.")
+                            budget_warned = True
+                        return
+                    n_exploded += 1
+                    _handle(virt, block=top, depth=depth + 1)
             # other entity types are skipped (kept honest — not fabricated)
         except Exception as exc:  # pragma: no cover - malformed entity guard
             warnings.append(f"Skipped {etype} on layer '{layer}': {exc}")
 
+    for ent in msp:
+        _handle(ent)
+
     ir.metadata = {"dxf_units": resolved_units,
                    "n_layers": len([lyr for lyr in layers if lyr is not None])}
+    if n_exploded:
+        ir.metadata["n_block_entities"] = n_exploded
     if not ir.entities:
         warnings.append("No supported entities found in DXF model space.")
     return ir
