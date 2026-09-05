@@ -34,7 +34,10 @@ geometry layer pinned down.
 rendered sheets — many production plots letter with stroked outlines
 (no text layer at all) — and merges the results into the IR as
 confidence-scored text entities in the same coordinate frame
-(auto-detects sideways-plotted sheets and PDF page rotation).
+(auto-detects sideways-plotted sheets and PDF page rotation, and
+corrects the engine's silent corner-order rotation on flipped or
+vertical lines — verified within ~2 pt of the vector-ingest frame on
+/Rotate=0/90/180/270 and both vertical reading directions).
 
 `planlens.ir.align.fit_plot_transform` fits the model-space-to-plot
 transform (axis rotation + scale + offset) from anchor geometry, so
