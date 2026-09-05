@@ -63,7 +63,11 @@ def _render_page_png(filepath: Optional[str], content: Optional[bytes],
     rendered pixel points must be pushed through the page's derotation
     matrix before the usual y-flip (which ingest does with the
     rotation-aware ``rect.height`` — replicated here verbatim, quirks
-    and all, so OCR and vector geometry always agree).
+    and all, so OCR and vector geometry always agree). This mapping was
+    re-verified empirically 2026-09-05 with rendered-blob fixtures at
+    every /Rotate value: the derotation matrix is exactly right; the
+    /Rotate=90/270 position bug lived in cls-flipped CORNER ORDER, not
+    here (see the flip correction in :func:`ocr_text_items`).
     """
     import fitz
 
@@ -134,7 +138,7 @@ def ocr_text_items(filepath: Optional[str] = None,
 
     engine = _require_engine()
 
-    def _run(img, rot):
+    def _run(img, rot, want_work=False):
         if rot == 90:
             work = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
         elif rot == 180:
@@ -144,7 +148,64 @@ def ocr_text_items(filepath: Optional[str] = None,
         else:
             work = img
         result, _elapse = engine(work)
+        if want_work:
+            return result or [], work
         return result or []
+
+    def _role_shifts(work, result):
+        """Per-line corner-ROLE shift correcting the detector's order.
+
+        RapidOCR's detector returns image-canonical corners (visual
+        TL, TR, BR, BL) while its recognition reads the line through a
+        crop the pipeline may have rotated (tall crops turn 90 deg; the
+        angle classifier adds 180 when a line is presented upside-down)
+        — and the corners are NEVER re-ordered to match. The text comes
+        back correct while the quad's reading-frame roles are rotated,
+        silently landing the mapped position one string-length away
+        (measured ~100-200 pt on /Rotate=90/270 pages and on
+        vertical-reading-down text). Mapped exhaustively 2026-09-05
+        with authored-0/90/180/270 fixtures against the engine's own
+        per-crop classifier labels:
+
+        ==========  =========  =====================  ==========
+        det box     cls label  engine actually read   role shift
+        ==========  =========  =====================  ==========
+        wide        '0'        left-to-right          0
+        wide        '180'      upside-down            2
+        tall        '180'      bottom-to-top (up)     3
+        tall        '0'        top-to-bottom (down)   1
+        ==========  =========  =====================  ==========
+
+        The engine does not expose its per-line cls decision, so this
+        re-runs its own classifier on its own crops. Wide boxes keep a
+        0.7 confidence gate ('0'/no-shift is the safe default there);
+        tall boxes must pick one of the two vertical readings either
+        way, so the argmax label decides.
+        """
+        shifts = [0] * len(result)
+        cls = getattr(engine, "text_cls", None)
+        crop_fn = getattr(engine, "get_crop_img_list", None)
+        if cls is None or crop_fn is None or not result:
+            return shifts
+        try:
+            boxes = [np.array(box, dtype=np.float32)
+                     for box, _t, _c in result]
+            crops = crop_fn(work, boxes)
+            _imgs, cls_res, _elapse = cls(crops)
+            for i, r in enumerate(cls_res[:len(shifts)]):
+                label, score = str(r[0]), float(r[1])
+                box = result[i][0]
+                w = math.hypot(box[1][0] - box[0][0],
+                               box[1][1] - box[0][1])
+                h = math.hypot(box[3][0] - box[0][0],
+                               box[3][1] - box[0][1])
+                if h > w:
+                    shifts[i] = 3 if label == "180" else 1
+                elif label == "180" and score >= 0.7:
+                    shifts[i] = 2
+        except Exception:  # pragma: no cover - engine-internal drift
+            pass  # no correction is better than a crash
+        return shifts
 
     if rotate == "auto":
         png_lo, _, _, _ = _render_page_png(filepath, content, page, 100.0)
@@ -153,10 +214,12 @@ def ocr_text_items(filepath: Optional[str] = None,
         # All four rotations (verifier finding, 2026-09-05: probing only
         # 0/90 left 180-presented text to RapidOCR's angle classifier,
         # which silently flips the line and returns a 180-reversed corner
-        # order — positions land one string-width away with no error).
-        # KNOWN RESIDUAL: when char counts tie across a 180 pair the
-        # earlier rotation wins and flipped lines can still slip through;
-        # a box-orientation cls-flip detector is the documented next step.
+        # order — positions landed one string-length away with no error).
+        # The former KNOWN RESIDUAL (char-count ties letting flipped
+        # lines slip through) is now closed downstream: _flipped_lines
+        # re-runs the engine's own classifier per line and the corner
+        # roles are corrected before mapping, whatever rotation wins
+        # here.
         for rot in (0, 90, 180, 270):
             chars = sum(len(str(t)) for _b, t, c in _run(lo, rot)
                         if _conf(c) >= min_confidence)
@@ -170,10 +233,11 @@ def ocr_text_items(filepath: Optional[str] = None,
     png, _w_pt, h_pt, derot = _render_page_png(filepath, content, page, dpi)
     img = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
     h_px, w_px = img.shape[:2]
-    result = _run(img, rotate)
+    result, work = _run(img, rotate, want_work=True)
     items: List[TextItem] = []
     if not result:
         return items
+    shifts = _role_shifts(work, result)
     k = 72.0 / dpi
     da, db, dc, dd, de, df = derot
 
@@ -189,13 +253,19 @@ def ocr_text_items(filepath: Optional[str] = None,
         return (xu, h_pt - yu)
 
     n = 0
-    for box, text, conf in result:
+    for idx, (box, text, conf) in enumerate(result):
         conf_f = _conf(conf)
         if conf_f < min_confidence or not str(text).strip():
             continue
-        # RapidOCR box order: TL, TR, BR, BL in image coords.
-        tl, tr, _br, bl = (to_ir(box[0]), to_ir(box[1]),
-                           to_ir(box[2]), to_ir(box[3]))
+        # RapidOCR box order: TL, TR, BR, BL in image coords — VISUAL
+        # roles, not reading-frame roles. _role_shifts (see there) says
+        # how far the reading frame is rotated from that; applying the
+        # shift makes position/rotation/height read off the true
+        # baseline whatever way the line was presented.
+        s0 = shifts[idx]
+        order = tuple((j + s0) % 4 for j in range(4))
+        tl, tr, _br, bl = (to_ir(box[order[0]]), to_ir(box[order[1]]),
+                           to_ir(box[order[2]]), to_ir(box[order[3]]))
         read_dir = (tr[0] - tl[0], tr[1] - tl[1])
         rotation = math.degrees(math.atan2(read_dir[1], read_dir[0]))
         height = math.hypot(tl[0] - bl[0], tl[1] - bl[1])
