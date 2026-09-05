@@ -48,22 +48,28 @@ native CAD entities can be located on the plotted page.
   recovery on no-text-layer plots (88-92% truth-text coverage, median
   coordinate error 1.4-7 pt on the validation sheets), plot-transform
   fitting (0.02-0.03 pt rms on rotated real plots).
-- **Partially proven on real sheets**: leader detection reaches 11/25
-  native-truth tips on the validation set (up from 0/25). Independent
-  verification attributes that gain to the plot-transform fit plus
-  fold-blind triangle alignment — the newer stroke-cluster arrowhead
-  model contributes no additional matched tips yet and is groundwork
-  for the sparse-dot regime, not the source of the number. Residuals
-  are tips with no plotted arrow fragments at all, or dots inside
-  stipple below any principled density gate.
-- **Not yet usable on stroked/no-text real plots**: dimension
-  detection. On such sheets the confidence renormalization admits
-  arrow/hatch misreads at high confidence (measured ~0 precision
-  against native truth on the worst validation sheet at default
-  thresholds); real plots also split the dimension line around
-  centered text, which the current model does not pair. Both are
-  documented next steps — treat real-sheet dimension output as noise
-  until then. (Synthetic/fixture dimension detection is proven.)
+- **Partially proven on real sheets**: leader detection reaches 21/25
+  native-truth tips on the validation set (11/25 before the 2026-09-05
+  arrowhead-representation work; 0/25 before the plot-transform fit).
+  The 2026-09-05 gain came from accepting 3-vertex OPEN arrow chains —
+  real plotters draw an arrow outline minus one whole edge, in both
+  base+leg and chevron flavors — behind a shape gate (near-equal legs,
+  slender base, arrowhead-scale size) that keeps SHX glyph strokes
+  out. Dimension detection on the same sheets reaches 13/16 native
+  defpoints (from 1/16) via a split-shaft pairing leg: two collinear
+  opposed-arrow half-shafts around a centered text gap (the dominant
+  real plot style), plus the outside-arrows narrow style, both with
+  witness-line corroboration; proposal ends are the arrow apexes (the
+  CAD defpoints). Witness lines now require arrowhead-scale length
+  (stipple fragments no longer corroborate), and on no-text sheets an
+  un-corroborated or cluster-only proposal is capped at confidence
+  0.45 — the worst sheet's default-threshold dimension output went
+  from 44 proposals at ~0 precision to 11 with 8 touching native
+  truth (the survivors flagged as false-vs-native include what appear
+  to be manually-drafted dimensions the native truth cannot see).
+  Residual misses are tips with no plotted arrow fragments at all,
+  dots inside stipple below any principled density gate, and a few
+  dimension layouts (witness-crossing verticals) not yet modeled.
 - **Best-effort tier**: revision clouds (drafting-practice dependent).
 
 ## Install

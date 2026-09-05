@@ -633,18 +633,59 @@ def _arrowhead_candidates(ir: DrawingIR, max_arrowhead_size: float):
     usable once B1's DXF LEADER ingest lands).
     """
     for e in ir.entities:
+        size_cap = max_arrowhead_size
         if isinstance(e, Polyline) and e.closed and 3 <= len(e.vertices) <= 5:
             verts = e.vertices
         elif isinstance(e, Region) and 3 <= len(e.boundary) <= 5:
             verts = e.boundary
-        elif isinstance(e, Polyline) and not e.closed and len(e.vertices) in (3, 4):
-            # OPEN near-triangle: some plotters emit a filled arrowhead's
-            # outline without repeating the first point (the same reason a
-            # PDF "re" rectangle ingests as an open 4-corner polyline), so
-            # accept an open 3-4-vertex chain whose implied closing gap is
-            # small relative to its perimeter — a glyph stroke or zigzag has
-            # a large gap and is rejected here (and by the shaft/alignment
-            # gates after).
+        elif isinstance(e, Polyline) and not e.closed and len(e.vertices) == 3:
+            # OPEN 3-vertex chain: real plotters omit a WHOLE EDGE of the
+            # arrow triangle, not just a closing sliver — verified on the
+            # Mecklenburg ground-truth plots (2026-09-05) in BOTH flavors:
+            # native DIMENSION arrowheads there are [base-corner,
+            # base-corner, apex] with a LEG missing (gap = 0.75x the drawn
+            # path), while the same sheet's LEADER arrowheads are narrow
+            # chevrons [barb, apex, barb] with the BASE missing. The old
+            # closing-gap rule accepted only the chevron flavor — the root
+            # cause of dimension recall 1/16. SHX lettering and stipple
+            # texture stroke thousands of 3-vertex V/L chains, so accepting
+            # every near-triangle floods composition with junk (measured
+            # 68 -> 1477 leader proposals on one sheet); instead the
+            # implied triangle must LOOK like a plotted arrowhead, gap
+            # placement free: sorted edges a <= b <= c with near-equal legs
+            # (c - b <= 0.2c), a slender base (a <= 0.55c — a tip angle up
+            # to ~32 deg; every measured real arrow is 0.33), and
+            # arrowhead-scale SIZE (bbox diagonal >= 0.5x
+            # ``max_arrowhead_size`` — measured real arrows sit at
+            # 0.75-1.0x while stipple/glyph junk is overwhelmingly
+            # smaller: 1160 of 1311 junk chains on the worst sheet fell
+            # below half scale).
+            verts = e.vertices
+            pts3 = [tuple(p) for p in verts]
+            edges = sorted([
+                math.hypot(pts3[0][0] - pts3[1][0], pts3[0][1] - pts3[1][1]),
+                math.hypot(pts3[1][0] - pts3[2][0], pts3[1][1] - pts3[2][1]),
+                math.hypot(pts3[0][0] - pts3[2][0], pts3[0][1] - pts3[2][1]),
+            ])
+            a3, b3, c3 = edges
+            if c3 <= 0 or a3 > 0.55 * c3 or (c3 - b3) > 0.2 * c3:
+                continue
+            if (e.bbox is None
+                    or _bbox_diag(e.bbox) < 0.5 * max_arrowhead_size):
+                continue
+            # The shape gate above carries far more discrimination than
+            # "small closed polyline", so this class earns a looser SIZE
+            # cap: the sheet-statistic scale estimate ran ~20% under the
+            # real plotted arrows on one validation sheet (12.3 pt arrows
+            # vs a 10.0 pt estimate), which silently rejected every leader
+            # arrowhead there.
+            size_cap = 1.5 * max_arrowhead_size
+        elif isinstance(e, Polyline) and not e.closed and len(e.vertices) == 4:
+            # OPEN 4-vertex near-ring: a filled arrowhead's outline drawn
+            # without repeating the first point (the same reason a PDF "re"
+            # rectangle ingests as an open 4-corner polyline) — accept only
+            # when the implied closing gap is small relative to the drawn
+            # path; a glyph zigzag has a large gap and is rejected.
             verts = e.vertices
             per = e.length()
             gap = math.hypot(verts[0][0] - verts[-1][0],
@@ -653,7 +694,7 @@ def _arrowhead_candidates(ir: DrawingIR, max_arrowhead_size: float):
                 continue
         else:
             continue
-        if e.bbox is None or _bbox_diag(e.bbox) > max_arrowhead_size:
+        if e.bbox is None or _bbox_diag(e.bbox) > size_cap:
             continue
         pts = [tuple(p) for p in verts]
         # Non-degeneracy: a real arrowhead encloses area (an equilateral
@@ -1103,6 +1144,13 @@ def _fold_alignment(u: Point, v: Point) -> float:
     return abs(u[0] * v[0] + u[1] * v[1])
 
 
+#: Ceiling for a no-text-renormalized CONTINUOUS dimension proposal that
+#: lacks witness-line corroboration at both ends. Deliberately below the
+#: conventional 0.5 call threshold: with text unobservable, alignment alone
+#: is dominated by hatch/stipple misreads (see find_dimensions docstring).
+_UNCORROBORATED_CAP = 0.45
+
+
 def _median(vals: List[float]) -> float:
     s = sorted(vals)
     return s[len(s) // 2] if s else 0.0
@@ -1127,29 +1175,54 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                     search_radius: Optional[float] = None,
                     text_radius: Optional[float] = None,
                     min_confidence: float = 0.0) -> List[Dict[str, Any]]:
-    """PROPOSE dimension constructs (shaft with arrowheads at BOTH ends).
+    """PROPOSE dimension constructs — continuous OR split-shaft.
 
     A dimension line: a straight shaft with an arrowhead at EACH end, usually
     bracketed by perpendicular extension (witness) lines terminating near the
     tips, with the dimension VALUE text near the shaft midpoint. The
-    both-ends-arrowed structure is what distinguishes it from a leader (one
+    two-arrowheads structure is what distinguishes it from a leader (one
     arrowhead) — which also makes this the disambiguator for
     :func:`find_leaders`'s documented dimension false-positive source (see
     its ``exclude_dimensions`` option).
 
-    Heuristic: for every Line/open-Polyline shaft, look for an arrowhead
-    candidate (:func:`_arrowhead_candidates`) whose centroid lies within
-    ``search_radius`` of EACH shaft endpoint; score
+    Two detection legs (both verified against the Mecklenburg native-DXF
+    ground-truth plots, 2026-09-05):
 
-    - **alignment** (0.40) — mean, over both ends, of the |cos| between the
-      arrowhead's apex-from-base direction and the shaft's terminal-segment
-      axis (dimension arrows point along the shaft, inward or outward, so the
-      score is sign-blind);
-    - **text** (0.30) — nearest TextItem to the shaft midpoint within
-      ``text_radius`` (the dimension value);
-    - **extension lines** (0.30) — at each tip, any OTHER entity ending
-      within ``search_radius`` whose terminal direction is roughly
-      perpendicular (>= 55 deg) to the shaft (0, 1, or 2 ends satisfied).
+    - **Continuous** (``evidence.path = "continuous"``): one Line/open-
+      Polyline shaft with an arrowhead candidate
+      (:func:`_arrowhead_candidates`) within ``search_radius`` of EACH
+      endpoint — the drafting style whose value text sits ABOVE the line.
+    - **Split-shaft** (``evidence.path = "split_shaft"``): TWO collinear
+      half-shafts around a centered text gap, each carrying ONE arrowhead at
+      its OUTER end pointing outward — how native CAD dimensions plot when
+      the value text is centered IN the line (the dominant real-sheet style;
+      the continuous model alone scored 1/16 on native truth). Pairing
+      requires fold-collinear axes, opposed outward arrow directions, small
+      lateral offset, and a gap sized between 0.1x and 6x
+      ``max_arrowhead_size``; each half pairs with at most one partner
+      (nearest-gap-first greedy). Proposal ends are the two arrow APEX
+      points (the CAD defpoints), and ``evidence`` names both halves and
+      the gap.
+
+    Scoring (each leg): **alignment** (0.40) — sign-blind |cos| of arrowhead
+    axis vs shaft terminal axis (mean over both arrows; the split leg also
+    multiplies by the halves' collinearity); **text** (0.30) — nearest
+    TextItem to the shaft midpoint (continuous) or the GAP CENTER (split)
+    within ``text_radius``; **extension lines** (0.30) — at each tip, any
+    OTHER entity of length >= 0.5x ``max_arrowhead_size`` ending within
+    ``search_radius`` whose terminal direction is >= 55 deg off the shaft
+    axis (the length floor keeps stipple/hatch micro-fragments from
+    counting as witness lines — measured 392 sub-3-pt "witnesses" on one
+    real stippled sheet before the floor).
+
+    NO-TEXT sheets (SHX-stroked plots): confidence renormalizes over the
+    observable components as before, but a CONTINUOUS proposal is capped at
+    ``0.45`` (below the conventional 0.5 call threshold) unless corroborated
+    by witness lines at BOTH ends — on such sheets an uncorroborated
+    two-triangles-on-a-line score is dominated by hatch/stipple misreads
+    (measured ~0 precision at 0.9+ renormalized confidence on the worst
+    validation sheet). Split-shaft proposals are exempt: the paired
+    structure is itself the corroboration.
 
     Defaults follow :func:`find_leaders` (``max_arrowhead_size`` from
     :func:`_default_max_arrowhead_size`; ``search_radius`` = 1.5x;
@@ -1167,6 +1240,19 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     # Same shaft-vs-arrowhead scale gate as find_leaders (see there): keeps
     # glyph-scale micro-strokes from pairing into junk dimension proposals.
     min_shaft_length = 2.0 * max_arrowhead_size
+    # A split HALF-shaft can be much shorter than a full dimension shaft
+    # (measured 7.7-8.6 pt vs a 9.3 pt arrowhead scale on the real sheets),
+    # so the split leg uses its own floor; the pairing structure carries the
+    # discrimination a length gate provides for the continuous leg.
+    half_min_length = 0.5 * max_arrowhead_size
+    # A witness line is a REAL line: it overshoots the dimension line by at
+    # least an arrowhead-scale amount. Without a floor, stipple/hatch
+    # micro-fragments (0.06-3 pt) ending near a tip count as "witness
+    # lines" and corroborate junk (measured on ground-truth sheet 3001).
+    min_witness_length = 0.5 * max_arrowhead_size
+    # End-arrow assignment radius: see the attach comment in the per-end
+    # loop below.
+    attach_radius = min(search_radius, 0.75 * max_arrowhead_size)
 
     arrowheads = list(_arrowhead_candidates_all(ir, max_arrowhead_size,
                                                 min_shaft_length))
@@ -1197,7 +1283,42 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     # 49 s of by_id on a real 10k-entity sheet).
     ent_by_id = {e.id: e for e in ir.entities}
 
+    def _witness_at(tip: Point, axis_dir: Point, used_ids: set,
+                    ext_ids: List[str]) -> bool:
+        """Any OTHER real line terminating near ``tip`` roughly
+        perpendicular (>= 55 deg) to ``axis_dir``. Appends ids, returns
+        whether one was found. Nearest 50 endpoint hits suffice —
+        dashed/stippled linework can put thousands of endpoints in range,
+        and a real extension line terminates AT the tip."""
+        found = False
+        for hit in _ending_near_from_grid(end_grid, tip, search_radius)[:50]:
+            if hit["id"] in used_ids or hit.get("closed"):
+                continue
+            if hit.get("length", 0.0) < min_witness_length:
+                continue
+            other = ent_by_id.get(hit["id"])
+            if other is None:
+                continue
+            opts = other.points()
+            if len(opts) < 2:
+                continue
+            odir = _shaft_terminal_dir(opts, hit["end"])
+            if _fold_alignment(axis_dir, odir) <= math.cos(
+                    math.radians(55.0)):
+                ext_ids.append(hit["id"])
+                found = True
+        return found
+
+    def _nearest_text(pt: Point):
+        hit, dist = None, None
+        for t in texts:
+            d = math.hypot(t.position[0] - pt[0], t.position[1] - pt[1])
+            if d <= text_radius and (dist is None or d < dist):
+                hit, dist = {"content": t.content, "id": t.id}, d
+        return hit, dist
+
     proposals = []
+    halves: List[Dict[str, Any]] = []  # single-arrow records, split leg
     for shaft in ir.entities:
         if isinstance(shaft, Line):
             pass
@@ -1210,14 +1331,14 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
         shaft_pts = shaft.points()
         if len(shaft_pts) < 2:
             continue
-        # A dimension shaft is LONG relative to its arrowheads and
-        # essentially STRAIGHT: gate on the end-to-end separation (a glyph
-        # squiggle has a long PATH but near-coincident endpoints) and on
-        # separation/path-length straightness. (Curved/angular dimensions
-        # are out of scope — documented limitation.)
+        # A dimension shaft is essentially STRAIGHT: gate on the end-to-end
+        # separation (a glyph squiggle has a long PATH but near-coincident
+        # endpoints) and on separation/path-length straightness.
+        # (Curved/angular dimensions are out of scope — documented
+        # limitation.)
         sep = math.hypot(shaft_pts[-1][0] - shaft_pts[0][0],
                          shaft_pts[-1][1] - shaft_pts[0][1])
-        if sep < min_shaft_length or sep < 0.9 * shaft.length():
+        if sep < half_min_length or sep < 0.9 * shaft.length():
             continue
         ends = [("start", shaft_pts[0]), ("end", shaft_pts[-1])]
 
@@ -1227,24 +1348,56 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             sdir = _shaft_terminal_dir(shaft_pts, end_label)
             for cand, verts, c, kind in _arrow_near(tip):
                 d = math.hypot(c[0] - tip[0], c[1] - tip[1])
-                if d <= search_radius and (best is None or d < best[1]):
+                # A dimension arrow TOUCHES the line end it belongs to (its
+                # base sits AT the end, putting the centroid ~half an
+                # arrow-length away) — the full leader-flow search_radius
+                # let glyph junk 1.4 arrow-lengths away hijack an end and
+                # misclassify a split half-shaft as two-arrowed.
+                if d <= attach_radius and (best is None or d < best[1]):
                     if kind == "fill_cluster":
                         a_score = _cluster_alignment(verts, sdir)[0]
                     else:
                         a_score = _triangle_alignment(verts, sdir)[0]
-                    best = (cand, d, a_score, kind)
+                    best = (cand, d, a_score, kind, verts, sdir, tip)
             per_end.append((end_label, tip, best))
 
-        if any(b is None for _, _, b in per_end):
-            continue  # a dimension needs an arrowhead at BOTH ends
+        n_arrowed = sum(1 for _, _, b in per_end if b is not None)
+
+        if n_arrowed == 1 and sep >= half_min_length:
+            # SPLIT-LEG CANDIDATE: one arrowed (outer) end. The arrow must
+            # sit BEYOND the shaft end pointing outward (its centroid past
+            # the tip along the terminal direction) — an arrow behind the
+            # tip is some other construct's arrow this shaft merely grazes.
+            b = next(b for _, _, b in per_end if b is not None)
+            cand, _d, a_score, kind, verts, sdir, tip = b
+            centroid = _centroid(verts)
+            if ((centroid[0] - tip[0]) * sdir[0]
+                    + (centroid[1] - tip[1]) * sdir[1]) > 0:
+                inner = (shaft_pts[0] if tip == shaft_pts[-1]
+                         else shaft_pts[-1])
+                # Apex = candidate vertex farthest along the outward axis
+                # (for a cluster: the farthest member center) — the CAD
+                # defpoint the arrow points at.
+                apex = max(verts, key=lambda v: v[0] * sdir[0]
+                           + v[1] * sdir[1])
+                halves.append({
+                    "shaft": shaft, "cand": cand, "kind": kind,
+                    "a_score": a_score, "outer": tip, "inner": inner,
+                    "out": sdir, "apex": apex,
+                    "members": set(getattr(cand, "member_ids", ())),
+                })
+            continue
+
+        if n_arrowed < 2 or sep < min_shaft_length:
+            continue
         if per_end[0][2][0].id == per_end[1][2][0].id:
-            continue  # ... and they must be two DISTINCT arrowheads
+            continue  # the two arrowheads must be DISTINCT
 
         align = sum(b[2] for _, _, b in per_end) / len(per_end)
 
-        # Extension (witness) lines: something ELSE terminating near each tip,
-        # roughly perpendicular to the shaft's terminal axis at that end.
-        # Cluster members must not double as witness lines.
+        # Extension (witness) lines: something ELSE terminating near each
+        # tip, roughly perpendicular to the shaft's terminal axis at that
+        # end. Cluster members must not double as witness lines.
         used_ids = {shaft.id} | {b[0].id for _, _, b in per_end}
         for _, _, b in per_end:
             used_ids |= set(getattr(b[0], "member_ids", ()))
@@ -1252,37 +1405,13 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
         ext_ends = 0
         for end_label, tip, _b in per_end:
             shaft_dir = _shaft_terminal_dir(shaft_pts, end_label)
-            found_here = False
-            # Nearest 50 endpoint hits suffice for a witness-line check —
-            # dashed/stippled linework can put thousands of endpoints in
-            # range, and a real extension line terminates AT the tip.
-            for hit in _ending_near_from_grid(end_grid, tip,
-                                              search_radius)[:50]:
-                if hit["id"] in used_ids or hit.get("closed"):
-                    continue
-                other = ent_by_id.get(hit["id"])
-                if other is None:
-                    continue
-                opts = other.points()
-                if len(opts) < 2:
-                    continue
-                odir = _shaft_terminal_dir(opts, hit["end"])
-                if _fold_alignment(shaft_dir, odir) <= math.cos(
-                        math.radians(55.0)):
-                    ext_ids.append(hit["id"])
-                    found_here = True
-            if found_here:
+            if _witness_at(tip, shaft_dir, used_ids, ext_ids):
                 ext_ends += 1
         ext_score = ext_ends / 2.0
 
         mid = (0.5 * (ends[0][1][0] + ends[1][1][0]),
                0.5 * (ends[0][1][1] + ends[1][1][1]))
-        text_hit, text_dist = None, None
-        for t in texts:
-            d = math.hypot(t.position[0] - mid[0], t.position[1] - mid[1])
-            if d <= text_radius and (text_dist is None or d < text_dist):
-                text_hit = {"content": t.content, "id": t.id}
-                text_dist = d
+        text_hit, text_dist = _nearest_text(mid)
         text_score = _text_proximity_score(text_dist, text_radius)
 
         if texts:
@@ -1290,8 +1419,20 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                                + 0.30 * ext_score, 3)
         else:
             # No text layer (SHX plot) — same renormalization rationale as
-            # find_leaders: score the observable components.
-            confidence = round((0.40 * align + 0.30 * ext_score) / 0.70, 3)
+            # find_leaders: score the observable components. But capped
+            # below the conventional 0.5 call threshold unless witness
+            # lines corroborate BOTH ends AND at least one arrowhead is a
+            # DRAWN shape (triangle): with text unobservable, an
+            # uncorroborated two-triangles-on-a-line is dominated by
+            # hatch/stipple misreads (measured ~0 precision at 0.9+
+            # renormalized confidence on ground-truth sheet 3001), and a
+            # cluster-only pair is any stipple splash at a long line's two
+            # ends — page borders score 0.74+ that way, witnesses and all.
+            raw = (0.40 * align + 0.30 * ext_score) / 0.70
+            kinds = [b[3] for _, _, b in per_end]
+            if ext_ends < 2 or "triangle" not in kinds:
+                raw = min(raw, _UNCORROBORATED_CAP)
+            confidence = round(raw, 3)
         if confidence < min_confidence:
             continue
 
@@ -1310,6 +1451,7 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             "text_distance": _r(text_dist) if text_dist is not None else None,
             "confidence": confidence,
             "evidence": {
+                "path": "continuous",
                 "arrowhead_kinds": [b[3] for _, _, b in per_end],
                 "alignment_score": _r(align, 3),
                 "text_proximity_score": _r(text_score, 3),
@@ -1320,8 +1462,160 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             "proposal_only": True,
         })
 
+    proposals.extend(_pair_split_halves(
+        halves, max_arrowhead_size, texts, _witness_at, _nearest_text,
+        text_radius, min_confidence))
+
     proposals.sort(key=lambda p: p["confidence"], reverse=True)
     return proposals
+
+
+def _pair_split_halves(halves: List[Dict[str, Any]],
+                       max_arrowhead_size: float, texts,
+                       witness_at, nearest_text, text_radius: float,
+                       min_confidence: float) -> List[Dict[str, Any]]:
+    """Pair single-arrow half-shafts into split-shaft dimension proposals.
+
+    See :func:`find_dimensions` (split-shaft leg) for the model. Pairing
+    gates, each against the verified real-sheet geometry: fold-collinear
+    axes (|cos| >= 0.997, ~4 deg), OPPOSED arrow directions, lateral
+    offset <= max(0.15 x arrowhead scale, 1.0), and one of the two real
+    plotted arrangements:
+
+    - **outward** — arrows at the OUTER ends pointing away from each
+      other, inner ends facing across a text-sized gap (0.1x-6x the
+      arrowhead scale; measured ~1.5x on the ground-truth sheets);
+    - **inward** — arrows OUTSIDE the extension lines pointing at each
+      other (the narrow-dimension style; verified on ground-truth sheet
+      10.31A), apexes facing across the dimension extent (up to 40x the
+      arrowhead scale) with the half-shafts trailing outward. The larger
+      span is licensed by a harder corroboration rule: on a no-text sheet
+      an inward pair is DROPPED unless witness lines corroborate BOTH
+      apexes (the terminator geometry the style guarantees).
+
+    Nearest-gap-first greedy: each half joins at most one pair — a
+    dimension string shares defpoints between neighbors, and the smallest
+    valid gap is the half's own gap, not the span across a neighboring
+    dimension.
+    """
+    out: List[Dict[str, Any]] = []
+    if len(halves) < 2:
+        return out
+    max_gap = 6.0 * max_arrowhead_size
+    min_gap = 0.1 * max_arrowhead_size
+    max_span = 40.0 * max_arrowhead_size
+    max_lateral = max(0.15 * max_arrowhead_size, 1.0)
+
+    # Halves are few (dozens on the dense validation sheets) — a direct
+    # pair scan is cheap, and the inward style's partners can sit a whole
+    # dimension-extent apart, which defeats a text-gap-sized grid.
+    pairs = []
+    for i, hi in enumerate(halves):
+        for j in range(i + 1, len(halves)):
+            hj = halves[j]
+            if hi["cand"].id == hj["cand"].id:
+                continue
+            fold = _fold_alignment(hi["out"], hj["out"])
+            if fold < 0.997:
+                continue
+            if (hi["out"][0] * hj["out"][0]
+                    + hi["out"][1] * hj["out"][1]) >= 0:
+                continue  # arrows must OPPOSE
+            vx = hj["inner"][0] - hi["inner"][0]
+            vy = hj["inner"][1] - hi["inner"][1]
+            lateral = abs(vx * hi["out"][1] - vy * hi["out"][0])
+            if lateral > max_lateral:
+                continue
+            inner_gap = -(vx * hi["out"][0] + vy * hi["out"][1])
+            ax = hj["apex"][0] - hi["apex"][0]
+            ay = hj["apex"][1] - hi["apex"][1]
+            apex_span = ax * hi["out"][0] + ay * hi["out"][1]
+            if min_gap <= inner_gap <= max_gap:
+                pairs.append((inner_gap, fold, i, j, "outward"))
+            elif min_gap <= apex_span <= max_span and inner_gap < 0:
+                pairs.append((apex_span, fold, i, j, "inward"))
+
+    pairs.sort(key=lambda t: t[0])
+    used: set = set()
+    for gap, fold, i, j, style in pairs:
+        if i in used or j in used:
+            continue
+        hi, hj = halves[i], halves[j]
+        align = 0.5 * (hi["a_score"] + hj["a_score"]) * fold
+
+        used_ids = ({hi["shaft"].id, hj["shaft"].id,
+                     hi["cand"].id, hj["cand"].id}
+                    | hi["members"] | hj["members"])
+        ext_ids: List[str] = []
+        ext_ends = 0
+        for h in (hi, hj):
+            if witness_at(h["apex"], h["out"], used_ids, ext_ids):
+                ext_ends += 1
+        ext_score = ext_ends / 2.0
+        if style == "inward" and not texts and ext_ends < 2:
+            continue  # see docstring: inward's wide span needs witnesses
+        used.add(i)
+        used.add(j)
+
+        # Text sits in the inner gap (outward) or between the apexes
+        # (inward) — the mid-construct point either way.
+        gap_center = (0.5 * (hi["inner"][0] + hj["inner"][0]),
+                      0.5 * (hi["inner"][1] + hj["inner"][1]))
+        if style == "inward":
+            gap_center = (0.5 * (hi["apex"][0] + hj["apex"][0]),
+                          0.5 * (hi["apex"][1] + hj["apex"][1]))
+        text_hit, text_dist = nearest_text(gap_center)
+        text_score = _text_proximity_score(text_dist, text_radius)
+
+        if texts:
+            confidence = round(0.40 * align + 0.30 * text_score
+                               + 0.30 * ext_score, 3)
+        else:
+            # Renormalized like the continuous leg. The paired split
+            # structure (collinear opposed-arrow halves around a
+            # text-sized gap, or witness-corroborated inward arrows) is
+            # itself the corroboration the continuous cap asks for — but
+            # only when at least one arrowhead is a DRAWN shape; a
+            # cluster-only pair stays capped (same stipple rationale).
+            raw = (0.40 * align + 0.30 * ext_score) / 0.70
+            if hi["kind"] != "triangle" and hj["kind"] != "triangle":
+                raw = min(raw, _UNCORROBORATED_CAP)
+            confidence = round(raw, 3)
+        if confidence < min_confidence:
+            continue
+
+        a_xy, b_xy = hi["apex"], hj["apex"]
+        mid = (0.5 * (a_xy[0] + b_xy[0]), 0.5 * (a_xy[1] + b_xy[1]))
+        out.append({
+            "end_a_xy": [_r(a_xy[0]), _r(a_xy[1])],
+            "end_b_xy": [_r(b_xy[0]), _r(b_xy[1])],
+            "midpoint_xy": [_r(mid[0]), _r(mid[1])],
+            "length": _r(math.hypot(b_xy[0] - a_xy[0], b_xy[1] - a_xy[1])),
+            "angle_deg": _r(_seg_angle(a_xy, b_xy), 2),
+            "shaft_id": hi["shaft"].id,
+            "arrowhead_ids": [hi["cand"].id, hj["cand"].id],
+            "extension_line_ids": sorted(set(ext_ids)),
+            "text": text_hit["content"] if text_hit else None,
+            "text_id": text_hit["id"] if text_hit else None,
+            "text_distance": _r(text_dist) if text_dist is not None else None,
+            "confidence": confidence,
+            "evidence": {
+                "path": "split_shaft",
+                "arrangement": style,
+                "half_shaft_ids": [hi["shaft"].id, hj["shaft"].id],
+                "gap": _r(gap, 2),
+                "gap_center_xy": [_r(gap_center[0]), _r(gap_center[1])],
+                "arrowhead_kinds": [hi["kind"], hj["kind"]],
+                "alignment_score": _r(align, 3),
+                "collinearity": _r(fold, 4),
+                "text_proximity_score": _r(text_score, 3),
+                "extension_line_score": _r(ext_score, 3),
+                "n_extension_ends": ext_ends,
+                **({} if texts else {"text_unavailable": True}),
+            },
+            "proposal_only": True,
+        })
+    return out
 
 
 def _circle_fit(verts: List[Point]) -> Tuple[Point, float, float]:
