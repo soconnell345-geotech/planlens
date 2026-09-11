@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from planlens.ir.results import (
     Arc, Circle, Dimension, DrawingIR, Entity, Leader, Line, Polyline,
@@ -633,6 +633,30 @@ def _default_max_arrowhead_size(ir: DrawingIR) -> float:
     return 20.0
 
 
+#: Slenderness the open-3 candidate gate licenses: base <= 0.55 x leg.
+#: Every measured real arrowhead sits at 0.33; 0.55 is the loosest shape
+#: still admitted as "looks like a plotted arrowhead".
+_OPEN3_BASE_RATIO = 0.55
+
+#: How far ABOVE the sheet-statistic arrowhead scale a shape-verified
+#: candidate may run. Single home for the multiplier: the open-3 size cap
+#: and the dimension leg's coarse end-arrow prune are the SAME statement
+#: ("the estimate is a statistic, and it ran ~20% under the real plotted
+#: arrows on one validation sheet"), so they must move together — the
+#: prune has to reach every candidate the gate admits or it silently
+#: becomes the attachment test.
+_LOOSE_SIZE_SCALE = 1.5
+
+#: How far BELOW the sheet-statistic arrowhead scale a shape may fall
+#: and still be read as a terminator: bbox / vertex-set diagonal >= 0.5x.
+#: Measured real arrows sit at 0.75-1.0x while stipple/glyph junk is
+#: overwhelmingly smaller (1160 of 1311 junk chains on the worst sheet
+#: fell below half scale). Single home for the floor: the open-3 chevron
+#: gate and the oriented-tipless test (:func:`_arrow_attach`) make the
+#: same statement, so they must move together.
+_MIN_ARROW_SIZE_SCALE = 0.5
+
+
 def _arrowhead_candidates(ir: DrawingIR, max_arrowhead_size: float):
     """Yield (entity, vertices) for small closed 3-5-vertex Polyline/Region.
 
@@ -665,8 +689,9 @@ def _arrowhead_candidates(ir: DrawingIR, max_arrowhead_size: float):
             # 68 -> 1477 leader proposals on one sheet); instead the
             # implied triangle must LOOK like a plotted arrowhead, gap
             # placement free: sorted edges a <= b <= c with near-equal legs
-            # (c - b <= 0.2c), a slender base (a <= 0.55c — a tip angle up
-            # to ~32 deg; every measured real arrow is 0.33), and
+            # (c - b <= 0.2c), a slender base (a <= 0.55c
+            # (:data:`_OPEN3_BASE_RATIO`) — a tip angle up to ~32 deg;
+            # every measured real arrow is 0.33), and
             # arrowhead-scale SIZE (bbox diagonal >= 0.5x
             # ``max_arrowhead_size`` — measured real arrows sit at
             # 0.75-1.0x while stipple/glyph junk is overwhelmingly
@@ -680,18 +705,21 @@ def _arrowhead_candidates(ir: DrawingIR, max_arrowhead_size: float):
                 math.hypot(pts3[0][0] - pts3[2][0], pts3[0][1] - pts3[2][1]),
             ])
             a3, b3, c3 = edges
-            if c3 <= 0 or a3 > 0.55 * c3 or (c3 - b3) > 0.2 * c3:
+            if (c3 <= 0 or a3 > _OPEN3_BASE_RATIO * c3
+                    or (c3 - b3) > 0.2 * c3):
                 continue
             if (e.bbox is None
-                    or _bbox_diag(e.bbox) < 0.5 * max_arrowhead_size):
+                    or _bbox_diag(e.bbox)
+                    < _MIN_ARROW_SIZE_SCALE * max_arrowhead_size):
                 continue
             # The shape gate above carries far more discrimination than
             # "small closed polyline", so this class earns a looser SIZE
             # cap: the sheet-statistic scale estimate ran ~20% under the
             # real plotted arrows on one validation sheet (12.3 pt arrows
             # vs a 10.0 pt estimate), which silently rejected every leader
-            # arrowhead there.
-            size_cap = 1.5 * max_arrowhead_size
+            # arrowhead there. :data:`_LOOSE_SIZE_SCALE` is the single home
+            # for that multiplier.
+            size_cap = _LOOSE_SIZE_SCALE * max_arrowhead_size
         elif isinstance(e, Polyline) and not e.closed and len(e.vertices) == 4:
             # OPEN 4-vertex near-ring: a filled arrowhead's outline drawn
             # without repeating the first point (the same reason a PDF "re"
@@ -713,6 +741,11 @@ def _arrowhead_candidates(ir: DrawingIR, max_arrowhead_size: float):
         # triangle scores ~0.048 area/perimeter^2, our reference arrowhead
         # ~0.045); a flat sliver — a dash artifact or a near-collinear
         # glyph stroke whose ends happen to sit close — scores ~0.
+        # KNOWN SHARP EDGE: a concave swallowtail / barbed arrowhead
+        # (apex, two barbs, a rear notch cut deep) scores below 0.02 and
+        # is never a candidate, so that terminator style is DELETED at
+        # every min_confidence rather than capped (round-4 verification
+        # finding 6; documented in the README, not fixed here).
         s = 0.0
         for a, b in zip(pts, pts[1:] + pts[:1]):
             s += a[0] * b[1] - b[0] * a[1]
@@ -954,15 +987,200 @@ def _cluster_alignment(verts: List[Point], shaft_dir: Point
 #: the arrowhead-stealing impostors score -0.998..+0.208.
 _ARROW_AXIS_MIN = math.cos(math.radians(30.0))
 
+#: How far an arrowhead's centroid may sit from the shaft end it
+#: terminates, as a fraction of the arrowhead scale: a shaft ENDS at its
+#: arrowhead — base-anchored or apex-anchored, the endpoint sits within
+#: ~half an arrow length of the candidate centroid (measured 2.2-5.4 pt
+#: across every genuine ground-truth leader at a 9.31 pt scale), while a
+#: letter stroke merely passes NEAR a letterform chevron (measured p50
+#: 9.6 pt on the worst zero-annotation sheet). Single home for the
+#: constant: the leader-flow detach cap and the dimension leg's end-arrow
+#: assignment radius are the SAME physical statement, so they must move
+#: together.
+#:
+#: Where the candidate's OWN axial length is the larger scale, that is
+#: what the bound uses, and 0.75 is derivable there rather than assumed:
+#: the vertex centroid of a triangle sits 1/3 of the way from its base to
+#: its apex, so a legitimately terminated shaft end is at most 2/3 of the
+#: candidate's own length from the centroid (apex-anchored; 1/3
+#: base-anchored). 0.75 is that 2/3 plus 12.5% for plot jitter and for
+#: 4-vertex shapes whose vertex centroid is not the area centroid — an
+#: apex-anchored arrow lands EXACTLY on 2/3, so a bound of 2/3 with no
+#: slack is a coin flip in floating point.
+_ATTACH_SCALE = 0.75
+
+
+def _limiting_apex_margin(base_ratio: float) -> float:
+    """Apex-vote margin of the LOOSEST arrowhead the candidate gate admits.
+
+    The gate's slenderness statement is ``base <= base_ratio * leg``
+    (:data:`_OPEN3_BASE_RATIO`); this re-expresses that same statement in
+    the currency :func:`_arrow_geometry` actually votes in, so the
+    pointed/blunt watershed introduces no constant of its own. For the
+    limiting isoceles triangle (leg 1, base ``base_ratio``, apex A, base
+    corners B/C): the apex stands ``h`` from the midpoint of BC, a base
+    corner stands ``sqrt(h^2/4 + 9 base^2/16)`` from the midpoint of the
+    other two, and the margin is how much the winner leads by.
+    """
+    h = math.sqrt(1.0 - (base_ratio / 2.0) ** 2)
+    d_base = math.sqrt(h * h / 4.0 + 9.0 * base_ratio ** 2 / 16.0)
+    return 1.0 - d_base / h
+
+
+#: Decisiveness the apex vote must show before a QUADRILATERAL-or-larger
+#: candidate is credited with a tip (~0.341, derived — not typed — by
+#: :func:`_limiting_apex_margin` from :data:`_OPEN3_BASE_RATIO`). A shape
+#: whose farthest-from-the-others vertex leads by less than the loosest
+#: admitted arrowhead's own lead has no determinable tip: every centrally
+#: symmetric quad (square, rectangle, rhombus, parallelogram — the box
+#: terminator family, and the letterform tiles and hatch cells that
+#: mimic it) and every regular polygon leads by EXACTLY 0.
+_APEX_VOTE_MARGIN = _limiting_apex_margin(_OPEN3_BASE_RATIO)
+
+
+class _ArrowGeom(NamedTuple):
+    """Geometry INTRINSIC to a drawn arrowhead candidate (no shaft in it).
+
+    ``apex``/``axis``: see :func:`_intrinsic_apex_axis`. ``base`` is the
+    centroid of the remaining distinct vertices, so ``|apex - base|`` is
+    the candidate's own axial length — the scale its own attachment is
+    measured in. ``pointed`` says whether the shape HAS a tip at all (see
+    :func:`_arrow_geometry`). ``half_width`` is the half-extent
+    perpendicular to the axis: the arrowhead's own spine tolerance.
+    """
+
+    apex: Point
+    axis: Point
+    base: Point
+    pointed: bool
+    half_width: float
+
+
+class _Attach(NamedTuple):
+    """How a candidate attaches at one shaft end (see :func:`_arrow_attach`).
+
+    ``score`` is the alignment evidence the candidate contributes at that
+    end; ``apex`` the defpoint to publish — ALWAYS publishable as it
+    stands, because an off-spine apex is PROJECTED onto the shaft's
+    terminal ray here (see :func:`_arrow_attach`); ``state`` one of
+    ``"ok"`` (pointed, points outward) / ``"oriented"`` (tipless, but its
+    long axis lies along the line — sign-blind evidence, a cluster's
+    standing) / ``"blunt"`` (tipless and isotropic — alignment
+    unobservable) / ``"contradicted"`` (pointed, points elsewhere);
+    ``attached`` whether the shaft end is within the scale-aware bound of
+    the candidate; ``on_spine`` whether the shaft runs INTO the arrowhead
+    along its own spine — a statement about the QUALITY of that published
+    coordinate and nothing else (see :func:`_end_tier`); ``signed`` the
+    raw signed axis alignment (``None`` for candidates with no
+    vertex-level axis at all, i.e. fill clusters).
+
+    Read ``signed`` only when ``state`` is ``"ok"`` or
+    ``"contradicted"``: a tipless shape's axis runs to whichever corner
+    its TIED apex vote elected, so the number is not reproducible under
+    vertex reordering and both callers treat it as absent (see
+    :func:`_arrow_geometry`).
+    """
+
+    score: float
+    apex: Point
+    state: str
+    attached: bool
+    on_spine: bool
+    signed: Optional[float]
+
+
+def _distinct_vertices(verts: List[Point],
+                       rel_tol: float = 0.02) -> List[Point]:
+    """``verts`` with coincident corners merged, keeping path order.
+
+    A candidate can carry the SAME corner twice: an arrowhead outline
+    traced from its apex and closed back onto it ingests as
+    ``[apex, b1, b2, apex]`` (verified on the ground-truth DXF side —
+    sheet 21.01 carries two such candidates, and a LWPOLYLINE that
+    repeats its closing vertex ingests verbatim). The apex vote's premise
+    is "the vertex farthest from the centroid of the OTHER vertices", and
+    a repeated vertex makes "the other vertices" false: the duplicate
+    drags that centroid onto the apex itself and the elected apex flips to
+    a BASE corner, inverting the axis. Tolerance is RELATIVE to the
+    candidate's own size — "the same corner" is a statement about the
+    arrowhead, and these shapes run 2-13 pt at plot scale but ~1 unit at
+    DXF model scale, so no absolute epsilon serves both.
+    """
+    if len(verts) < 2:
+        return verts
+    xs = [p[0] for p in verts]
+    ys = [p[1] for p in verts]
+    tol = max(rel_tol * max(max(xs) - min(xs), max(ys) - min(ys)), 1e-9)
+    out: List[Point] = []
+    for p in verts:
+        if not any(math.hypot(p[0] - q[0], p[1] - q[1]) <= tol for q in out):
+            out.append(p)
+    return out if len(out) >= 2 else verts
+
+
+def _arrow_geometry(verts: List[Point]) -> _ArrowGeom:
+    """Intrinsic apex/axis/base/pointedness/half-width of a drawn candidate.
+
+    The apex is the vertex farthest from the centroid of the other
+    DISTINCT vertices (:func:`_distinct_vertices`) — for a slender arrow
+    triangle that is the tip between the two long legs, verified against
+    every ground-truth arrow, where it reproduces the CAD defpoint; the
+    axis points from that centroid to the apex, i.e. the direction the
+    arrow POINTS.
+
+    ``pointed`` asks whether the shape has a determinable TIP at all, and
+    it asks it of the apex vote's OWN margin: the winner must lead the
+    runner-up by :data:`_APEX_VOTE_MARGIN`, which is the lead the loosest
+    arrowhead the candidate gate admits already shows. That is the same
+    statement the gate makes about slenderness, re-expressed — it adds no
+    constant — and it is invariant under the three things a plotted
+    terminator is free to do: vertex ORDER (a max and a runner-up over a
+    set), TRANSLATION and ROTATION (differences of centroids only), and
+    SCALE (the lead is a fraction). Every centrally symmetric quad and
+    every regular polygon leads by exactly 0, which is the box/tile/blob
+    family this is here to catch.
+
+    **Scope, deliberately narrow.** Only 4-or-more-vertex candidates can
+    be called blunt. A 3-vertex candidate always keeps its tip, because
+    for a triangle this test can do no better than the signed direction
+    test that already judges it: an equilateral filled triangle — a REAL
+    drafted arrowhead style — is a perfect tie, and calling the tie blunt
+    moved its published defpoint 4.04 pt off its own drawn corner. The
+    terminator styles this branch actually reaches are therefore
+    BOX-LIKE QUADS (and their 5-gon relatives): a dot terminator ingests
+    as a Circle or a fill cluster and an oblique tick as a 2-vertex Line,
+    so neither is an :func:`_arrowhead_candidates` candidate at all.
+
+    A blunt terminator has no pointing direction, so asking whether its
+    axis runs along the line is a category error — which is what
+    ``pointed`` lets the attach predicate avoid. Note which way this
+    errs: a shape wrongly called pointed simply faces the signed
+    direction test, which is what every drawn candidate used to face.
+    """
+    pts = _distinct_vertices(verts)
+    ranked = []
+    for i, v in enumerate(pts):
+        others = [p for j, p in enumerate(pts) if j != i]
+        if not others:
+            continue
+        c = _centroid(others)
+        ranked.append((math.hypot(v[0] - c[0], v[1] - c[1]), i, v, c))
+    ranked.sort(key=lambda t: t[0], reverse=True)
+    d_win, _i, apex, base = ranked[0]
+    axis = _unit_vec(apex[0] - base[0], apex[1] - base[1])
+    nax = (-axis[1], axis[0])
+    half_width = max(abs((v[0] - apex[0]) * nax[0]
+                         + (v[1] - apex[1]) * nax[1]) for v in pts)
+    pointed = True
+    if len(pts) >= 4 and d_win > 0:
+        pointed = (d_win - ranked[1][0]) / d_win >= _APEX_VOTE_MARGIN
+    return _ArrowGeom(apex, axis, base, pointed, half_width)
+
 
 def _intrinsic_apex_axis(verts: List[Point]) -> Tuple[Point, Point]:
     """(apex, unit axis) intrinsic to a DRAWN arrowhead candidate.
 
-    The apex is the vertex farthest from the centroid of the other
-    vertices (for a slender arrow triangle that is the tip between the two
-    long legs — verified against every ground-truth arrow, where it
-    reproduces the CAD defpoint); the axis points from that centroid to
-    the apex, i.e. the direction the arrow POINTS. Intrinsic on purpose:
+    The documented pair of :func:`_arrow_geometry` — intrinsic on purpose:
     the earlier best-vertex-vs-shaft trick (:func:`_triangle_alignment`)
     picks whichever vertex axis best matches the claiming line, which lets
     ANY triangle "align" >= cos(30 deg) with ANY crossing stroke (three
@@ -970,62 +1188,414 @@ def _intrinsic_apex_axis(verts: List[Point]) -> Tuple[Point, Point]:
     cause of dimension proposals stealing true leader arrowheads on the
     ground-truth sheets.
     """
-    best = None
-    for i, v in enumerate(verts):
-        others = [p for j, p in enumerate(verts) if j != i]
-        if not others:
-            continue
-        c = _centroid(others)
-        d = math.hypot(v[0] - c[0], v[1] - c[1])
-        if best is None or d > best[0]:
-            best = (d, v, c)
-    _, apex, c = best
-    return apex, _unit_vec(apex[0] - c[0], apex[1] - c[1])
+    g = _arrow_geometry(verts)
+    return g.apex, g.axis
 
 
-def _dim_arrow_attach(verts: List[Point], kind: str, sdir: Point
-                      ) -> Optional[Tuple[float, Point]]:
-    """(alignment score, apex) if a candidate attaches as a DIMENSION arrow
-    at a shaft end with outward terminal direction ``sdir``, else None.
+def _arrow_attach(verts: List[Point], kind: str, sdir: Point, tip: Point,
+                  max_arrowhead_size: float,
+                  geom: Optional[_ArrowGeom] = None) -> _Attach:
+    """How a candidate attaches at a shaft end with outward direction ``sdir``.
 
-    A dimension arrow points OUTWARD along its dimension line — that is
-    how the construct is drafted, in every arrowhead style. For drawn
-    (triangle-family) candidates the intrinsic apex axis
-    (:func:`_intrinsic_apex_axis`) must therefore satisfy the SIGNED
-    alignment ``axis . sdir >= _ARROW_AXIS_MIN``; an arrow pointing
-    backward along the line, or off at an angle (a leader arrowhead the
-    line merely grazes, a letterform chevron), is not this line's arrow.
-    Fill-cluster candidates carry no vertex-level apex: they keep the
-    sign-blind :func:`_cluster_alignment` score (neutral 0.7 for
-    isotropic blobs) and an apex taken as the farthest member center
-    along ``sdir`` — the no-text confidence cap already disciplines
-    cluster-only dimension claims.
+    ONE predicate owns this physics for both composition legs — the leader
+    flow reads ``signed``/``attached`` for its letterform caps, the
+    dimension flow reads all of it — because the leader detach cap and the
+    dimension end-arrow radius were the same statement written twice.
+
+    - **direction**: a dimension arrow points OUTWARD along its dimension
+      line, in every arrowhead style, so a POINTED candidate's intrinsic
+      apex axis must satisfy ``axis . sdir >= _ARROW_AXIS_MIN``. An arrow
+      pointing backward, or off at an angle (a leader arrowhead the line
+      merely grazes, a letterform chevron), is ``"contradicted"`` — scored
+      0.0 here and CAPPED by the caller, never deleted.
+    - **attachment**: the candidate centroid within
+      :data:`_ATTACH_SCALE` of the arrowhead scale — but of *this
+      candidate's own* axial length when that is larger, because a drawn
+      arrow's centroid sits 2/3 of its own length behind its apex. The
+      sheet-statistic estimate is only a floor: the open-3 candidate gate
+      deliberately admits shapes up to
+      :data:`_LOOSE_SIZE_SCALE` x it (the estimate ran ~20% under the
+      real plotted arrows on one validation sheet), and those candidates
+      would otherwise be unable to attach to anything. A fill cluster has
+      no axial length of its own, so it gets the sheet-scale bound alone
+      — and that is an EXACT bound it must face, not a coarse prune: a
+      cluster is exempt from the direction and spine tests, so without it
+      the caller's prune radius would silently BE the whole attachment
+      test for the cluster family (a stipple splash 10 pt off a shaft end
+      scored 0.91 that way). The bound is loose against the cluster
+      builder's own anchoring rule (centroid within 0.6x the scale of the
+      endpoint it was built at), so it only ever bites when a cluster is
+      offered to a DIFFERENT shaft's end than the one that created it.
+    - **spine**: a dimension line runs INTO its arrowhead along the
+      arrowhead's own spine — at the apex in the apex-anchored style, at
+      the base center in the base-anchored multileader style, on the spine
+      either way. The tolerance is the candidate's own drawn half-width,
+      so it introduces no constant and scales with the arrow; it is
+      independent of the direction test, so an arrow legitimately drafted
+      at an angle to its line still passes.
+
+      **This is a COORDINATE-QUALITY test, not an identity test** — the
+      distinction :func:`_end_tier` rests on. An apex laterally off the
+      line is produced by two unrelated situations: an arrow that
+      genuinely belongs but was drafted crooked (hand-drafted, or a
+      rotated block), and a foreign arrow that merely sits near this
+      end. The spine test cannot tell them apart; the DIRECTION test can,
+      because only the former points outward along this line. So an
+      off-spine apex is not refused and does not surrender the end — it
+      is PROJECTED onto the shaft's terminal ray (the same
+      :func:`_reach_on_ray` machinery the cluster leg uses). The lateral
+      component is the drafting wobble and is the only untrustworthy
+      part; the AXIAL component is the real measurement and is kept. The
+      earlier substitution — publish the shaft's own tip — is right only
+      where the arrows sit INSIDE the line; on the split leg the arrows
+      sit outside their half-shafts, so it moved the published defpoint
+      by a whole arrow length (measured 7.2 pt on the ground-truth
+      geometry).
+
+    Terminator styles with no tip take the road fill clusters take —
+    sign-blind :func:`_cluster_alignment`, and an apex on the shaft's
+    terminal ray, clamped never to fall behind the tip. Two states come
+    out of it: ``"oriented"`` when the shape's own long axis runs along
+    the line (a diamond, a flat-tipped closed arrow, an oblong tick —
+    sign-blind evidence of belonging, exactly a cluster's), and
+    ``"blunt"`` when the shape is isotropic (a box, a tile, a pentagon
+    dot) and so has no axis to consult at all — the caller treats THAT
+    alignment channel as UNOBSERVABLE rather than contradicted, and holds
+    the construct below the call threshold.
+
+    Fill clusters keep the sign-blind cluster alignment and are exempt
+    from the spine test: they are CONSTRUCTED straddling a shaft
+    endpoint, so it is vacuous.
     """
     if kind == "fill_cluster":
-        score = _cluster_alignment(verts, sdir)[0]
-        apex = max(verts, key=lambda v: v[0] * sdir[0] + v[1] * sdir[1])
-        return score, apex
-    apex, ax = _intrinsic_apex_axis(verts)
-    signed = ax[0] * sdir[0] + ax[1] * sdir[1]
+        centroid = _centroid(verts)
+        attached = (math.hypot(centroid[0] - tip[0], centroid[1] - tip[1])
+                    <= _ATTACH_SCALE * max_arrowhead_size)
+        return _Attach(_cluster_alignment(verts, sdir)[0],
+                       _reach_on_ray(verts, sdir, tip), "ok", attached, True,
+                       None)
+    g = geom if geom is not None else _arrow_geometry(verts)
+    centroid = _centroid(verts)
+    h = math.hypot(g.apex[0] - g.base[0], g.apex[1] - g.base[1])
+    attached = (math.hypot(centroid[0] - tip[0], centroid[1] - tip[1])
+                <= _ATTACH_SCALE * max(max_arrowhead_size, h))
+    signed = g.axis[0] * sdir[0] + g.axis[1] * sdir[1]
+    if not g.pointed:
+        # TIPLESS terminator (box, diamond, flat-tipped arrow, blob): no
+        # tip, so no pointing direction — the signed test is meaningless
+        # on it and the shape has no intrinsic spine either. Fall back to
+        # the shaft's own axis for both: sign-blind cluster alignment and
+        # a spine tolerance from the shape's half-extent across that ray.
+        #
+        # The published coordinate is the centroid projected on the
+        # terminal ray, NEVER BEHIND THE TIP. Two drafted anatomies meet
+        # here and the clamp serves both: a box or dot block is inserted
+        # centred AT the defpoint, so its centroid IS the defpoint and the
+        # line runs to the shape's middle (projection = tip, clamp
+        # inert); a diamond or flat-tipped closed arrow is drawn INSIDE
+        # the line with its far corner at the defpoint, so its centroid
+        # sits half a terminator behind the line's end — and the line's
+        # end is drawn fact. Unclamped, the diamond published 3 pt short
+        # at each end of a 100 pt dimension (measured: 94.0 for 100.0).
+        # A tipless shape wholly BEYOND the tip (an arrows-outside
+        # placement) still publishes its projected centroid: a centred
+        # block is exact there, a tip-at-defpoint block reads half its
+        # own length short, and nothing in the geometry says which it is.
+        nax = (-sdir[1], sdir[0])
+        half = max(abs((v[0] - centroid[0]) * nax[0]
+                       + (v[1] - centroid[1]) * nax[1]) for v in verts)
+        spine = abs((tip[0] - centroid[0]) * nax[0]
+                    + (tip[1] - centroid[1]) * nax[1])
+        along = max(0.0, (centroid[0] - tip[0]) * sdir[0]
+                    + (centroid[1] - tip[1]) * sdir[1])
+        apex = (tip[0] + sdir[0] * along, tip[1] + sdir[1] * along)
+        # ORIENTED vs BLUNT (the policy half). A tipless shape is
+        # "oriented" — admitted with a fill cluster's standing: scored on
+        # its sign-blind alignment, named for arbitration, never ranked
+        # above a directional arrowhead — when THREE things hold, each a
+        # statement the arrowhead gates already make elsewhere:
+        #
+        # 1. its own LONG AXIS runs along the line (the cluster gate's
+        #    elongation and the signed test's cos-30 cone): a diamond or
+        #    flat-tipped arrow lying along the line it ends says,
+        #    sign-blind, that it terminates THIS line rather than one
+        #    crossing it, which sees that axis at ~90 deg;
+        # 2. it is COMMENSURATE with the sheet's arrowheads — vertex-set
+        #    diagonal >= :data:`_MIN_ARROW_SIZE_SCALE` x the arrowhead
+        #    scale, the open-3 chevron gate's own floor. Measured on the
+        #    corpus (round-5 verification, D3): every shape the rank
+        #    admitted without this floor was a 0.6-2 pt SHX glyph fragment
+        #    — 6 of 6 junk, 0 of 6 terminators — and with a real arrow at
+        #    the other end and witnesses, such a fragment CALLED at 1.0;
+        # 3. it TAPERS toward the end it marks, measured in the SHAPE'S
+        #    OWN frame (its PCA long axis, turned to face the line's
+        #    end): its lateral half-width at the far extreme of that axis
+        #    is at most :data:`_OPEN3_BASE_RATIO` of its full half-width
+        #    — the slenderness the chevron gate asks of a base against
+        #    its legs, asked here of the marking end against the body. A
+        #    diamond narrows to a vertex, a flat-tipped arrow to a short
+        #    edge; a RECTANGLE does not narrow at all, however it is
+        #    turned, and a rectangle at each end of a line with periodic
+        #    ticks is a graphic SCALE BAR, which the rank otherwise read
+        #    as a 0.944 dimension. (Measured in the shaft's frame instead,
+        #    a diamond drafted 20 deg crooked failed and a rectangle whose
+        #    diagonal happened to lie along the line passed.)
+        #
+        # Everything else stays "blunt": an ISOTROPIC shape (a box, a
+        # tile, a pentagon dot) has no axis to consult, so its alignment
+        # channel is UNOBSERVABLE, not merely sign-blind; a sub-scale
+        # fragment and an untapered oblong are glyph strokes and tiles.
+        # Blunt is capped below the call threshold unconditionally and
+        # withheld from arbitration, because a plain rectangle at the far
+        # end of a crossing line otherwise founded a 0.915 dimension that
+        # claimed a real leader's arrowhead. What the oriented rank still
+        # admits is that scene with an arrow-scale DIAMOND lying along
+        # the crossing line — which is, by every observable, a dimension.
+        # Pinned both ways in test_tipless_terminators.
+        align, deg = _cluster_alignment(verts, sdir)
+        oriented = deg >= 0.0 and align >= _ARROW_AXIS_MIN
+        if oriented:
+            xs = [v[0] for v in verts]
+            ys = [v[1] for v in verts]
+            oriented = (math.hypot(max(xs) - min(xs), max(ys) - min(ys))
+                        >= _MIN_ARROW_SIZE_SCALE * max_arrowhead_size)
+        if oriented:
+            ax = _pca_axis(verts)[0]
+            if ax[0] * sdir[0] + ax[1] * sdir[1] < 0:
+                ax = (-ax[0], -ax[1])
+            lat = [abs((v[0] - centroid[0]) * -ax[1]
+                       + (v[1] - centroid[1]) * ax[0]) for v in verts]
+            proj = [(v[0] - centroid[0]) * ax[0] + (v[1] - centroid[1]) * ax[1]
+                    for v in verts]
+            pmax = max(proj)
+            band = 0.02 * max(pmax - min(proj), 1e-9)
+            far_half = max(w for w, p in zip(lat, proj) if p >= pmax - band)
+            oriented = far_half <= _OPEN3_BASE_RATIO * max(lat)
+        return _Attach(align, apex, "oriented" if oriented else "blunt",
+                       attached, spine <= half, signed)
+    nax = (-g.axis[1], g.axis[0])
+    spine = abs((tip[0] - g.apex[0]) * nax[0]
+                + (tip[1] - g.apex[1]) * nax[1])
+    on_spine = spine <= g.half_width
+    # Off spine, publish the apex PROJECTED on the shaft's terminal ray
+    # (see the spine bullet above): keep the axial measurement, discard
+    # the lateral wobble. On spine the projection is a no-op to within
+    # the arrow's own half-width, so the drawn apex is published as-is.
+    apex = g.apex if on_spine else _reach_on_ray([g.apex], sdir, tip)
     if signed < _ARROW_AXIS_MIN:
+        # CAP, DON'T DELETE: no alignment evidence (0.0 — absent, not
+        # negative), and the caller ranks it below every uncorroborated
+        # construct. It stays a proposal.
+        return _Attach(0.0, apex, "contradicted", attached, on_spine,
+                       signed)
+    return _Attach(signed, apex, "ok", attached, on_spine, signed)
+
+
+def _reach_on_ray(verts: List[Point], sdir: Point, tip: Point) -> Point:
+    """Farthest reach of ``verts`` ON the shaft's terminal ray from ``tip``.
+
+    Two callers, one statement — "keep the axial measurement, drop the
+    lateral offset". For a fill cluster the whole splash is offered (see
+    below); for a POINTED candidate whose apex sits off the line's spine,
+    the apex alone is offered and this projects it (:func:`_arrow_attach`).
+
+    A stroke-cluster arrowhead is a stipple SPLASH of 0.06-3 pt fragments
+    with no vertex-level tip — which is why :func:`_cluster_alignment` is
+    sign-blind. What the splash DOES carry is how far the fill reaches
+    ALONG the line it terminates; laterally the defpoint is ON the
+    dimension line by construction, because that line is what the arrow
+    terminates. Taking the farthest member CENTER instead published an
+    arbitrary stipple dot up to 4.5 pt off the line as the defpoint
+    (measured over the 33 cluster-ended proposals on the ground-truth
+    corpus: p50 0.72 pt, max 4.48 pt off-axis; on-ray it is p90 0.008 pt).
+    A cluster sitting entirely behind the tip clamps to the tip itself —
+    the shaft-endpoint fallback, reached by construction.
+    """
+    reach = max(0.0, max((v[0] - tip[0]) * sdir[0] + (v[1] - tip[1]) * sdir[1]
+                         for v in verts))
+    return (tip[0] + sdir[0] * reach, tip[1] + sdir[1] * reach)
+
+
+def _end_tier(att: _Attach, kind: str) -> int:
+    """SOUNDNESS rank of a candidate at one shaft end — 0 best, 2 worst.
+
+    This is the IDENTITY question, and only the identity question: does
+    this candidate belong to THIS line? Two observations answer it, and
+    they are the two :func:`_arrow_attach` makes about the candidate
+    itself —
+
+    - **direction** — a real terminator points OUTWARD along the line it
+      terminates; a foreign arrowhead's axis is uncorrelated with it. A
+      contradicted candidate says, in its own geometry, that it belongs
+      to something else: tier 2.
+    - **attachment** — a shaft ENDS at its terminator. A detached
+      candidate is one this line merely passes near: tier 1.
+
+    Everything else the attach test reports is about the QUALITY of the
+    published coordinate, not about identity, and must not be ranked
+    here. ``on_spine`` above all: an apex off the line's axis is equally
+    the signature of a genuinely-owned arrow drafted crooked and of a
+    foreign one, so demoting on it handed the end to whatever farther
+    candidate happened to be straight — including a neighbouring real
+    leader's arrowhead, which ``exclude_dimensions`` then DELETED from
+    the leader flow at every ``min_confidence`` (measured: a 120 pt
+    dimension whose right arrow is drafted 10 deg off axis lost its end
+    to a leader arrow 4.0-6.4 pt farther out, published its defpoint
+    1.6-4.0 pt off, and took the real leader with it). The wobble is
+    handled where it belongs — by projecting the coordinate
+    (:func:`_reach_on_ray`) and by the cap ladder.
+
+    ABSENCE OF EVIDENCE IS NOT EVIDENCE, so a candidate on which the
+    direction test cannot be RUN — a blunt or oriented terminator, or a
+    fill cluster, none of which carries a pointing direction — sits at
+    tier 1, the "evidence unobservable" rank. Between tier 1 and tier 0
+    the better SEATED candidate wins (:func:`_award_end`, which explains
+    why a tier-first rule with a distance exception was measured wrong);
+    the tier itself decides only a tie, and keeps tier 2 from ever
+    winning on distance. What protects a directional arrow from a
+    sign-blind splash is therefore its seat, not its tier: a real arrow
+    seats at 0.0 in either drafted style and cannot be beaten, and the
+    splash round 4 measured 5 pt off an end (which then took the end
+    from a real drawn arrow and lifted the construct from 0.45 to 0.908
+    — CALLED) seats ~3.5 pt by its nearest member and loses to that
+    arrow.
+
+    WITHIN a tier candidates are ordered by :func:`_seat_distance` —
+    where the shaft end sits relative to the candidate's own apex, base
+    centre or nearest member — then by centroid distance, never by
+    centroid distance alone, which systematically read the true
+    arrows-inside arrow as farther than junk beside it.
+    """
+    if att.state == "contradicted":
+        return 2
+    if (att.state in ("blunt", "oriented") or kind == "fill_cluster"
+            or not att.attached):
+        return 1
+    return 0
+
+
+def _seat_distance(verts: List[Point], kind: str, sdir: Point, tip: Point,
+                   geom: Optional[_ArrowGeom]) -> float:
+    """How far the shaft end sits from where THIS candidate says it is.
+
+    The distance that orders candidates at one end. Not the centroid
+    distance: a drawn arrow's centroid sits 2/3 of its own length behind
+    its apex, so the TRUE arrows-inside terminator — apex exactly on the
+    line's end — measures ~4.8 pt "away" by centroid at corpus scale,
+    and glyph junk parked beside or just beyond the end measured nearer
+    (verified fixtures: a chevron at apex (103, 3) took the end from the
+    arrow whose apex was the end, and one at (108, 0) took it and
+    published 108 for a 100 pt line).
+
+    A shaft meets an arrowhead in two drafted ways and only two — at the
+    APEX (arrows inside, the dimension line runs under the head to the
+    defpoint) or at the BASE CENTRE (arrows outside, and the base-anchored
+    multileader style; measured on the ground-truth plots, where the
+    half-shafts stop at the arrow bases). The seat of a pointed candidate
+    is the nearer of the two: 0.0 for a real terminator in either style,
+    a real gap for a foreign one. A fill cluster's seat is the distance
+    from the shaft end to its NEAREST member: the end is IN the splash
+    when that is ~0, whatever the splash's shape. Its centroid was the
+    wrong measure for the corpus's own anatomy — a stipple arrowhead's
+    centroid sits 0.5-2 pt from the end it terminates (the splash is
+    lopsided, or reaches outward one arrow length), and measured against
+    the centroid a real cluster lost its end to a foreign chevron seated
+    0.94 pt beyond it at every realistic offset (round-5 verification,
+    D1). A tipless shape seats at its centroid (a centred box block) or
+    at either axial extreme (a diamond drawn inside the line, whose far
+    corner is the line's end) — whichever is nearest.
+    """
+    if kind == "fill_cluster" or geom is None:
+        return min(math.hypot(v[0] - tip[0], v[1] - tip[1]) for v in verts)
+    c = _centroid(verts)
+    d_c = math.hypot(c[0] - tip[0], c[1] - tip[1])
+    if geom.pointed:
+        return min(math.hypot(geom.apex[0] - tip[0], geom.apex[1] - tip[1]),
+                   math.hypot(geom.base[0] - tip[0], geom.base[1] - tip[1]))
+    proj = [((v[0] - tip[0]) * sdir[0] + (v[1] - tip[1]) * sdir[1], i, v)
+            for i, v in enumerate(verts)]
+    v_near, v_far = min(proj)[2], max(proj)[2]
+    return min(d_c,
+               math.hypot(v_near[0] - tip[0], v_near[1] - tip[1]),
+               math.hypot(v_far[0] - tip[0], v_far[1] - tip[1]))
+
+
+#: The per-end candidate loop may skip a candidate whose centroid
+#: distance minus its own radius already exceeds the best SOUND seat
+#: found so far (see the loop in :func:`find_dimensions`). Exact by the
+#: triangle inequality, so this is a performance switch, not a behaviour
+#: switch — and the test suite runs scenes with it off to keep it that
+#: way.
+_EXACT_SEAT_PRUNE = True
+
+
+def _award_end(finalists: Dict[int, Dict[str, Any]]
+               ) -> Optional[Dict[str, Any]]:
+    """The candidate that owns an end, from the best-seated of each tier.
+
+    Between the two SOUND tiers — directional (0) and direction
+    unobservable (1) — the better SEATED candidate wins, and an exact tie
+    goes to the directional one. A contradicted candidate (tier 2) wins
+    only when nothing sound is there at all; it never beats a sound
+    candidate on distance, however near (round 2's blocker 2: a nearer
+    letterform chevron shadowing the true arrow).
+
+    Why seat alone decides between tiers 0 and 1, and not a
+    tier-first rule with a distance exception: the round-5 repair tried
+    "tier 0 wins unless tier 1 is seated ten times nearer", and the
+    independent verification showed that window to be 0.05-0.4 pt wide
+    against real chevron seats — the corpus's own stipple-rendered
+    arrowheads, seated 0.5-2 pt from the end they terminate, lost that
+    end to a foreign chevron seated 0.94 pt beyond it at every realistic
+    offset, put the foreign arrowhead into ``arrowhead_ids``, and let
+    ``exclude_dimensions`` delete the leader that owned it (the tip,
+    which ranked by nearness alone, got every case right). The
+    principle round 4 wanted the tier for — a sign-blind splash must not
+    take an end from the arrow that is genuinely seated on it — is
+    delivered by the SEAT metric instead: a real arrow seats at 0.0 in
+    either drafted style and cannot be beaten; the splash that round 4
+    measured 5 pt off an end seats ~3.5 pt by its nearest member and
+    loses to a crooked arrow seated 1.5-2.5 pt (pinned both ways in
+    test_end_ownership). What remains, documented there: a splash whose
+    nearest member sits closer to the end than a crooked arrow's base
+    centre does take the end.
+    """
+    if not finalists:
         return None
-    return signed, apex
+    sound = finalists.get(0)
+    blind = finalists.get(1)
+    if sound is not None and blind is not None:
+        return blind if blind["seat"] < sound["seat"] else sound
+    return finalists[min(finalists)]
 
 
 def _ending_near_from_grid(grid: "_EndpointGrid", point: Point,
-                           radius: float) -> List[Dict[str, Any]]:
+                           radius: float,
+                           limit: Optional[int] = None) -> List[Dict[str, Any]]:
     """Same result shape/order as :func:`entities_ending_near`, via a
-    prebuilt :class:`_EndpointGrid` (the fast path for composition loops)."""
-    scored = []
-    for e, label, pt, other, d in grid.near(point, radius):
+    prebuilt :class:`_EndpointGrid` (the fast path for composition loops).
+
+    ``limit`` returns only the ``limit`` nearest hits — the SAME hits, in
+    the SAME order, as slicing the full result would give (one stable
+    sort on distance either way), but the reference dicts are built only
+    for those. The witness search reads 50 hits per tip on sheets where
+    dashed and stippled linework put a thousand endpoints in range;
+    building and rounding a thousand dicts to keep fifty was 64 % of
+    sheet 3001's default-threshold run (profiled 2026-09-11).
+    """
+    hits = list(grid.near(point, radius))
+    hits.sort(key=lambda t: t[4])
+    if limit is not None:
+        hits = hits[:limit]
+    out = []
+    for e, label, pt, other, d in hits:
         ref = _ref(e)
         ref["end"] = label
         ref["end_point"] = [_r(pt[0]), _r(pt[1])]
         ref["other_end"] = [_r(other[0]), _r(other[1])]
         ref["distance"] = _r(d)
-        scored.append((d, ref))
-    scored.sort(key=lambda t: t[0])
-    return [ref for _, ref in scored]
+        out.append(ref)
+    return out
 
 
 def _alignment_score(u: Point, v: Point) -> Tuple[float, float]:
@@ -1106,13 +1676,23 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
       ground-truth leader, near-random for letter chains vs neighboring
       strokes);
     - **arrow attachment** (``evidence.arrow_detached``): the shaft
-      endpoint sits within 0.75x ``max_arrowhead_size`` of the
-      candidate centroid — a shaft ENDS at its arrowhead (measured
-      2.2-5.4 pt on every genuine ground-truth leader at a 9.31 pt
-      scale) while a letter stroke merely passes near a letterform
-      chevron (measured p50 9.6 pt). Same constant as the dimension
-      leg's attach radius; fill-cluster candidates are exempt (built at
-      shaft endpoints, the test is vacuous).
+      endpoint sits within :data:`_ATTACH_SCALE` of the arrowhead scale
+      — or of the candidate's OWN axial length when that is larger — of
+      the candidate centroid, because a shaft ENDS at its arrowhead
+      (measured 2.2-5.4 pt on every genuine ground-truth leader at a
+      9.31 pt scale) while a letter stroke merely passes near a
+      letterform chevron (measured p50 9.6 pt). The own-length term only
+      ever widens the bound for a candidate the gate admitted as a
+      shape-verified arrowhead LARGER than the sheet estimate, and it is
+      geometry, not slack: see :data:`_ATTACH_SCALE`. Shared with the
+      dimension leg (:func:`_arrow_attach`); a fill cluster has no own
+      length and keeps the sheet-scale bound;
+    - **blunt terminator** (``evidence.blunt_terminator``): a candidate
+      with no determinable tip (:func:`_arrow_geometry` — in practice a
+      box-like quad) carries no leader direction at all, so it is capped
+      outright rather than judged on an axis its tied apex vote picked
+      arbitrarily. ``signed_axis_alignment`` is withheld for those, since
+      the number would not be reproducible under vertex reordering.
 
     Measured together on the ground-truth corpus (2026-09-05): the worst
     lettering sheet fell 295 -> 2 above-default proposals with recall
@@ -1145,17 +1725,17 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     # NATIVE leaders (DXF LEADER/MULTILEADER ingested as Leader entities):
     # the source declares them, so they surface at confidence 1.0 with
     # evidence "native_dxf" — no composition needed. Composed proposals
-    # whose tip lands on a native tip are dropped as duplicates below;
+    # whose tip lands on a native tip are CAPPED as duplicates below;
     # composition still runs for anything drawn manually (plain line +
     # triangle) that never became a LEADER entity.
     native_props: List[Dict[str, Any]] = []
-    native_tips: List[Point] = []
+    native_tips: List[Tuple[Point, str]] = []
     for L in ir.entities:
         if not isinstance(L, Leader) or not L.vertices:
             continue
         pts = [tuple(p) for p in L.vertices]
         tip, tail = pts[0], pts[-1]
-        native_tips.append(tip)
+        native_tips.append((tip, L.id))
         native_props.append({
             "tip_xy": [_r(tip[0]), _r(tip[1])],
             "tail_xy": [_r(tail[0]), _r(tail[1])],
@@ -1206,6 +1786,14 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             term_a, term_b = shaft_pts[1], shaft_pts[0]
         shaft_dir = _unit_vec(term_b[0] - term_a[0], term_b[1] - term_a[1])
 
+        # The letterform caps read the SHARED attach predicate
+        # (:func:`_arrow_attach`) for their physics, but keep their own
+        # fold-blind :func:`_triangle_alignment` SCORE: a leader may be
+        # drawn to either end of its arrowhead (see that function), so the
+        # leader flow scores sign-blind and only CAPS on the signed test.
+        att = _arrow_attach(verts, arrow_kind, shaft_dir, tip_xy,
+                            max_arrowhead_size)
+        arrow_blunt = False
         if arrow_kind == "fill_cluster":
             align_score, align_deg = _cluster_alignment(verts, shaft_dir)
             signed_axis = None
@@ -1223,9 +1811,23 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             # 81 above-default proposals on the worst zero-annotation
             # sheet). Violations are CAPPED below the 0.5 call threshold,
             # not deleted — proposals stay visible to a caller who lowers
-            # min_confidence, mirroring the dimension no-text cap.
-            _apex, _ax = _intrinsic_apex_axis(verts)
-            signed_axis = _ax[0] * shaft_dir[0] + _ax[1] * shaft_dir[1]
+            # min_confidence, mirroring the dimension no-text cap. A
+            # TIPLESS candidate (:func:`_arrow_geometry`) has no tip, so
+            # its axis is whichever corner the tied apex vote happened to
+            # elect and its signed value carries no information: it is
+            # capped OUTRIGHT here rather than judged on that number,
+            # which is both deterministic (the elected corner is not) and
+            # the conservative reading — a leader is drawn to a POINTING
+            # arrowhead in the styles this corpus contains, so exempting
+            # blunt shapes would uncap letterform tiles. The dimension
+            # leg's "oriented" distinction (a tipless shape lying along
+            # the line) is deliberately NOT honoured here: a dimension
+            # terminator only has to mark an END, which a sign-blind
+            # shape can do, while a leader arrowhead has to POINT AT
+            # something, which it cannot.
+            signed_axis = (None if att.state in ("blunt", "oriented")
+                           else att.signed)
+            arrow_blunt = att.state in ("blunt", "oriented")
 
         text_hit, text_dist = None, None
         for t in texts:
@@ -1252,21 +1854,12 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
         arrow_backward = (signed_axis is not None
                           and signed_axis < _ARROW_AXIS_MIN)
         # DETACHED-ARROW cap (the other half of the letterform story): a
-        # leader shaft ENDS at its arrowhead — base-anchored or
-        # apex-anchored, the shaft endpoint sits within ~half an arrow
-        # length of the candidate centroid (measured 2.2-5.4 pt across
-        # every genuine ground-truth leader at a 9.31 pt scale), while a
-        # letter stroke merely passes NEAR a letterform chevron (measured
-        # p50 9.6 pt on the worst zero-annotation sheet, 79 of its 81
-        # sign-passing junk proposals beyond the bound). Same 0.75x-scale
-        # constant the dimension leg's attach radius uses, same
-        # cap-not-delete discipline. Cluster candidates are exempt: they
-        # are constructed AT shaft endpoints, so the test is vacuous.
-        arrow_detached = (arrow_kind != "fill_cluster"
-                          and math.hypot(centroid[0] - tip_xy[0],
-                                         centroid[1] - tip_xy[1])
-                          > 0.75 * max_arrowhead_size)
-        if arrow_backward or arrow_detached:
+        # leader shaft ENDS at its arrowhead. See :func:`_arrow_attach` for
+        # the bound (79 of the worst zero-annotation sheet's 81
+        # sign-passing junk proposals fall beyond it) and for why cluster
+        # candidates are exempt. Same cap-not-delete discipline.
+        arrow_detached = not att.attached
+        if arrow_backward or arrow_detached or arrow_blunt:
             confidence = min(confidence, _UNCORROBORATED_CAP)
         if confidence < min_confidence:
             continue
@@ -1292,6 +1885,7 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                    if signed_axis is not None else {}),
                 **({"arrow_direction_violation": True}
                    if arrow_backward else {}),
+                **({"blunt_terminator": True} if arrow_blunt else {}),
                 **({"arrow_detached": True} if arrow_detached else {}),
                 **({} if texts else {"text_unavailable": True}),
             },
@@ -1308,10 +1902,15 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                      if p["arrowhead_id"] not in claimed]
 
     if native_tips:
+        # A composed proposal landing on a native tip is the SAME leader read
+        # twice. Cap it (:func:`_capped_by_native`) instead of dropping it.
         proposals = [
-            p for p in proposals
-            if all(math.hypot(p["tip_xy"][0] - t[0], p["tip_xy"][1] - t[1])
-                   > max_arrowhead_size for t in native_tips)]
+            _capped_by_native(
+                p, _native_tip_at(native_tips, p["tip_xy"],
+                                  max_arrowhead_size))
+            for p in proposals]
+        proposals = [p for p in proposals
+                     if p["confidence"] >= min_confidence]
         proposals.extend(p for p in native_props
                          if p["confidence"] >= min_confidence)
 
@@ -1335,6 +1934,66 @@ def _fold_alignment(u: Point, v: Point) -> float:
 #: conventional 0.5 call threshold: with text unobservable, alignment alone
 #: is dominated by hatch/stipple misreads (see find_dimensions docstring).
 _UNCORROBORATED_CAP = 0.45
+
+#: Ceiling for a construct whose defining precondition is actively
+#: CONTRADICTED — an arrowhead whose own axis points somewhere other than
+#: along the line claiming it. Strictly below :data:`_UNCORROBORATED_CAP`,
+#: and that ORDERING is the whole of the number's justification: evidence
+#: that is missing outranks evidence that says no. Same shape of argument
+#: that put 0.45 below the conventional 0.5 call threshold. Nothing is
+#: dropped — such a proposal is still returned to a caller who lowers
+#: ``min_confidence`` this far, flagged ``arrow_direction_violation``.
+_CONTRADICTED_CAP = 0.25
+
+
+def _native_tip_at(native_tips: List[Tuple[Point, str]], xy: Point,
+                   tol: float) -> Optional[str]:
+    """Id of the native leader whose tip coincides with ``xy``, else None."""
+    for tip, nid in native_tips:
+        if math.hypot(xy[0] - tip[0], xy[1] - tip[1]) <= tol:
+            return nid
+    return None
+
+
+def _native_span_at(native_spans: List[Tuple[Point, Point, str]],
+                    a_xy: Point, b_xy: Point, tol: float) -> Optional[str]:
+    """Id of the native dimension measuring the SAME span, else None.
+
+    BOTH ends must match one native's two defpoints, in either order. A
+    single shared endpoint is two dimensions sharing a witness line, which
+    is ordinary drafting rather than duplication — matching on loose
+    defpoints instead deleted a composed construct whenever any one of its
+    ends fell near any native defpoint, however different the spans.
+    """
+    def near(u: Point, v: Point) -> bool:
+        return math.hypot(u[0] - v[0], u[1] - v[1]) <= tol
+    for p_xy, q_xy, nid in native_spans:
+        if ((near(a_xy, p_xy) and near(b_xy, q_xy))
+                or (near(a_xy, q_xy) and near(b_xy, p_xy))):
+            return nid
+    return None
+
+
+def _capped_by_native(proposal: Dict[str, Any],
+                      native_id: Optional[str]) -> Dict[str, Any]:
+    """``proposal`` capped when a native declaration supersedes it.
+
+    The source's own annotation entity is authoritative, so a composed
+    reading of the same construct is REDUNDANT — and redundant is not
+    wrong. CAP, DON'T DELETE: the proposal stays visible to a caller who
+    lowers ``min_confidence``, carrying the id of the native that outranked
+    it, and only the native is CALLED at the default threshold. Deleting it
+    cost a 0.978-confidence, witness-corroborated construct outright at
+    ``min_confidence=0.0``, and DXF block explosion has since made
+    block-nested natives common enough that the delete kept getting
+    more expensive.
+    """
+    if native_id is None:
+        return proposal
+    out = dict(proposal)
+    out["confidence"] = min(out["confidence"], _UNCORROBORATED_CAP)
+    out["evidence"] = {**out["evidence"], "superseded_by_native": native_id}
+    return out
 
 
 def _median(vals: List[float]) -> float:
@@ -1377,13 +2036,17 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     - **Continuous** (``evidence.path = "continuous"``): one Line/open-
       Polyline shaft with an arrowhead candidate
       (:func:`_arrowhead_candidates`) attached at EACH endpoint — the
-      drafting style whose value text sits ABOVE the line. The shaft may
-      be SHORT (down to 0.5x the arrowhead scale) when both attached
-      arrows are shape-verified triangles: real narrow dimensions plot a
-      short line between two outward arrows (ground-truth 'T=' style).
-      Proposal ends are the arrows' intrinsic APEX points — the CAD
-      defpoints — falling back to the shaft ends only conceptually (both
-      arrows are required, so apexes always exist).
+      drafting style whose value text sits ABOVE the line. The length
+      floor applies to the construct's EXTENT (the distance between the
+      two published ends), not to the shaft: in the arrows-outside style
+      the shaft stops at the arrow bases and under-reports the extent, so
+      a real narrow dimension plots a SHORT line between two outward
+      arrows (ground-truth 'T=' style: a 9.8 pt shaft spanning 24.2 pt).
+      A construct under that floor is CAPPED, not dropped. Proposal ends
+      are the arrows' intrinsic APEX points — the CAD defpoints — falling
+      back to the shaft's own end at any end the shaft does not enter
+      along the arrowhead's spine (that fallback is real and
+      load-bearing, and caps the proposal).
     - **Split-shaft** (``evidence.path = "split_shaft"``): TWO collinear
       half-shafts around a centered text gap, each carrying ONE arrowhead at
       its OUTER end pointing outward — how native CAD dimensions plot when
@@ -1394,21 +2057,84 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
       ``max_arrowhead_size``; each half pairs with at most one partner
       (nearest-gap-first greedy). Proposal ends are the two arrow APEX
       points (the CAD defpoints), and ``evidence`` names both halves and
-      the gap.
+      the gap. A shaft whose OTHER end merely has a contradicted
+      candidate still founds a half by design: a real half has nothing at
+      its inner end, and what junk happens to sit there says nothing
+      about the half. A half whose own arrow is off its spine is founded
+      on the SHAFT'S END instead and capped — refusing it deleted every
+      real split dimension whose arrow is drafted more than
+      ``asin(base / 2 leg)`` off the axis, which is 4.8 deg for the
+      slenderest heads and 16 deg for the bluntest: an inverted incentive
+      and a deletion the cap ladder exists to avoid. A shaft whose ONLY
+      candidate is contradicted also founds a half, so that the split
+      leg's :data:`_CONTRADICTED_CAP` is a rung the code can reach.
 
-    **Arrow attachment is SIGNED** (:func:`_dim_arrow_attach`): a drawn
-    (triangle-family) candidate attaches at a shaft end only when its
-    intrinsic apex axis points OUTWARD along the shaft within 30 deg
-    (:data:`_ARROW_AXIS_MIN`) — a dimension arrow points along its
-    dimension line by construction. This is what stops a dimension
-    proposal from STEALING a leader's arrowhead via a crossing witness
-    line or a grazing stroke (the root cause of 4 of the 4 residual
-    ground-truth leader misses before Phase 3.2: ``exclude_dimensions``
-    dropped true leaders whose triangles a false dimension had claimed
-    with the old fold-blind best-vertex alignment, which cannot fall
-    below ~cos(30 deg) for ANY triangle vs ANY direction). Fill-cluster
-    candidates have no vertex apex and keep the sign-blind cluster
-    alignment; the no-text cap disciplines them instead.
+    **Arrow attachment is SIGNED and ON-SPINE** (:func:`_arrow_attach`):
+    a POINTED candidate attaches at a shaft end when its intrinsic apex
+    axis points OUTWARD along the shaft within 30 deg
+    (:data:`_ARROW_AXIS_MIN`) and the shaft runs INTO it along its own
+    spine — a dimension arrow points along its dimension line and is
+    entered along its middle, by construction. The direction test is what
+    stops a dimension proposal from STEALING a leader's arrowhead via a
+    crossing witness line or a grazing stroke (the root cause of 4 of the
+    4 residual ground-truth leader misses before Phase 3.2:
+    ``exclude_dimensions`` dropped true leaders whose triangles a false
+    dimension had claimed with the old fold-blind best-vertex alignment,
+    which cannot fall below ~cos(30 deg) for ANY triangle vs ANY
+    direction). Neither test DELETES: a contradicted arrow scores 0.0 and
+    caps the proposal at :data:`_CONTRADICTED_CAP`, an off-spine or
+    detached end publishes the shaft's own end and caps at
+    :data:`_UNCORROBORATED_CAP`. Fill-cluster candidates have no vertex
+    apex and keep the sign-blind cluster alignment (they still face the
+    attachment bound; nothing about them is exempt from every test).
+
+    **TIPLESS terminators** — in practice BOX-LIKE QUADRILATERALS, the
+    only tipless family :func:`_arrowhead_candidates` can actually
+    deliver (see :func:`_arrow_geometry` for why, and for why a dot or
+    an oblique tick never reaches here at all) — have no pointing
+    direction. They split two ways (:func:`_arrow_attach`):
+
+    - **oriented** — the shape's own long axis runs along the line (a
+      diamond, a flat-tipped closed arrow, an oblong tick). That is
+      sign-blind evidence that it terminates THIS line rather than one
+      crossing it, exactly what a fill cluster's alignment carries, so
+      it is admitted with a cluster's standing: scored on that
+      alignment, named in ``arrowhead_ids``, called when the rest of the
+      construct corroborates it, and never ranked above a directional
+      arrowhead (:func:`_end_tier`). Its id is also listed under
+      ``evidence.oriented_terminator_ids``.
+    - **blunt** — isotropic (a box, a square tile, a pentagon dot): no
+      axis to consult, so the alignment channel is UNOBSERVABLE rather
+      than contradicted and the remaining channels are renormalized.
+      Such a construct is held below the call threshold UNCONDITIONALLY
+      and never named in ``arrowhead_ids``: witnesses and a value text
+      can corroborate that something is measured here, but nothing about
+      a shape with no axis can corroborate that it terminates THIS line
+      rather than one crossing it, so it must never win an
+      ``exclude_dimensions`` arbitration against a real arrowhead. Its id
+      stays visible under ``evidence.blunt_terminator_ids``.
+
+    Both publish the tip-clamped centroid projection as their end (see
+    :func:`_arrow_attach` for the two anatomies that clamp serves).
+
+    **Who owns an end** (:func:`_end_tier`, :func:`_seat_distance`,
+    :func:`_award_end`): every candidate within the attach prune is
+    ranked by soundness tier — directional and attached; direction
+    unobservable (cluster, tipless, detached); contradicted — and,
+    within a tier, by SEAT: the shaft end's distance from the
+    candidate's own apex or base centre (0.0 for a real terminator in
+    either drafted style) or, for a fill cluster, from its nearest
+    member (0.0 when the end is in the splash) — not from its centroid,
+    which read the true arrows-inside arrow as 2h/3 away and a real
+    stipple arrowhead as 0.5-2 pt away, and let glyph junk beside or
+    just beyond the end take it. The best-seated of the directional and
+    sign-blind tiers are then compared once and the BETTER SEATED wins
+    (a tie to the directional one), so a stipple-rendered arrowhead
+    that a line actually ends in is not lost to a foreign chevron seated
+    beyond it — which was putting the foreign arrowhead into
+    ``arrowhead_ids`` and deleting the leader that owned it through
+    ``exclude_dimensions``. A contradicted candidate never wins on
+    distance.
 
     Scoring (each leg): **alignment** (0.40) — the signed attach
     alignment above (mean over both arrows; the split leg also
@@ -1424,12 +2150,14 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
 
     NO-TEXT sheets (SHX-stroked plots): confidence renormalizes over the
     observable components as before, but a CONTINUOUS proposal is capped at
-    ``0.45`` (below the conventional 0.5 call threshold) unless corroborated
-    by witness lines at BOTH ends — on such sheets an uncorroborated
-    two-triangles-on-a-line score is dominated by hatch/stipple misreads
-    (measured ~0 precision at 0.9+ renormalized confidence on the worst
-    validation sheet). Split-shaft proposals are exempt: the paired
-    structure is itself the corroboration.
+    ``0.45`` (:data:`_UNCORROBORATED_CAP`, below the conventional 0.5 call
+    threshold) unless corroborated by witness lines at BOTH ends — on such
+    sheets an uncorroborated two-triangles-on-a-line score is dominated by
+    hatch/stipple misreads (measured ~0 precision at 0.9+ renormalized
+    confidence on the worst validation sheet). Split-shaft proposals are
+    exempt from THAT cap: the paired structure is itself the
+    corroboration. The direction/spine/attachment/blunt/extent caps above
+    apply to both legs.
 
     Defaults follow :func:`find_leaders` (``max_arrowhead_size`` from
     :func:`_default_max_arrowhead_size`; ``search_radius`` = 1.5x;
@@ -1448,16 +2176,16 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     # surfaced at confidence 1.0 with evidence "native_dxf" — the ends are
     # the entity's own defpoints (dimension-line point + the far measured
     # origin when present). Composition still runs for manually drafted
-    # dimensions, minus any proposal whose end lands on a native defpoint.
+    # dimensions; a proposal measuring a native's own span is capped.
     native_props: List[Dict[str, Any]] = []
-    native_defpoints: List[Point] = []
+    native_spans: List[Tuple[Point, Point, str]] = []
     for D in ir.entities:
         if not isinstance(D, Dimension) or not D.defpoints:
             continue
         dps = [tuple(p) for p in D.defpoints]
-        native_defpoints.extend(dps)
         a_xy = dps[0]
         b_xy = dps[1] if len(dps) > 1 else dps[0]
+        native_spans.append((a_xy, b_xy, D.id))
         mid = (0.5 * (a_xy[0] + b_xy[0]), 0.5 * (a_xy[1] + b_xy[1]))
         native_props.append({
             "end_a_xy": [_r(a_xy[0]), _r(a_xy[1])],
@@ -1496,9 +2224,17 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
     # micro-fragments (0.06-3 pt) ending near a tip count as "witness
     # lines" and corroborate junk (measured on ground-truth sheet 3001).
     min_witness_length = 0.5 * max_arrowhead_size
-    # End-arrow assignment radius: see the attach comment in the per-end
-    # loop below.
-    attach_radius = min(search_radius, 0.75 * max_arrowhead_size)
+    # End-arrow assignment radius: a COARSE prune only (see the attach
+    # comment in the per-end loop below). Sized at the loosest bound
+    # :func:`_arrow_attach` can grant — the candidate gate admits shapes
+    # up to :data:`_LOOSE_SIZE_SCALE` x the sheet scale estimate, and the
+    # exact per-candidate bound uses the candidate's own length — so the
+    # prune can never clip an attachment the exact test would have
+    # allowed. Every candidate inside it still faces that exact bound,
+    # cluster candidates included; this radius is never the last word.
+    attach_radius = min(search_radius,
+                        _ATTACH_SCALE * _LOOSE_SIZE_SCALE
+                        * max_arrowhead_size)
 
     arrowheads = list(_arrowhead_candidates_all(ir, max_arrowhead_size,
                                                 min_shaft_length))
@@ -1523,6 +2259,38 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             for gy in range(cy - 1, cy + 2):
                 yield from acells.get((gx, gy), ())
 
+    # A candidate's intrinsic geometry depends only on its vertices, but
+    # _arrow_near yields the same candidate to BOTH ends of every nearby
+    # shaft (measured 426 apex elections for 108 distinct candidates on one
+    # ground-truth sheet). Memoize per candidate id; the shaft-dependent
+    # part of the attach test is what stays per-call.
+    geom_cache: Dict[str, _ArrowGeom] = {}
+
+    def _geom_of(cand, verts, kind):
+        if kind == "fill_cluster":
+            return None
+        g = geom_cache.get(cand.id)
+        if g is None:
+            g = geom_cache[cand.id] = _arrow_geometry(verts)
+        return g
+
+    # Per-candidate RADIUS (farthest vertex — or cluster member — from the
+    # vertex centroid), the one number the exact seat prune below needs.
+    # A cluster's seat is its NEAREST member, which can sit a whole
+    # radius nearer than its centroid: giving clusters a radius of 0
+    # (as when their seat was the centroid) pruned a real stipple
+    # arrowhead whose centroid was 1 pt off its end behind a foreign
+    # chevron seated 0.94 — the exact defect the seat change exists for.
+    radius_cache: Dict[str, float] = {}
+
+    def _radius_of(cand, verts, kind):
+        r = radius_cache.get(cand.id)
+        if r is None:
+            c = _centroid(verts)
+            r = radius_cache[cand.id] = max(
+                math.hypot(v[0] - c[0], v[1] - c[1]) for v in verts)
+        return r
+
     end_grid = _EndpointGrid(ir, cell=search_radius,
                              entity_types=["line", "polyline"])
     texts = [e for e in ir.entities if isinstance(e, TextItem)]
@@ -1539,7 +2307,8 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
         dashed/stippled linework can put thousands of endpoints in range,
         and a real extension line terminates AT the tip."""
         found = False
-        for hit in _ending_near_from_grid(end_grid, tip, search_radius)[:50]:
+        for hit in _ending_near_from_grid(end_grid, tip, search_radius,
+                                          limit=50):
             if hit["id"] in used_ids or hit.get("closed"):
                 continue
             if hit.get("length", 0.0) < min_witness_length:
@@ -1592,7 +2361,13 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
 
         per_end = []
         for end_label, tip in ends:
-            best = None
+            # The best-SEATED candidate of each soundness tier; the end
+            # is then awarded between them by :func:`_award_end`. Per-tier
+            # minima over (seat, centroid distance) and one comparison,
+            # so the outcome does not depend on the order candidates
+            # arrive in (short of an exact tie on both keys).
+            finalists: Dict[int, Dict[str, Any]] = {}
+            s_best: Optional[float] = None   # best SOUND seat so far
             sdir = _shaft_terminal_dir(shaft_pts, end_label)
             for cand, verts, c, kind in _arrow_near(tip):
                 d = math.hypot(c[0] - tip[0], c[1] - tip[1])
@@ -1600,69 +2375,218 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                 # base sits AT the end, putting the centroid ~half an
                 # arrow-length away) — the full leader-flow search_radius
                 # let glyph junk 1.4 arrow-lengths away hijack an end and
-                # misclassify a split half-shaft as two-arrowed.
-                if d <= attach_radius and (best is None or d < best[1]):
-                    att = _dim_arrow_attach(verts, kind, sdir)
-                    if att is None:
-                        continue  # arrow does not point along this line
-                    a_score, apex = att
-                    best = (cand, d, a_score, kind, verts, sdir, tip, apex)
-            per_end.append((end_label, tip, best))
+                # misclassify a split half-shaft as two-arrowed. This is a
+                # coarse prune only; :func:`_arrow_attach` applies the
+                # exact per-candidate bound below.
+                if d > attach_radius:
+                    continue
+                # EXACT seat prune (performance only — it never changes
+                # the award, and test_end_ownership pins that by running
+                # with it off). The old nearest-first prune skipped any
+                # candidate FARTHER BY CENTROID than a tier-0 incumbent;
+                # under seat ordering that skipped the true arrows-inside
+                # arrow itself (centroid 2h/3 behind the end it is seated
+                # on) whenever junk sat nearer by centroid. The bound
+                # that IS exact: every seat point (apex, base centre,
+                # vertex extreme, nearest member, centroid) lies within
+                # the candidate's own radius R of its centroid, so
+                # seat >= d - R. A candidate with d - R STRICTLY above the
+                # best sound seat so far loses to that incumbent under
+                # :func:`_award_end` whatever its tier (a tie goes to the
+                # directional side, which the strict test leaves alone),
+                # and tier 2 never wins over a sound candidate at all.
+                if _EXACT_SEAT_PRUNE and s_best is not None:
+                    if d - _radius_of(cand, verts, kind) > s_best:
+                        continue
+                geom = _geom_of(cand, verts, kind)
+                att = _arrow_attach(verts, kind, sdir, tip,
+                                    max_arrowhead_size, geom=geom)
+                # SOUNDNESS = identity only (:func:`_end_tier`): tier 2
+                # when the candidate's own axis says it belongs to
+                # something else, tier 1 when it is detached or carries
+                # no direction to test at all. Coordinate quality
+                # (``on_spine``) is NOT ranked here — it caps and
+                # projects below.
+                tier = _end_tier(att, kind)
+                # SEAT, not centroid distance, orders candidates within
+                # a tier (:func:`_seat_distance`): the true arrows-inside
+                # arrow sits 2h/3 from the tip by centroid, and glyph
+                # junk beside or just beyond the end was nearer by that
+                # measure while its apex and base were both farther (a
+                # chevron at apex (103, 3) took the end from the arrow
+                # whose apex IS the end; one at (108, 0) took it and
+                # published 108 for a 100 pt line at 0.942).
+                seat = _seat_distance(verts, kind, sdir, tip, geom)
+                cur = finalists.get(tier)
+                # Within a tier: seat, then alignment, then centroid
+                # distance. The extra keys are what make an exact seat
+                # tie order-independent (two chevrons base-seated at the
+                # same end, one 20 deg skewed: the one pointing more
+                # exactly along the line wins whichever is enumerated
+                # first; centroid distance ties both at h/3).
+                key = (seat, -att.score, d)
+                if cur is not None and key >= cur["key"]:
+                    continue
+                if tier < 2 and (s_best is None or seat < s_best):
+                    s_best = seat
+                finalists[tier] = {
+                    "cand": cand, "d": d, "seat": seat, "key": key,
+                    "score": att.score,
+                    "kind": kind, "verts": verts, "sdir": sdir,
+                    "tip": tip, "apex": att.apex, "state": att.state,
+                    "on_spine": att.on_spine, "attached": att.attached,
+                    "tier": tier}
+            per_end.append((end_label, tip, _award_end(finalists)))
 
         n_arrowed = sum(1 for _, _, b in per_end if b is not None)
+        # A CONTRADICTED end does not make a shaft two-arrowed for the
+        # purpose of founding a split half: by construction a split half
+        # has nothing at its inner end, and an arrow whose own axis points
+        # elsewhere is not this shaft's arrow. Counting one would let a
+        # single stray letterform chevron near a real half's inner end
+        # destroy the half (measured: 235 shafts on the ground-truth
+        # corpus carry exactly one sound and one contradicted end). The
+        # shaft still falls through to the continuous leg below, where the
+        # contradicted reading is published CAPPED rather than deleted —
+        # both readings reach the caller, neither is asserted.
+        cands = [b for _, _, b in per_end if b is not None]
+        sound = [b for b in cands if b["state"] != "contradicted"]
+        # The FOUNDING candidate: the one sound end, or — when the shaft's
+        # only candidate is contradicted — that one, so the split leg's
+        # advertised :data:`_CONTRADICTED_CAP` is a rung the code can
+        # actually reach and not a docstring promise. Founding on the
+        # contradicted reading asserts nothing: the pairing publishes it
+        # below every merely-uncorroborated construct.
+        founder = None
+        if len(sound) == 1:
+            founder = sound[0]
+        elif not sound and len(cands) == 1:
+            founder = cands[0]
 
-        if n_arrowed == 1 and sep >= half_min_length:
+        if founder is not None and sep >= half_min_length:
             # SPLIT-LEG CANDIDATE: one arrowed (outer) end. The arrow must
             # sit BEYOND the shaft end pointing outward (its centroid past
             # the tip along the terminal direction) — an arrow behind the
             # tip is some other construct's arrow this shaft merely grazes.
-            b = next(b for _, _, b in per_end if b is not None)
-            cand, _d, a_score, kind, verts, sdir, tip, apex = b
-            centroid = _centroid(verts)
+            b = founder
+            centroid = _centroid(b["verts"])
+            tip, sdir = b["tip"], b["sdir"]
             if ((centroid[0] - tip[0]) * sdir[0]
                     + (centroid[1] - tip[1]) * sdir[1]) > 0:
                 inner = (shaft_pts[0] if tip == shaft_pts[-1]
                          else shaft_pts[-1])
-                # Apex from the attach test (:func:`_dim_arrow_attach`):
-                # the candidate's intrinsic tip (for a cluster: the
-                # farthest member center) — the CAD defpoint.
+                # Apex from the attach test (:func:`_arrow_attach`): the
+                # candidate's intrinsic tip (for a cluster: its farthest
+                # reach on the shaft's terminal ray) — the CAD defpoint.
+                # OFF SPINE it is that apex PROJECTED on the terminal ray,
+                # which matters most HERE: a split half's arrow sits
+                # OUTSIDE its half-shaft, so the true defpoint is beyond
+                # the shaft's tip and the old substitute-the-tip fallback
+                # moved the published point by a whole arrow length
+                # (measured 7.2 pt on the ground-truth arrow geometry,
+                # on constructs HEAD published at ~0.95 with the CAD
+                # defpoints exactly right). Refusing the half instead
+                # deleted every real split dimension whose arrow is
+                # drafted more than asin(base/2 leg) off the axis:
+                # measured 0.964/0.963 at 0/5 deg and NOTHING from 10 deg
+                # out, where the documented direction cone reaches 30.
                 halves.append({
-                    "shaft": shaft, "cand": cand, "kind": kind,
-                    "a_score": a_score, "outer": tip, "inner": inner,
-                    "out": sdir, "apex": apex,
-                    "members": set(getattr(cand, "member_ids", ())),
+                    "shaft": shaft, "cand": b["cand"], "kind": b["kind"],
+                    "a_score": b["score"], "outer": tip, "inner": inner,
+                    "out": sdir,
+                    "apex": b["apex"],
+                    "state": b["state"], "on_spine": b["on_spine"],
+                    "attached": b["attached"],
+                    "members": set(getattr(b["cand"], "member_ids", ())),
                 })
-            continue
 
         if n_arrowed < 2:
             continue
-        kinds2 = [b[3] for _, _, b in per_end]
-        # The min_shaft_length floor keeps glyph-scale strokes from pairing
-        # into junk — but a shaft carrying a SIGNED-ATTACHED drawn arrow at
-        # BOTH ends is already that strongly structured, and real narrow
-        # dimensions plot exactly this way: a short dimension line between
-        # two outward arrows whose apexes sit on the witness lines
-        # (verified on ground-truth sheet 3001, the 'T=' construct: 9.8 pt
-        # shaft between two 7.3 pt arrows at a 9.31 pt arrowhead scale).
-        if sep < min_shaft_length and kinds2 != ["triangle", "triangle"]:
-            continue
-        if per_end[0][2][0].id == per_end[1][2][0].id:
+        if per_end[0][2]["cand"].id == per_end[1][2]["cand"].id:
             continue  # the two arrowheads must be DISTINCT
-
-        align = sum(b[2] for _, _, b in per_end) / len(per_end)
+        kinds2 = [b["kind"] for _, _, b in per_end]
+        states2 = [b["state"] for _, _, b in per_end]
 
         # Proposal ends = the arrows' intrinsic APEX points — the CAD
-        # defpoints the construct measures between (the shaft itself stops
-        # at the arrow bases in the arrows-outside plot styles). Witness
-        # lines cross at the defpoints, so the witness check runs there.
-        apexes = [b[7] for _, _, b in per_end]
+        # defpoints the construct measures between. Witness lines cross at
+        # the defpoints, so the witness check runs there.
+        #
+        # OFF SPINE, this leg publishes the SHAFT'S OWN END instead, and
+        # that differs from the split leg on purpose — the two constructs
+        # place their arrows differently against the drawn line. HERE the
+        # shaft spans the whole measurement with its arrows inside pointing
+        # outward, so its end IS the defpoint to within an arrow's width,
+        # and it is drawn fact. On the split leg the half-shafts are stubs
+        # and the arrows sit OUTSIDE them, so the defpoint is genuinely
+        # beyond the tip and the projected apex is the only honest answer
+        # (substituting the tip there moved the published point a whole
+        # arrow length — measured 7.2 pt).
+        #
+        # Projecting here instead would recover only HALF of the defect
+        # this fallback exists for: the glyph chevron of the original
+        # report sits at apex (108, 5) beside a shaft ending at (100, 0),
+        # so projection on the terminal ray still publishes (108, 0) and
+        # still reports length 108 for a 100 pt line. Discarding the
+        # lateral wobble does not make an axial outlier true.
+        apexes = []
+        off_spine = False
+        for _lab, tip, b in per_end:
+            apexes.append(b["apex"] if b["on_spine"] else tip)
+            off_spine = off_spine or not b["on_spine"]
+
+        # The min_shaft_length floor is a floor on the dimension's EXTENT
+        # — the thing the construct measures — and the shaft was only ever
+        # a proxy for it. In the arrows-outside plot style the shaft stops
+        # at the arrow bases and under-reports that extent, which is what
+        # killed real narrow dimensions (ground-truth sheet 3001's 'T='
+        # construct: a 9.8 pt shaft spanning 24.2 pt between its
+        # defpoints). Measuring the extent instead retires the old
+        # both-ends-are-triangles bypass, which had no floor at all and
+        # admitted 32 letter-stroke pairs spanning 7-16 pt at 0.976
+        # confidence.
+        #
+        # Note honestly what max() does and does not do against HEAD: it
+        # is stricter for the [triangle, triangle] pairs HEAD's bypass
+        # exempted from any floor at all, and LOOSER for every other kind
+        # pair, where an apex span longer than the shaft now clears a
+        # floor the bare shaft did not (a 12 pt shaft between two clusters
+        # reaching 20 pt apart is admitted where HEAD deleted it). And it
+        # CAPS rather than deletes either way: an 18.0 pt both-triangle
+        # dimension HEAD published at 0.968 was being dropped at every
+        # min_confidence, which is the trade the cap ladder exists to
+        # avoid. Below the floor the construct stays visible in the
+        # observational band and is never called.
+        extent = max(sep, math.hypot(apexes[0][0] - apexes[1][0],
+                                     apexes[0][1] - apexes[1][1]))
+        below_extent_floor = extent < min_shaft_length
+
+        # The cap ladder's CEILING is fully determined by what has been
+        # measured so far, so hoist it above the witness search: a caller
+        # asking only for called constructs would drop every capped one at
+        # the bottom of this loop anyway, and everything below here —
+        # witness hunting most of all — is what cap-not-delete made
+        # expensive (sheet 3001's dims@0.5 ran 0.2 s -> 8.5 s before this
+        # hoist, 0.4 s after; the observational 0.3 band still pays).
+        # Same predicate as the caps below, in the same order.
+        detached = any(not b["attached"] for _, _, b in per_end)
+        if "contradicted" in states2:
+            ceiling = _CONTRADICTED_CAP
+        elif ("blunt" in states2 or off_spine or detached
+                or below_extent_floor):
+            ceiling = _UNCORROBORATED_CAP
+        else:
+            ceiling = 1.0
+        if ceiling < min_confidence:
+            continue
+
+        align = sum(b["score"] for _, _, b in per_end) / len(per_end)
 
         # Extension (witness) lines: something ELSE terminating near each
         # apex, roughly perpendicular to the shaft's terminal axis at that
         # end. Cluster members must not double as witness lines.
-        used_ids = {shaft.id} | {b[0].id for _, _, b in per_end}
+        used_ids = {shaft.id} | {b["cand"].id for _, _, b in per_end}
         for _, _, b in per_end:
-            used_ids |= set(getattr(b[0], "member_ids", ()))
+            used_ids |= set(getattr(b["cand"], "member_ids", ()))
         ext_ids: List[str] = []
         ext_ends = 0
         for (end_label, tip, _b), apex in zip(per_end, apexes):
@@ -1676,9 +2600,22 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
         text_hit, text_dist = _nearest_text(mid)
         text_score = _text_proximity_score(text_dist, text_radius)
 
+        # BLUNT-ONLY constructs (box-like quad terminators at both ends)
+        # make the alignment channel UNOBSERVABLE, not contradicted — the
+        # terminator has no direction to agree or disagree with. Score the
+        # observable channels instead, the same renormalization the
+        # no-text branch already does for its own missing channel. The
+        # ceiling still holds such a construct below the call threshold,
+        # so this renormalization only orders it AMONG the capped ones —
+        # which is what a caller reading the observational band wants.
+        blunt_only = all(s == "blunt" for s in states2)
         if texts:
-            confidence = round(0.40 * align + 0.30 * text_score
-                               + 0.30 * ext_score, 3)
+            if blunt_only:
+                confidence = round((0.30 * text_score
+                                    + 0.30 * ext_score) / 0.60, 3)
+            else:
+                confidence = round(0.40 * align + 0.30 * text_score
+                                   + 0.30 * ext_score, 3)
         else:
             # No text layer (SHX plot) — same renormalization rationale as
             # find_leaders: score the observable components. But capped
@@ -1690,10 +2627,34 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             # renormalized confidence on ground-truth sheet 3001), and a
             # cluster-only pair is any stipple splash at a long line's two
             # ends — page borders score 0.74+ that way, witnesses and all.
-            raw = (0.40 * align + 0.30 * ext_score) / 0.70
-            if ext_ends < 2 or "triangle" not in kinds2:
+            raw = ext_score if blunt_only else (0.40 * align
+                                                + 0.30 * ext_score) / 0.70
+            # "A DRAWN shape" means a POINTING one: an oriented tipless
+            # terminator is drawn but sign-blind, so on a no-text sheet
+            # it corroborates no more than a cluster does. (For the
+            # blunt and contradicted states this reads identically to
+            # the older kind-only test — both are capped harder anyway.)
+            if ext_ends < 2 or not any(
+                    b["kind"] == "triangle" and b["state"] == "ok"
+                    for _, _, b in per_end):
                 raw = min(raw, _UNCORROBORATED_CAP)
             confidence = round(raw, 3)
+        # CAP, DON'T DELETE, in the ranking order the caps state. ANY
+        # blunt terminator holds the construct in the observational band,
+        # with NO escape hatch: a blunt shape is non-directional by
+        # construction, so witnesses and a value text corroborate that
+        # SOMETHING is measured here, never that this shape terminates
+        # THIS line. Letting corroboration lift such a pair over the call
+        # threshold published a plain rectangle plus a "30'" note as a
+        # 0.915 dimension that claimed a genuine leader's arrowhead, and
+        # two plain rectangles alone as 0.96. Likewise an off-spine or
+        # detached end published drawn geometry instead of a defpoint, and
+        # an extent under the floor is glyph-scale; and a CONTRADICTED
+        # arrow — one whose own axis says it belongs to something else —
+        # ranks below every construct that is merely uncorroborated.
+        # ``ceiling`` above is this same ladder, hoisted for the caller
+        # who is not asking for capped constructs at all.
+        confidence = min(confidence, ceiling)
         if confidence < min_confidence:
             continue
 
@@ -1705,7 +2666,16 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             "length": _r(math.hypot(b_xy[0] - a_xy[0], b_xy[1] - a_xy[1])),
             "angle_deg": _r(_seg_angle(a_xy, b_xy), 2),
             "shaft_id": shaft.id,
-            "arrowhead_ids": [b[0].id for _, _, b in per_end],
+            # ARBITRATION CHANNEL — ``find_leaders(exclude_dimensions=
+            # True)`` drops a leader whose arrowhead a dimension names
+            # here, so only a DIRECTIONAL terminator may be named. A blunt
+            # shape is non-directional by construction: it carries no
+            # evidence that it belongs to THIS line rather than to one
+            # merely crossing it, so it can never win an arbitration
+            # against an arrowhead that does carry that evidence. It stays
+            # discoverable under ``evidence.blunt_terminator_ids``.
+            "arrowhead_ids": [b["cand"].id for _, _, b in per_end
+                              if b["state"] != "blunt"],
             "extension_line_ids": sorted(set(ext_ids)),
             "text": text_hit["content"] if text_hit else None,
             "text_id": text_hit["id"] if text_hit else None,
@@ -1713,11 +2683,26 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             "confidence": confidence,
             "evidence": {
                 "path": "continuous",
-                "arrowhead_kinds": [b[3] for _, _, b in per_end],
+                "arrowhead_kinds": kinds2,
                 "alignment_score": _r(align, 3),
                 "text_proximity_score": _r(text_score, 3),
                 "extension_line_score": _r(ext_score, 3),
                 "n_extension_ends": ext_ends,
+                **({"arrow_direction_violation": True}
+                   if "contradicted" in states2 else {}),
+                **({"arrow_off_spine": True} if off_spine else {}),
+                **({"arrow_detached": True} if detached else {}),
+                **({"below_extent_floor": True}
+                   if below_extent_floor else {}),
+                **({"blunt_terminators": True} if blunt_only else {}),
+                **({"blunt_terminator_ids":
+                    [b["cand"].id for _, _, b in per_end
+                     if b["state"] == "blunt"]}
+                   if "blunt" in states2 else {}),
+                **({"oriented_terminator_ids":
+                    [b["cand"].id for _, _, b in per_end
+                     if b["state"] == "oriented"]}
+                   if "oriented" in states2 else {}),
                 **({} if texts else {"text_unavailable": True}),
             },
             "proposal_only": True,
@@ -1727,13 +2712,16 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
         halves, max_arrowhead_size, texts, _witness_at, _nearest_text,
         text_radius, min_confidence))
 
-    if native_defpoints:
+    if native_spans:
+        # Duplication is the same SPAN, not a shared endpoint
+        # (:func:`_native_span_at`), and a duplicate is CAPPED, not deleted.
         proposals = [
-            p for p in proposals
-            if all(math.hypot(p[k][0] - t[0], p[k][1] - t[1])
-                   > max_arrowhead_size
-                   for t in native_defpoints for k in ("end_a_xy",
-                                                       "end_b_xy"))]
+            _capped_by_native(
+                p, _native_span_at(native_spans, p["end_a_xy"],
+                                   p["end_b_xy"], max_arrowhead_size))
+            for p in proposals]
+        proposals = [p for p in proposals
+                     if p["confidence"] >= min_confidence]
         proposals.extend(p for p in native_props
                          if p["confidence"] >= min_confidence)
 
@@ -1763,6 +2751,15 @@ def _pair_split_halves(halves: List[Dict[str, Any]],
       span is licensed by a harder corroboration rule: on a no-text sheet
       an inward pair is DROPPED unless witness lines corroborate BOTH
       apexes (the terminator geometry the style guarantees).
+
+    The cap ladder here is REAL, not advertised: ``halves`` carries the
+    founding candidate's own ``state`` (``"ok"`` / ``"blunt"`` /
+    ``"contradicted"``) plus its ``on_spine`` and ``attached`` flags, and
+    a shaft whose only candidate is contradicted still founds a half
+    precisely so :data:`_CONTRADICTED_CAP` has something to bind on
+    (measured on the ground-truth corpus: 226 halves offered on sheet
+    3001, of which 61 contradicted and 4 blunt — none of which reaches
+    the 0.3 observational band, which is the point).
 
     Nearest-gap-first greedy: each half joins at most one pair — a
     dimension string shares defpoints between neighbors, and the smallest
@@ -1849,9 +2846,27 @@ def _pair_split_halves(halves: List[Dict[str, Any]],
             # only when at least one arrowhead is a DRAWN shape; a
             # cluster-only pair stays capped (same stipple rationale).
             raw = (0.40 * align + 0.30 * ext_score) / 0.70
-            if hi["kind"] != "triangle" and hj["kind"] != "triangle":
+            # A drawn shape means a POINTING one (same reading as the
+            # continuous leg): an oriented tipless half is sign-blind.
+            if not any(h["kind"] == "triangle" and h["state"] == "ok"
+                       for h in (hi, hj)):
                 raw = min(raw, _UNCORROBORATED_CAP)
             confidence = round(raw, 3)
+        # Same cap-not-delete ladder the continuous leg applies. It
+        # matters more here: the split leg's whole discrimination is that
+        # the two arrows OPPOSE along a shared axis, which a blunt
+        # terminator cannot corroborate and a contradicted one denies. A
+        # half founded on its shaft's END rather than on an arrow apex
+        # (the off-spine fallback) is published on drawn geometry, so it
+        # is capped the same way — the alternative, refusing the half, is
+        # what deleted real split dimensions drafted 10-30 deg off axis.
+        states2 = (hi["state"], hj["state"])
+        if ("blunt" in states2
+                or not (hi["on_spine"] and hj["on_spine"])
+                or not (hi["attached"] and hj["attached"])):
+            confidence = min(confidence, _UNCORROBORATED_CAP)
+        if "contradicted" in states2:
+            confidence = min(confidence, _CONTRADICTED_CAP)
         if confidence < min_confidence:
             continue
 
@@ -1864,7 +2879,10 @@ def _pair_split_halves(halves: List[Dict[str, Any]],
             "length": _r(math.hypot(b_xy[0] - a_xy[0], b_xy[1] - a_xy[1])),
             "angle_deg": _r(_seg_angle(a_xy, b_xy), 2),
             "shaft_id": hi["shaft"].id,
-            "arrowhead_ids": [hi["cand"].id, hj["cand"].id],
+            # Arbitration channel — blunt terminators withheld for the
+            # reason the continuous leg gives at its own ``arrowhead_ids``.
+            "arrowhead_ids": [h["cand"].id for h in (hi, hj)
+                              if h["state"] != "blunt"],
             "extension_line_ids": sorted(set(ext_ids)),
             "text": text_hit["content"] if text_hit else None,
             "text_id": text_hit["id"] if text_hit else None,
@@ -1882,6 +2900,21 @@ def _pair_split_halves(halves: List[Dict[str, Any]],
                 "text_proximity_score": _r(text_score, 3),
                 "extension_line_score": _r(ext_score, 3),
                 "n_extension_ends": ext_ends,
+                **({"arrow_direction_violation": True}
+                   if "contradicted" in states2 else {}),
+                **({"arrow_off_spine": True}
+                   if not (hi["on_spine"] and hj["on_spine"]) else {}),
+                **({"arrow_detached": True}
+                   if not (hi["attached"] and hj["attached"]) else {}),
+                **({"blunt_terminators": True}
+                   if "blunt" in states2 else {}),
+                **({"blunt_terminator_ids": [h["cand"].id for h in (hi, hj)
+                                             if h["state"] == "blunt"]}
+                   if "blunt" in states2 else {}),
+                **({"oriented_terminator_ids":
+                    [h["cand"].id for h in (hi, hj)
+                     if h["state"] == "oriented"]}
+                   if "oriented" in states2 else {}),
                 **({} if texts else {"text_unavailable": True}),
             },
             "proposal_only": True,

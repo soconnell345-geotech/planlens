@@ -261,3 +261,130 @@ class TestArrowAttachment:
         splits = [p for p in dims
                   if p["evidence"]["path"] == "split_shaft"]
         assert len(splits) == 1
+
+
+# ---------------------------------------------------------------------------
+# Off-spine halves: found on drawn geometry, CAPPED — never refused
+# ---------------------------------------------------------------------------
+
+def _split_with_rotated_left_arrow(off_deg):
+    """The 3001 outward split with its LEFT arrow rotated about its apex.
+
+    Rotating about the apex is what pushes the shaft tip off the
+    arrowhead's own spine while leaving the defpoint where it is; the
+    spine tolerance is the arrow's half-width, so the refusal that used
+    to follow broke at ``asin(base / 2 leg)`` — 4.8 deg for the
+    slenderest heads, 16 deg for the bluntest. The slenderer and more
+    arrow-like the head, the tighter the refusal: an inverted incentive.
+    """
+    import math
+    y = 471.24
+    a = math.radians(180.0 + off_deg)
+    return [
+        Line(start=(234.66, y + 7.2), end=(234.66, y - 7.2)),
+        _arrow_base_leg((234.66, y), (math.cos(a), math.sin(a))),
+        Line(start=(241.86, y), end=(281.94, y)),
+        Line(start=(296.04, y), end=(309.96, y)),
+        _arrow_base_leg((317.16, y), (1.0, 0.0)),
+        Line(start=(317.16, y + 7.2), end=(317.16, y - 7.2)),
+    ]
+
+
+class TestOffSpineHalfIsCappedNotRefused:
+    def _split(self, off_deg, min_confidence=0.0):
+        dims = q.find_dimensions(_ir(_split_with_rotated_left_arrow(off_deg)),
+                                 max_arrowhead_size=MAS,
+                                 min_confidence=min_confidence)
+        return [p for p in dims if p["evidence"]["path"] == "split_shaft"]
+
+    @pytest.mark.parametrize("off_deg", [10, 15, 20, 25, 30])
+    def test_a_real_split_dimension_is_still_proposed(self, off_deg):
+        # Refusing the half deleted these at EVERY min_confidence.
+        sp = self._split(off_deg)
+        assert len(sp) == 1
+        assert sp[0]["evidence"]["arrow_off_spine"] is True
+        assert sp[0]["confidence"] <= q._UNCORROBORATED_CAP
+
+    def test_the_off_spine_half_publishes_the_projected_defpoint(self):
+        # This leg's arrows sit OUTSIDE their half-shafts, so the CAD
+        # defpoint is genuinely BEYOND the shaft's tip — the witness line
+        # marks it at 234.66 while the shaft stops at 241.86. Substituting
+        # the tip therefore moved the published point by a whole arrow
+        # length (7.2 pt) on a construct whose defpoint was never in
+        # doubt. Projecting the apex on the terminal ray keeps the axial
+        # measurement and discards only the lateral wobble.
+        p = self._split(20)[0]
+        xs = sorted([p["end_a_xy"][0], p["end_b_xy"][0]])
+        assert xs[0] == pytest.approx(234.66, abs=0.1)   # projected apex
+        assert xs[1] == pytest.approx(317.16, abs=0.1)   # the sound apex
+
+    def test_a_crooked_arrow_reports_the_same_defpoint_as_a_straight_one(self):
+        # The point of projecting rather than substituting: drafting
+        # wobble must not move the measurement.
+        crooked = sorted(self._split(20)[0][k][0]
+                         for k in ("end_a_xy", "end_b_xy"))
+        straight = sorted(self._split(0)[0][k][0]
+                          for k in ("end_a_xy", "end_b_xy"))
+        assert crooked == pytest.approx(straight, abs=0.1)
+
+    def test_an_on_axis_split_is_unaffected(self):
+        p = self._split(0)[0]
+        assert "arrow_off_spine" not in p["evidence"]
+        assert p["confidence"] >= 0.5
+        xs = sorted([p["end_a_xy"][0], p["end_b_xy"][0]])
+        assert xs[0] == pytest.approx(234.66, abs=0.1)
+
+
+# ---------------------------------------------------------------------------
+# The contradicted cap in the split leg is REACHABLE, not a docstring promise
+# ---------------------------------------------------------------------------
+
+def _split_with_both_arrows_contradicted():
+    """Two collinear halves whose only end candidates point ACROSS their
+    shafts — letterform chevrons parked where the arrows would be."""
+    y = 471.24
+    return [
+        _arrow_base_leg((238.0, y + 3.0), (0.0, 1.0)),
+        Line(start=(241.86, y), end=(281.94, y)),
+        Line(start=(296.04, y), end=(309.96, y)),
+        _arrow_base_leg((313.8, y + 3.0), (0.0, 1.0)),
+    ]
+
+
+class TestContradictedCapReachesTheSplitPairing:
+    def _split(self, min_confidence):
+        dims = q.find_dimensions(_ir(_split_with_both_arrows_contradicted()),
+                                 max_arrowhead_size=MAS,
+                                 min_confidence=min_confidence)
+        return [p for p in dims if p["evidence"]["path"] == "split_shaft"]
+
+    def test_absent_from_the_observational_band(self):
+        assert self._split(0.5) == []
+        assert self._split(0.3) == []
+
+    def test_present_and_flagged_below_the_contradicted_cap(self):
+        deep = self._split(0.0)
+        assert len(deep) == 1
+        assert deep[0]["evidence"]["arrow_direction_violation"] is True
+        assert deep[0]["confidence"] <= q._CONTRADICTED_CAP
+
+    def test_the_state_actually_travels_with_the_half(self):
+        # The bug this pins: find_dimensions used to build `halves` only
+        # from non-contradicted ends, so hi/hj state was never
+        # "contradicted" and the cap below was unreachable dead code
+        # while the docstring advertised it (measured with a spy over all
+        # ten corpus sheets: 396 halves offered, zero contradicted).
+        seen = []
+        real = q._pair_split_halves
+
+        def spy(halves, *a, **k):
+            seen.extend(h["state"] for h in halves)
+            return real(halves, *a, **k)
+
+        q._pair_split_halves = spy
+        try:
+            q.find_dimensions(_ir(_split_with_both_arrows_contradicted()),
+                              max_arrowhead_size=MAS, min_confidence=0.0)
+        finally:
+            q._pair_split_halves = real
+        assert "contradicted" in seen

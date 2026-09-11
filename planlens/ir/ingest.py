@@ -27,6 +27,7 @@ come from the user/report downstream.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from planlens.ir.results import (
@@ -76,6 +77,127 @@ def _dxf_style(entity) -> Optional[str]:
     return None
 
 
+#: The extrusion vector under which an entity's OCS *is* the WCS. Anything
+#: else means the entity's stored points need the arbitrary-axis transform.
+_WCS_EXTRUSION = (0.0, 0.0, 1.0)
+
+
+class _Ocs:
+    """One entity's OCS -> WCS map, reduced to the drawing xy plane.
+
+    DXF stores the points of most PLANAR entities in the entity's own
+    OBJECT coordinate system, whose orientation is the group-210
+    extrusion vector: CIRCLE/ARC centers, LWPOLYLINE and 2D-POLYLINE
+    vertices, TEXT/ATTRIB insert points, a DIMENSION's *text midpoint*
+    (group 11) and HATCH boundaries. Points that are already WCS —
+    LINE ends, MTEXT insert, LEADER vertices, a DIMENSION's definition
+    points (10/13/14) — are read raw and never come through here.
+
+    The case that reaches everyday drawings is the MIRRORED block
+    reference. A standard detail placed with a negative scale is routine
+    drafting, and ezdxf hands the mirrored copy back with extrusion
+    (0,0,-1) and x negated; reading ``.x`` raw then puts the detail on
+    the wrong side of the origin (measured: a detail spanning x 40..50 in
+    reported its TEXT at x = -45).
+
+    Only the xy part of the mapped basis is kept, because the IR is 2D.
+    For the axis-aligned extrusions that mirroring produces the map is an
+    isometry, so radii and distances are preserved; a genuinely TILTED
+    extrusion projects a circle to an ellipse, which this IR cannot
+    represent either before or after this transform — the projected
+    centre and vertices are still strictly better than the raw OCS
+    numbers they replace.
+    """
+
+    __slots__ = ("_ocs", "_ex", "_ey", "reverses")
+
+    def __init__(self, ocs):
+        self._ocs = ocs
+        ex = ocs.to_wcs((1.0, 0.0, 0.0))
+        ey = ocs.to_wcs((0.0, 1.0, 0.0))
+        self._ex = (ex.x, ex.y)
+        self._ey = (ey.x, ey.y)
+        #: A NEGATIVE determinant means the map mirrors the plane, so
+        #: angles run backwards: an arc's counter-clockwise start/end
+        #: swap roles. This is the same fact ``flip_y`` encodes, derived
+        #: from the extrusion rather than assumed.
+        self.reverses = (self._ex[0] * self._ey[1]
+                         - self._ex[1] * self._ey[0]) < 0.0
+
+    def xy(self, p) -> Tuple[float, float]:
+        """An OCS point (Vec3 or plain tuple) -> WCS ``(x, y)``."""
+        z = getattr(p, "z", None)
+        if z is None:
+            z = p[2] if len(p) > 2 else 0.0
+        w = self._ocs.to_wcs((p[0], p[1], z))
+        return (w.x, w.y)
+
+    def angle(self, deg: float) -> float:
+        """An angle measured in the OCS xy plane -> its WCS bearing."""
+        a = math.radians(deg)
+        c, s = math.cos(a), math.sin(a)
+        return math.degrees(math.atan2(c * self._ex[1] + s * self._ey[1],
+                                       c * self._ex[0] + s * self._ey[0])
+                            ) % 360.0
+
+
+def _ocs_map(entity) -> Optional[_Ocs]:
+    """This entity's :class:`_Ocs`, or ``None`` when its OCS is the WCS.
+
+    The identity case is the overwhelming majority, so it costs one
+    attribute read and never imports ``ezdxf.math``.
+    """
+    try:
+        ext = tuple(entity.dxf.extrusion)
+    except Exception:
+        return None
+    if ext == _WCS_EXTRUSION:
+        return None
+    from ezdxf.math import OCS
+    return _Ocs(OCS(ext))
+
+
+def _pt_xy(p, ocs: Optional[_Ocs]) -> Tuple[float, float]:
+    """A stored point -> drawing-unit WCS ``(x, y)`` (``ocs`` None = raw)."""
+    if ocs is not None:
+        return ocs.xy(p)
+    try:
+        return (p.x, p.y)
+    except AttributeError:
+        return (p[0], p[1])
+
+
+def _mtext_bearing(ent, ocs: Optional[_Ocs]) -> float:
+    """An MTEXT's baseline bearing in WCS degrees.
+
+    MTEXT carries the same fact twice: group 50 ``rotation``, measured in
+    the entity's OCS xy plane, and group 11 ``text_direction``, an
+    explicit WCS vector. The vector WINS when present — that is the DXF
+    rule, and it is what ezdxf writes when it transforms a MIRRORED
+    placement: it sets ``text_direction`` to the plotted direction and
+    leaves group 50 at its authored value (measured: a note authored
+    horizontal comes back rotation 0.0 with text_direction (-1, 0, 0),
+    i.e. plotted right-to-left). Without the vector the angle is an OCS
+    one and needs the same map an ARC's start/end angles do.
+    """
+    td = ent.dxf.get("text_direction", None)
+    if td is not None and (td[0] or td[1]):
+        return math.degrees(math.atan2(td[1], td[0])) % 360.0
+    deg = ent.dxf.get("rotation", 0.0) or 0.0
+    return ocs.angle(deg) if ocs is not None else deg
+
+
+#: The dxftypes ``_handle`` turns into IR entities. Used only to decide
+#: whether an entity ezdxf declined to transform is a loss WE feel: an
+#: unsupported type (an OLE2FRAME county seal, say — one sits in a block on
+#: all ten corpus sheets) would have been skipped here anyway, and warning
+#: about it would be noise, not honesty.
+_SUPPORTED_TYPES = frozenset((
+    "LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "ELLIPSE", "SPLINE",
+    "TEXT", "MTEXT", "HATCH", "LEADER", "MULTILEADER", "DIMENSION",
+    "INSERT",  # a dropped INSERT hides everything nested under it
+))
+
 #: INSERT explosion guards: nesting deeper than this is pathological (real
 #: title blocks nest 2-3 levels), and the entity budget stops a bomb file
 #: (a block inserted thousands of times referencing thousands of entities)
@@ -106,12 +228,67 @@ def from_dxf(filepath: str = None, content: bytes = None,
     GEOMETRY is exploded into IR primitives via ezdxf's
     ``virtual_entities()`` (exact insert transform: position, scale,
     rotation), recursively for nested references. Exploded entities carry
-    ``style="block:<name>"`` provenance (``|<linetype>`` appended when the
-    source entity has one), so callers can tell block geometry from
-    directly drawn model-space work. Guards: nesting is capped at
-    :data:`_MAX_BLOCK_DEPTH` levels and the total exploded-entity count at
-    ``max_block_entities`` — a pathological file cannot blow up the IR;
-    hitting either cap appends a warning instead of failing.
+    ``style="block:<name>"`` provenance, so callers can tell block
+    geometry from directly drawn model-space work, and their ``layer``
+    follows the CAD rule: block content authored on layer ``"0"`` is drawn
+    on the PLACING reference's layer, so that is the layer recorded (the
+    literal ``"0"`` would be a transcription error, not a conservative
+    reading).
+
+    ``style`` is a PIPE-SEPARATED TOKEN LIST, not a single value — an
+    exploded dashed spline is honestly all three of
+    ``block:DETAIL|DASHED|approx_from_spline``, and a title-block
+    attribute reached through a block is
+    ``block:TBLOCK|attrib:TBLOCK:SHEET_NO``. Tokens are: ``block:<name>``
+    (block origin, always FIRST when present), an EXPLICIT non-BYLAYER
+    linetype when the entity carries one, ``attrib:<block>:<tag>`` for an
+    attribute value, and ``approx_from_<type>`` when the vertices are a
+    flattening approximation of a curve. The two documented
+    discriminators are ``style.startswith("block:")`` and
+    ``"approx_from_" in style``.
+
+    NATIVE-ANNOTATION IDENTITY (the contract ``queries.py`` names when a
+    native supersedes a composed proposal): a ``Leader`` / ``Dimension``
+    reached through a block is a first-class IR entity like any other —
+    it carries a stable ``id``, the RESOLVED ``layer`` (see above), and
+    ``block:<outermost name>`` as its first ``style`` token. Those four
+    are enough to name the superseding native in a proposal's evidence
+    without re-reading the DXF. ``planlens.dxf.truth`` reports the same
+    entity with the same coordinates and the same resolved layer, under
+    an additive ``"block"`` key.
+
+    Coordinate systems: DXF stores many planar entities' points in the
+    entity's own OCS (see :class:`_Ocs`), which differs from the WCS
+    whenever the group-210 extrusion is not (0,0,1) — the everyday case
+    being a MIRRORED block placement. Those points are resolved to WCS;
+    the ones DXF already defines in WCS (LINE ends, MTEXT insert, LEADER
+    vertices, a DIMENSION's definition points) are read raw. ANGLES
+    stored in that same plane are resolved with it — an ARC's start/end
+    and a TEXT/ATTRIB ``rotation`` — because an OCS bearing is no more a
+    direction on the sheet than an OCS x is a position on it; MTEXT
+    instead carries an explicit WCS direction vector that wins when
+    present (:func:`_mtext_bearing`).
+
+    Guards: nesting is capped at :data:`_MAX_BLOCK_DEPTH` levels and the
+    number of block entities WALKED at ``max_block_entities`` — a
+    pathological file cannot blow up the IR; hitting either cap appends a
+    warning instead of failing. A malformed entity never costs its
+    siblings: one bad virtual entity, one bad ATTRIB, or a lazy raise
+    from ezdxf's generator, is warned about and stepped over, and the
+    same holds for the top-level model-space walk. Two losses that are
+    ezdxf's rather than ours are reported the same way instead of going
+    silent: an entity ezdxf declines to transform (a non-uniformly scaled
+    MULTILEADER, say — omitted from ``virtual_entities()`` WITHOUT
+    raising) and a MINSERT array, of which only the first placement is
+    resolved. Repeated identical warnings are reported once.
+
+    Metadata: ``n_block_entities`` is the number of IR entities the
+    explosion CONTRIBUTED, and ``n_block_entities_walked`` (present only
+    when the two differ) the number of block entities visited to get them
+    — a block of unsupported types walks wide and ingests nothing. Both
+    keys are also published when a cap stopped the explosion dead, so
+    "the explosion contributed nothing" is stated rather than implied by
+    an absent key.
     """
     import os
     import tempfile
@@ -145,6 +322,21 @@ def from_dxf(filepath: str = None, content: bytes = None,
         yy = -y if flip_y else y
         return (x * factor, yy * factor)
 
+    def conv_angle(deg: float, ocs: Optional[_Ocs] = None) -> float:
+        """A stored bearing -> the IR's angle convention, degrees CCW.
+
+        The angular twin of :func:`conv`, and it has to be applied for the
+        same reason: an angle measured in a mirrored entity's OCS is not
+        the angle the entity plots at, exactly as an OCS x is not the x it
+        plots at. ``ocs=None`` means the angle is already WCS (MTEXT's
+        group-11 direction) or the entity's OCS is the WCS, and the
+        identity case returns the stored value untouched — no
+        normalisation, so an unmirrored sheet ingests exactly as before.
+        """
+        if ocs is not None:
+            deg = ocs.angle(deg)
+        return (-deg) % 360.0 if flip_y else deg
+
     msp = doc.modelspace()
     ir = DrawingIR(
         units="m", coordinate_space="model", origin="bottom_left",
@@ -155,29 +347,59 @@ def from_dxf(filepath: str = None, content: bytes = None,
     )
 
     layers = set()
-    n_exploded = 0
+    n_visited = 0    # block entities pulled from virtual_entities() (work)
+    n_ingested = 0   # IR entities those visits actually contributed
     depth_warned = budget_warned = False
+    warned_once: set = set()
 
-    def _handle(ent, block: Optional[str] = None, depth: int = 0):
-        nonlocal n_exploded, depth_warned, budget_warned
+    def _warn_once(msg: str) -> None:
+        """Append ``msg`` unless it has already been reported.
+
+        A block placed 500 times would otherwise report the same
+        untransformable child 500 times and bury every other warning.
+        The message names the block and the entity type, so distinct
+        losses still each get their own line.
+        """
+        if msg not in warned_once:
+            warned_once.add(msg)
+            warnings.append(msg)
+
+    def _handle(ent, block: Optional[str] = None, depth: int = 0,
+                inherit_layer: Optional[str] = None):
+        nonlocal n_visited, n_ingested, depth_warned, budget_warned
         etype = ent.dxftype()
         layer = getattr(ent.dxf, "layer", None)
+        if inherit_layer is not None and (layer is None or layer == "0"):
+            # DXF/AutoCAD rule: layer "0" inside a BLOCK definition is not
+            # an ordinary layer name, it is the sentinel meaning "drawn on
+            # the placing INSERT's layer". Every renderer and every layer
+            # filter applies it, so the IR records the resolved layer.
+            # Because the INSERT has itself already been through this,
+            # the resolution chains through nested references for free and
+            # stops at the first named layer — exactly the CAD rule.
+            layer = inherit_layer
         layers.add(layer)
         style = _dxf_style(ent)
         if block is not None:
             style = f"block:{block}" + (f"|{style}" if style else "")
         common = dict(layer=layer, color=_dxf_color(ent),
                       style=style, source="dxf", confidence=1.0)
+        # Resolved once per entity and applied ONLY in the branches whose
+        # stored points are OCS (see :class:`_Ocs`).
+        ocs = _ocs_map(ent)
         try:
             if etype == "LINE":
                 s, e = ent.dxf.start, ent.dxf.end
                 ir.add(Line(start=conv(s.x, s.y), end=conv(e.x, e.y), **common))
             elif etype == "LWPOLYLINE":
-                verts = [conv(x, y) for x, y in ent.get_points(format="xy")]
+                verts = [conv(*_pt_xy(p, ocs))
+                         for p in ent.get_points(format="xy")]
                 ir.add(Polyline(vertices=verts, closed=bool(ent.closed),
                                 **common))
             elif etype == "POLYLINE":
-                verts = [conv(v.dxf.location.x, v.dxf.location.y)
+                # 2D polyline vertices are OCS; a 3D polyline's are WCS.
+                o = ocs if getattr(ent, "is_2d_polyline", True) else None
+                verts = [conv(*_pt_xy(v.dxf.location, o))
                          for v in ent.vertices]
                 ir.add(Polyline(vertices=verts,
                                 closed=bool(ent.is_closed), **common))
@@ -185,14 +407,20 @@ def from_dxf(filepath: str = None, content: bytes = None,
                 c = ent.dxf.center
                 sa = ent.dxf.start_angle
                 ea = ent.dxf.end_angle
+                if ocs is not None:
+                    sa, ea = ocs.angle(sa), ocs.angle(ea)
+                    if ocs.reverses:
+                        # A mirrored plane reverses the sweep direction,
+                        # so the CCW start and end exchange roles.
+                        sa, ea = ea, sa
                 if flip_y:
                     sa, ea = (-ea) % 360.0, (-sa) % 360.0
-                ir.add(Arc(center=conv(c.x, c.y),
+                ir.add(Arc(center=conv(*_pt_xy(c, ocs)),
                            radius=ent.dxf.radius * factor,
                            start_angle=sa, end_angle=ea, **common))
             elif etype == "CIRCLE":
                 c = ent.dxf.center
-                ir.add(Circle(center=conv(c.x, c.y),
+                ir.add(Circle(center=conv(*_pt_xy(c, ocs)),
                               radius=ent.dxf.radius * factor, **common))
             elif etype in ("ELLIPSE", "SPLINE"):
                 try:
@@ -201,24 +429,48 @@ def from_dxf(filepath: str = None, content: bytes = None,
                     verts = []
                 if len(verts) >= 2:
                     st = dict(common)
-                    st["style"] = f"approx_from_{etype.lower()}"
+                    # APPEND the flattening note to the style token list;
+                    # do not substitute it for what is already there.
+                    # Whatever tokens are already present — block origin,
+                    # and an EXPLICIT non-BYLAYER linetype when the entity
+                    # carries one (that is all ``_dxf_style`` reports; a
+                    # BYLAYER entity contributes no token at all) — stay
+                    # true of this polyline after flattening. A
+                    # non-uniformly scaled block turns every CIRCLE/ARC
+                    # into an ELLIPSE, so overwriting here silently
+                    # stripped block provenance off most curved detail
+                    # geometry.
+                    approx = f"approx_from_{etype.lower()}"
+                    base = common["style"]
+                    st["style"] = f"{base}|{approx}" if base else approx
                     ir.add(Polyline(vertices=verts, closed=False, **st))
             elif etype == "TEXT":
+                # Both the insert point AND the rotation are OCS: the
+                # angle is measured in the entity's own xy plane, whose x
+                # axis a mirror runs backwards. Resolving the point but
+                # not the angle put a correctly-placed note's BOX on the
+                # wrong side of it (measured: a 33-character note on a
+                # detail spanning x 40..50 reported a bbox out to 53.9).
                 ins = ent.dxf.insert
                 ir.add(TextItem(content=ent.dxf.text,
-                                position=conv(ins.x, ins.y),
-                                rotation=getattr(ent.dxf, "rotation", 0.0),
+                                position=conv(*_pt_xy(ins, ocs)),
+                                rotation=conv_angle(
+                                    getattr(ent.dxf, "rotation", 0.0), ocs),
                                 height=getattr(ent.dxf, "height", 0.0) * factor,
                                 **common))
             elif etype == "MTEXT":
+                # MTEXT's group-10 insert is WCS, not OCS (verified
+                # against a mirrored placement: ezdxf reports it already
+                # mirrored), so it is read raw like a LINE end. Its
+                # BEARING is not raw, though — see :func:`_mtext_bearing`.
                 ins = ent.dxf.insert
                 ir.add(TextItem(content=ent.text,
                                 position=conv(ins.x, ins.y),
-                                rotation=getattr(ent.dxf, "rotation", 0.0),
+                                rotation=conv_angle(_mtext_bearing(ent, ocs)),
                                 height=getattr(ent.dxf, "char_height", 0.0)
                                 * factor, **common))
             elif etype == "HATCH":
-                region = _hatch_region(ent, conv, common)
+                region = _hatch_region(ent, conv, common, ocs)
                 if region is not None:
                     ir.add(region)
             elif etype == "LEADER":
@@ -254,6 +506,10 @@ def from_dxf(filepath: str = None, content: bytes = None,
                                           has_arrowhead=True,
                                           text=text, **common))
             elif etype == "DIMENSION":
+                # Group 10/13/14 (the definition points) are WCS; only
+                # group 11, the text midpoint, is OCS. Mixing them up is
+                # what put a mirrored detail's dimension text 90 in from
+                # its own defpoints.
                 defpoints = []
                 for attr in ("defpoint", "defpoint2", "defpoint3"):
                     p = ent.dxf.get(attr, None)
@@ -266,7 +522,7 @@ def from_dxf(filepath: str = None, content: bytes = None,
                     meas = None
                 ir.add(Dimension(
                     defpoints=defpoints,
-                    text_midpoint=(conv(tm.x, tm.y)
+                    text_midpoint=(conv(*_pt_xy(tm, ocs))
                                    if tm is not None else None),
                     measurement=meas,
                     text=(ent.dxf.get("text", "") or None),
@@ -279,19 +535,53 @@ def from_dxf(filepath: str = None, content: bytes = None,
                 # exact insert transform, recursing into nested INSERTs
                 # under the depth/entity caps.
                 bname = ent.dxf.get("name", "?")
+                mcount = getattr(ent, "mcount", 1) or 1
+                if mcount > 1:
+                    # MINSERT: ezdxf's virtual_entities() resolves only the
+                    # FIRST copy of the array, so the other placements are
+                    # plotted on paper but absent from the IR. Array
+                    # expansion is not implemented; say so rather than
+                    # under-report the sheet silently.
+                    _warn_once(f"MINSERT '{bname}' places {mcount} copies "
+                               f"in a row/column array; only the first is "
+                               f"ingested (array expansion not "
+                               f"implemented).")
                 for attrib in getattr(ent, "attribs", ()) or ():
-                    txt = attrib.dxf.get("text", "")
-                    if not txt:
-                        continue
-                    ins = attrib.dxf.insert
-                    st = dict(common)
-                    st["style"] = f"attrib:{bname}:" \
-                                  f"{attrib.dxf.get('tag', '')}"
-                    ir.add(TextItem(
-                        content=txt, position=conv(ins.x, ins.y),
-                        rotation=attrib.dxf.get("rotation", 0.0),
-                        height=attrib.dxf.get("height", 0.0) * factor,
-                        **st))
+                    # Per-ATTRIB guard, for the same reason the virtual
+                    # entities below get one: one unreadable attribute
+                    # must not cost its siblings — or, worse, abort this
+                    # INSERT's whole block explosion via the outer handler.
+                    try:
+                        txt = attrib.dxf.get("text", "")
+                        if not txt:
+                            continue
+                        ins = attrib.dxf.insert
+                        st = dict(common)
+                        # An ATTRIB reached through a block is BOTH block
+                        # content and an attribute value; the style token
+                        # list carries both, which is what makes
+                        # ``n_block_entities`` equal the number of
+                        # ``block:``-tagged IR entities.
+                        tag = f"attrib:{bname}:{attrib.dxf.get('tag', '')}"
+                        st["style"] = (f"block:{block}|{tag}"
+                                       if block is not None else tag)
+                        # An ATTRIB is a TEXT in every coordinate respect,
+                        # so its rotation is OCS too and gets the same map
+                        # its insert point does — one shared _ocs_map, so
+                        # the two can never be resolved against different
+                        # extrusions.
+                        a_ocs = _ocs_map(attrib)
+                        ir.add(TextItem(
+                            content=txt,
+                            position=conv(*_pt_xy(ins, a_ocs)),
+                            rotation=conv_angle(
+                                attrib.dxf.get("rotation", 0.0), a_ocs),
+                            height=attrib.dxf.get("height", 0.0) * factor,
+                            **st))
+                    except Exception as exc:
+                        warnings.append(
+                            f"Skipped an ATTRIB on block "
+                            f"'{bname}': {exc}")
                 if not explode_blocks:
                     return
                 if depth >= _MAX_BLOCK_DEPTH:
@@ -302,41 +592,122 @@ def from_dxf(filepath: str = None, content: bytes = None,
                         depth_warned = True
                     return
                 top = block if block is not None else bname
-                for virt in ent.virtual_entities():
-                    if n_exploded >= max_block_entities:
+                # Pull the virtual entities one at a time and guard each
+                # one on its own. A DXF is a bag of INDEPENDENT entities:
+                # one child's failure carries no information about its
+                # siblings, so letting it abort the walk would model a
+                # dependency that does not exist — and silently drop the
+                # rest of the block. Cap, don't delete: the survivors stay
+                # in the IR and the loss becomes a visible warning.
+                #
+                # ezdxf DROPS entities it cannot transform — a
+                # non-uniformly scaled MULTILEADER is the everyday one —
+                # and yields the rest WITHOUT raising, so the per-entity
+                # guards below never see the loss. The
+                # skipped_entity_callback is the only channel that
+                # reports it, and it is what turns a silently missing
+                # plotted construct into a visible warning.
+                def _skipped(orig, reason, _b=bname):
+                    vt = orig.dxftype()
+                    if vt not in _SUPPORTED_TYPES:
+                        return   # we would have skipped it ourselves
+                    _warn_once(
+                        f"Block '{_b}': ezdxf could not transform a "
+                        f"{vt} ({reason}); that plotted geometry is "
+                        f"NOT in the IR.")
+
+                virts = iter(ent.virtual_entities(
+                    skipped_entity_callback=_skipped))
+                n_local = 0
+                while True:
+                    try:
+                        virt = next(virts)
+                    except StopIteration:
+                        break
+                    except Exception as exc:
+                        # A lazy raise from ezdxf's own generator: report
+                        # it as a counted TRUNCATION, not as a skip.
+                        warnings.append(
+                            f"Block '{bname}' explosion truncated after "
+                            f"{n_local} entities: {exc}")
+                        break
+                    # The budget bounds WORK, not ingest: a 50k-entity
+                    # block of unsupported types still costs 50k virtual
+                    # entity constructions, so gating on ingests instead
+                    # would let a bomb file walk unbounded.
+                    if n_visited >= max_block_entities:
                         if not budget_warned:
                             warnings.append(
                                 f"Block explosion stopped at the "
-                                f"{max_block_entities}-entity budget; "
+                                f"{max_block_entities}-entity budget "
+                                f"(entities walked, not ingested); "
                                 f"remaining block geometry omitted.")
                             budget_warned = True
                         return
-                    n_exploded += 1
-                    _handle(virt, block=top, depth=depth + 1)
+                    n_visited += 1
+                    n_local += 1
+                    before = len(ir.entities)
+                    try:
+                        _handle(virt, block=top, depth=depth + 1,
+                                inherit_layer=layer)
+                    except Exception as exc:
+                        vt = getattr(virt, "dxftype", lambda: "?")()
+                        warnings.append(
+                            f"Skipped a {vt} inside block '{bname}': {exc}")
+                    if depth == 0:
+                        # Count the IR delta only in the OUTERMOST frame:
+                        # at depth 0 each virtual entity's whole subtree is
+                        # spanned exactly once, so nested references are
+                        # not double-counted (and unsupported types and
+                        # bare INSERT wrappers correctly contribute 0).
+                        n_ingested += len(ir.entities) - before
             # other entity types are skipped (kept honest — not fabricated)
         except Exception as exc:  # pragma: no cover - malformed entity guard
             warnings.append(f"Skipped {etype} on layer '{layer}': {exc}")
 
     for ent in msp:
-        _handle(ent)
+        # Same independence rule at the top level: one malformed
+        # model-space entity must not cost the whole sheet.
+        try:
+            _handle(ent)
+        except Exception as exc:  # pragma: no cover - malformed entity guard
+            warnings.append(f"Skipped a model-space entity: {exc}")
 
     ir.metadata = {"dxf_units": resolved_units,
                    "n_layers": len([lyr for lyr in layers if lyr is not None])}
-    if n_exploded:
-        ir.metadata["n_block_entities"] = n_exploded
+    if n_ingested or n_visited or depth_warned or budget_warned:
+        # Two distinct quantities that used to share one integer: what the
+        # explosion CONTRIBUTED to the IR, and what it had to walk to get
+        # there. The walked count is kept rather than discarded whenever
+        # it differs, so a caller can see how much of a block was
+        # unsupported or was pure INSERT scaffolding.
+        #
+        # A file whose explosion was stopped DEAD by a cap (a zero budget,
+        # or nothing but over-deep nesting) reaches here with both counts
+        # at zero, and used to publish no block metadata at all — the one
+        # case where a caller most needs to be told the explosion
+        # contributed nothing. The cap flags keep the keys present.
+        ir.metadata["n_block_entities"] = n_ingested
+        if n_visited != n_ingested:
+            ir.metadata["n_block_entities_walked"] = n_visited
     if not ir.entities:
         warnings.append("No supported entities found in DXF model space.")
     return ir
 
 
-def _hatch_region(ent, conv, common) -> Optional[Region]:
-    """Best-effort HATCH → Region using the first boundary path's vertices."""
+def _hatch_region(ent, conv, common, ocs: Optional[_Ocs] = None
+                  ) -> Optional[Region]:
+    """Best-effort HATCH → Region using the first boundary path's vertices.
+
+    HATCH boundary points are OCS, so ``ocs`` (the entity's :func:`_ocs_map`)
+    resolves them; ``None`` means the OCS is the WCS.
+    """
     try:
         pattern = getattr(ent.dxf, "pattern_name", None)
         for path in ent.paths:
             verts = []
             for v in getattr(path, "vertices", []) or []:
-                verts.append(conv(v[0], v[1]))
+                verts.append(conv(*_pt_xy(v, ocs)))
             if len(verts) >= 3:
                 st = dict(common)
                 return Region(boundary=verts, pattern=pattern, **st)

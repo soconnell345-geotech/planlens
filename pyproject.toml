@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "planlens"
-version = "0.1.0"
+version = "0.2.0"
 description = "Drawing & submittal intelligence — deterministic geometry extraction and confidence-scored annotation constructs (leaders, dimensions, title blocks, bubbles, revision clouds) from PDF and DXF construction drawings"
 readme = "README.md"
 license = "MIT"

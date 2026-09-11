@@ -52,10 +52,40 @@ def _require_engine():
     return _ENGINE
 
 
+#: Ceiling on the rendered image handed to the OCR engine, in megapixels.
+#: A D-size drawing sheet (33 x 23 in) at the 300-dpi default is 69.7 MP and a
+#: 0.21 GB pixmap before the detector allocates anything of its own — enough to
+#: starve a notebook driver and take its websocket down with it (live,
+#: 2026-09-10). Above this ceiling the render steps DOWN in dpi rather than
+#: refusing: a slightly coarser read beats an unsurvivable one. To read fine
+#: lettering on a large sheet, OCR a REGION at full dpi (render/snip the area
+#: first) instead of raising this.
+DEFAULT_MAX_MEGAPIXELS = 30.0
+
+
+def _effective_dpi(w_pt: float, h_pt: float, dpi: float,
+                   max_megapixels: Optional[float]) -> float:
+    """Step ``dpi`` down until the render fits ``max_megapixels``."""
+    if not max_megapixels or max_megapixels <= 0:
+        return dpi
+    px = (w_pt * dpi / 72.0) * (h_pt * dpi / 72.0)
+    cap = max_megapixels * 1e6
+    if px <= cap:
+        return dpi
+    return dpi * math.sqrt(cap / px)
+
+
 def _render_page_png(filepath: Optional[str], content: Optional[bytes],
-                     page: int, dpi: float
-                     ) -> Tuple[bytes, float, float, Tuple[float, ...]]:
+                     page: int, dpi: float,
+                     max_megapixels: Optional[float] = None,
+                     ) -> Tuple[bytes, float, float, Tuple[float, ...], float]:
     """Render one page; also return its derotation matrix as a 6-tuple.
+
+    Returns ``(png, width_pt, height_pt, derotation, dpi_effective)``. The
+    caller MUST use ``dpi_effective`` for pixel->point conversion: when the
+    page is large enough to trip ``max_megapixels`` the render happens at a
+    reduced dpi, and scaling by the requested dpi would put every recognized
+    box in the wrong place.
 
     The vector ingest (``planlens.pdf``) reads ``get_drawings()``
     coordinates, which live in the UNROTATED page space, while renders
@@ -76,11 +106,12 @@ def _render_page_png(filepath: Optional[str], content: Optional[bytes],
     try:
         pg = doc[page]
         rect = pg.rect
-        zoom = dpi / 72.0
+        dpi_eff = _effective_dpi(rect.width, rect.height, dpi, max_megapixels)
+        zoom = dpi_eff / 72.0
         pix = pg.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
         m = pg.derotation_matrix
         return (pix.tobytes("png"), rect.width, rect.height,
-                (m.a, m.b, m.c, m.d, m.e, m.f))
+                (m.a, m.b, m.c, m.d, m.e, m.f), dpi_eff)
     finally:
         doc.close()
 
@@ -113,7 +144,9 @@ def ocr_text_items(filepath: Optional[str] = None,
                    page: int = 0, dpi: float = 300.0,
                    min_confidence: float = DEFAULT_MIN_CONFIDENCE,
                    rotate: Any = "auto",
-                   id_prefix: str = "ocr") -> List[TextItem]:
+                   id_prefix: str = "ocr",
+                   max_megapixels: Optional[float] = DEFAULT_MAX_MEGAPIXELS,
+                   ) -> List[TextItem]:
     """OCR one PDF page into ``TextItem`` entities in the IR page frame.
 
     Returns items with ``source="ocr"``, engine confidence (< 1.0),
@@ -130,6 +163,12 @@ def ocr_text_items(filepath: Optional[str] = None,
     (default) probes 0 vs 90 at low dpi and keeps the direction that
     recognizes more characters. Recognized boxes are always mapped back
     to the UNROTATED page frame.
+
+    ``max_megapixels`` caps the rendered image (default
+    :data:`DEFAULT_MAX_MEGAPIXELS`); a page above it is read at a reduced dpi
+    rather than at the requested one. Pass ``None`` to lift the cap — but see
+    the constant's note first, because an uncapped D-size sheet at 300 dpi is
+    a 70-megapixel image.
     """
     if (filepath is None) == (content is None):
         raise ValueError("pass exactly one of filepath / content")
@@ -208,7 +247,7 @@ def ocr_text_items(filepath: Optional[str] = None,
         return shifts
 
     if rotate == "auto":
-        png_lo, _, _, _ = _render_page_png(filepath, content, page, 100.0)
+        png_lo, _, _, _, _ = _render_page_png(filepath, content, page, 100.0)
         lo = cv2.imdecode(np.frombuffer(png_lo, np.uint8), cv2.IMREAD_COLOR)
         best_rot, best_chars = 0, -1
         # All four rotations (verifier finding, 2026-09-05: probing only
@@ -230,7 +269,8 @@ def ocr_text_items(filepath: Optional[str] = None,
     if rotate not in (0, 90, 180, 270):
         raise ValueError("rotate must be 0/90/180/270 or 'auto'")
 
-    png, _w_pt, h_pt, derot = _render_page_png(filepath, content, page, dpi)
+    png, _w_pt, h_pt, derot, dpi_eff = _render_page_png(
+        filepath, content, page, dpi, max_megapixels)
     img = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
     h_px, w_px = img.shape[:2]
     result, work = _run(img, rotate, want_work=True)
@@ -238,7 +278,7 @@ def ocr_text_items(filepath: Optional[str] = None,
     if not result:
         return items
     shifts = _role_shifts(work, result)
-    k = 72.0 / dpi
+    k = 72.0 / dpi_eff
     da, db, dc, dd, de, df = derot
 
     def to_ir(px: Sequence[float]) -> Point:
@@ -287,29 +327,53 @@ def augment_ir_with_ocr(ir: DrawingIR,
                         content: Optional[bytes] = None,
                         page: int = 0, dpi: float = 300.0,
                         min_confidence: float = DEFAULT_MIN_CONFIDENCE,
-                        rotate: Any = "auto") -> Dict[str, Any]:
+                        rotate: Any = "auto",
+                        max_megapixels: Optional[float] = DEFAULT_MAX_MEGAPIXELS,
+                        ) -> Dict[str, Any]:
     """OCR the page and merge the results into ``ir`` in place.
 
     Positions/heights are multiplied by the IR's model scale when one was
     applied at ingest, so OCR text lands in the same coordinate space as
     the vector geometry. Existing entity ids are respected (items get an
     ``ocrN`` id series). Returns a summary dict:
-    ``{n_added, n_existing_text, engine, dpi}``.
+    ``{n_added, n_existing_text, engine, dpi}`` — where ``dpi`` is the dpi
+    ACTUALLY used. If ``max_megapixels`` forced a reduction, the result also
+    carries ``dpi_requested`` and a ``note`` saying so.
     """
     items = ocr_text_items(filepath=filepath, content=content, page=page,
                            dpi=dpi, min_confidence=min_confidence,
-                           rotate=rotate)
+                           rotate=rotate, max_megapixels=max_megapixels)
     s = ir.scale or 1.0
     if s != 1.0:
         for t in items:
             t.position = (t.position[0] * s, t.position[1] * s)
             t.height = round(t.height * s, 6)
             t.bbox = t.compute_bbox()
+    dpi_used = dpi
+    try:                                  # cheap: report the dpi ACTUALLY used
+        import fitz
+        doc = (fitz.open(stream=content, filetype="pdf") if content is not None
+               else fitz.open(filepath))
+        try:
+            r = doc[page].rect
+            dpi_used = _effective_dpi(r.width, r.height, dpi, max_megapixels)
+        finally:
+            doc.close()
+    except Exception:                     # never fail the OCR over reporting
+        pass
     n_existing = sum(1 for e in ir.entities if e.KIND == "text")
     ir.entities.extend(items)
     ir.metadata = dict(ir.metadata or {})
-    ir.metadata["ocr"] = {"n_items": len(items), "dpi": dpi,
+    ir.metadata["ocr"] = {"n_items": len(items), "dpi": dpi_used,
+                          "dpi_requested": dpi,
                           "min_confidence": min_confidence,
                           "engine": "rapidocr-onnxruntime"}
-    return {"n_added": len(items), "n_existing_text": n_existing,
-            "engine": "rapidocr-onnxruntime", "dpi": dpi}
+    out = {"n_added": len(items), "n_existing_text": n_existing,
+           "engine": "rapidocr-onnxruntime", "dpi": dpi_used}
+    if dpi_used < dpi:
+        out["dpi_requested"] = dpi
+        out["note"] = (
+            f"render capped at {max_megapixels:g} MP, so the page was read at "
+            f"{dpi_used:.0f} dpi rather than {dpi:.0f}. For fine lettering on a "
+            "large sheet, OCR a region at full dpi instead of the whole page.")
+    return out
