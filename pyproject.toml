@@ -33,6 +33,17 @@ dependencies = [
 
 [project.optional-dependencies]
 # Raster/scanned-sheet ingest (OpenCV Hough/contour tracing).
+#
+# NO UPPER BOUND, and OpenCV 5 has already walked through the gap: a Databricks
+# install on 2026-09-11 resolved 5.0.0.93 and nobody decided that -- it was
+# found by reading an install log. VERIFIED SAFE: the full suite (792 passed /
+# 1 skipped) was run against OpenCV 5.0.0, and the cv2 surface used here is
+# small and long-stable (imdecode, cvtColor, Canny, HoughLinesP, HoughCircles,
+# findContours, approxPolyDP, threshold, medianBlur, rotate); findContours is
+# already unpacked version-agnostically in ir/raster.py. If you tighten this to
+# ">=4.8,<6" so the NEXT major is a decision rather than a discovery, that is a
+# deliberate release, not a drive-by. Triage guide: the app repo's
+# docs/DATABRICKS_INSTALL.md section 7.
 raster = ["opencv-python-headless>=4.8"]
 # OCR leg (planlens.ocr): RapidOCR, Apache-2.0, ~60 MB incl. onnxruntime;
 # PP-OCR models ship in the wheel — no runtime downloads, no system
