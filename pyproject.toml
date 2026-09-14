@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "planlens"
-version = "0.2.0"
+version = "0.3.0"
 description = "Review-ready data from AEC documents for LLMs: page maps, located text, tables, review markups and hidden CAD text from any PDF, plus deterministic drawing geometry and confidence-scored annotation constructs (leaders, dimensions, title blocks, callouts) from PDF and DXF sheets, with framework-neutral LLM tools"
 readme = "README.md"
 license = "MIT"
