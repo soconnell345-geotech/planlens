@@ -132,10 +132,39 @@ REST) and passes the dict, or passes the function to `AzureLayout.analyze`.
 No live Azure result has been run through it yet; the tests use hand-built
 results in the documented shape.
 
+## Text first, eyes second — and the tools say when (2026-09-14)
+
+The owner's gut check of the first build: the layer was undervaluing the
+model's own vision. Measured on the real submittal, the three pages a reviewer
+most needs eyes on told the model nothing of the kind — a scanned plan figure
+with four markups came back as two footer lines (the "no text layer" warning
+fires only at zero text); a boring log as 113 fragments in drafting order and a
+mangled grid; a plan sheet as 162 labels. The extractor KNEW (page kind, image
+coverage, sparse grid) and did not say.
+
+Now every result that touches such a page says so. `advice.page_advice` turns
+the signals into plain statements — scanned / figure / drawing_sheet kinds,
+image-bearing mixed pages, undecodable glyphs, a table whose detected grid is
+mostly empty (`Table.n_cells` / `n_empty_cells`, counted BEFORE empty columns
+are dropped), low-confidence optical words, markups that point at a spot —
+and the tool layer prints them as `! look:` lines with the host's own
+instruction for how to look (`ReviewToolkit.vision_hint`). `open_document`
+lists `pages_to_view`; `document_page_map` flags `look`; a text-search miss
+names `pages_not_searchable_as_text` so a miss there is not read as absence.
+
+`Document.render(page, bbox, marks)` gives the image itself, in the displayed
+frame, pixel-capped (`DEFAULT_MAX_PIXELS`: a 300 dpi D-size render is 70 MP
+and took a notebook driver down once); with marks it renders from a fresh copy
+so the cached document's text is never polluted by the drawn labels. The
+toolkit exposes it as `render_page` / `render_region` (PNG files) and
+`ReviewToolkit.render` (bytes) for hosts that hand images to the model
+directly. An image file opens as a one-page document (`source_kind="image"`,
+converted to PDF by MuPDF), so a photographed drawing is reviewed like a scan.
+
 ## Not built yet
 
 - RapidOCR (`planlens.ocr`) as a text source (it currently emits IR TextItems).
-- An LLM tool surface over `Document` (the app's drawing adapter owns the only
-  one today).
+- The drawing tools (digitize / query / snip / search a drawing set) as
+  planlens tools — the app's drawing adapter still owns them.
 - Roles/headings from the PDF text layer; multi-column reading order; figure
   and caption detection; tables spanning pages.

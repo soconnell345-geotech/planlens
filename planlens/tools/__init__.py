@@ -14,6 +14,9 @@ size limit you set::
 """
 
 from planlens.tools.specs import TOOL_SPECS
-from planlens.tools.toolkit import DEFAULT_MAX_CHARS, ReviewToolkit, ToolError
+from planlens.tools.toolkit import (
+    DEFAULT_MAX_CHARS, DEFAULT_VISION_HINT, ReviewToolkit, ToolError,
+)
 
-__all__ = ["ReviewToolkit", "ToolError", "TOOL_SPECS", "DEFAULT_MAX_CHARS"]
+__all__ = ["ReviewToolkit", "ToolError", "TOOL_SPECS", "DEFAULT_MAX_CHARS",
+           "DEFAULT_VISION_HINT"]

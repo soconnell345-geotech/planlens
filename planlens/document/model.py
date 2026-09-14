@@ -144,6 +144,14 @@ class Table:
     header: Optional[List[Optional[str]]] = None
     source: str = "pymupdf_find_tables"
     notes: List[str] = field(default_factory=list)
+    #: Cell counts of the grid AS DETECTED, before empty columns were dropped —
+    #: how much of a ruled form the reading actually filled.
+    n_cells: int = 0
+    n_empty_cells: int = 0
+
+    @property
+    def empty_fraction(self) -> float:
+        return self.n_empty_cells / self.n_cells if self.n_cells else 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return _compact({
@@ -151,6 +159,8 @@ class Table:
             "bbox": _rb(self.bbox),
             "n_rows": self.n_rows,
             "n_cols": self.n_cols,
+            "empty_fraction": (round(self.empty_fraction, 2)
+                               if self.n_cells else None),
             "header": self.header,
             "rows": self.rows,
             "source": self.source,

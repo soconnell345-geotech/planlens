@@ -36,6 +36,7 @@ Quick start::
         comments = doc.markups(author="Reviewer A")
 """
 
+from planlens.document.advice import page_advice
 from planlens.document.azure_di import (
     AzureLayout,
     pages_needing_ocr,
@@ -57,6 +58,7 @@ from planlens.document.model import (
 )
 
 __all__ = [
+    "page_advice",
     "AzureLayout",
     "pages_needing_ocr",
     "pages_to_azure_range",

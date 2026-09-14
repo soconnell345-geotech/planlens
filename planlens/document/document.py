@@ -18,7 +18,7 @@ tables. Annotations (markups and hidden CAD text) always come from the PDF.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from planlens.document.annotations import (
     attach_appearance_text, drop_cad_text_already_in_layer,
@@ -107,19 +107,60 @@ def _heading(lines: List[TextLine],
     return best.text if len(best.text) <= 100 else best.text[:97] + "..."
 
 
+#: Image formats accepted as a one-page document (converted to PDF on open).
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif",
+                    ".webp", ".pnm", ".pgm", ".ppm")
+
+#: Rendering never returns more pixels than this (a 300 dpi D-size sheet is
+#: 70 megapixels — enough to take a notebook driver down, and far more than a
+#: vision model uses); the dpi is lowered to fit.
+DEFAULT_MAX_PIXELS = 4_000_000
+
+#: Full-page renders target this long side in pixels when no dpi is given.
+DEFAULT_PAGE_LONG_SIDE_PX = 2000
+
+
+def _is_pdf(head: bytes) -> bool:
+    return head.lstrip()[:5] == b"%PDF-"
+
+
+def _open_any(filepath: Optional[str], content: Optional[bytes]):
+    """Open a PDF, or an image as a one-page PDF. Returns (doc, kind)."""
+    import fitz
+    if content is not None:
+        if _is_pdf(content[:1024]):
+            return fitz.open(stream=content, filetype="pdf"), "pdf"
+        img = fitz.open(stream=content)          # format sniffed by MuPDF
+    else:
+        with open(filepath, "rb") as fh:
+            head = fh.read(1024)
+        if _is_pdf(head):
+            return fitz.open(filepath), "pdf"
+        img = fitz.open(filepath)
+    if img.page_count < 1:
+        img.close()
+        raise ValueError("not a PDF and not a readable image")
+    pdf = fitz.open("pdf", img.convert_to_pdf())
+    img.close()
+    return pdf, "image"
+
+
 class Document:
-    """A PDF opened for review. Use as a context manager or call :meth:`close`."""
+    """A PDF (or an image, as a one-page document) opened for review.
+
+    Use as a context manager or call :meth:`close`. ``source_kind`` is
+    ``"pdf"`` or ``"image"``; an image becomes a one-page PDF on open, so every
+    page-level operation — the page map, rendering, the displayed frame —
+    applies to it the same way, and a scan photographed with a phone is
+    reviewed like a scanned page.
+    """
 
     def __init__(self, filepath: Optional[str] = None,
                  content: Optional[bytes] = None,
                  text_source: Any = None, name: Optional[str] = None):
-        import fitz
         if filepath is None and content is None:
             raise ValueError("pass filepath or content")
-        if content is not None:
-            self._doc = fitz.open(stream=content, filetype="pdf")
-        else:
-            self._doc = fitz.open(filepath)
+        self._doc, self.source_kind = _open_any(filepath, content)
         self.source = name or (str(filepath) if filepath else "<bytes>")
         self.text_source = text_source
         self._text: Dict[int, tuple] = {}
@@ -343,6 +384,63 @@ class Document:
         return {"pattern": pattern, "n_hits": len(hits),
                 "pages_with_hits": per_page, "truncated": truncated,
                 "hits": hits}
+
+    # -- reading advice / rendering ------------------------------------------
+    def advice(self, index: int, content: bool = True) -> List[str]:
+        """What the text tools cannot give for this page (see
+        :mod:`planlens.document.advice`). ``content=False`` uses only the cheap
+        page summary."""
+        from planlens.document.advice import page_advice
+        (index,) = parse_pages(index, self.n_pages)
+        return page_advice(self.summary(index),
+                           self.page(index) if content else None)
+
+    def render(self, index: int, bbox: Optional[Sequence[float]] = None,
+               dpi: Optional[float] = None, pad_frac: float = 0.1,
+               marks: Optional[Sequence[Sequence[Any]]] = None,
+               max_pixels: int = DEFAULT_MAX_PIXELS) -> Tuple[bytes, Dict[str, Any]]:
+        """Render a page, or a region of it, to PNG for a model to look at.
+
+        ``bbox`` and ``marks`` are in the displayed frame this package uses
+        everywhere (PDF points, top-left origin) — a box from a text line, a
+        table or a markup renders as-is. ``marks`` are ``(x, y, label)``
+        numbered circles for set-of-marks prompting. With no ``dpi`` a full
+        page renders at about :data:`DEFAULT_PAGE_LONG_SIDE_PX` on its long
+        side and a region at 200 dpi; either is lowered to stay under
+        ``max_pixels``. Returns ``(png_bytes, info)`` where ``info`` has the
+        clip actually rendered, the dpi used and the pixel size.
+        """
+        import fitz
+        from planlens.ir.render import clip_rect_for_bbox, render_region
+        (index,) = parse_pages(index, self.n_pages)
+        page = self._doc[index]
+        pr = page.rect
+        clip = clip_rect_for_bbox(tuple(bbox) if bbox is not None else None,
+                                  (pr.x0, pr.y0, pr.x1, pr.y1), pad_frac)
+        cw, ch = clip[2] - clip[0], clip[3] - clip[1]
+        if dpi is None:
+            dpi = (72.0 * DEFAULT_PAGE_LONG_SIDE_PX / max(cw, ch, 1.0)
+                   if bbox is None else 200.0)
+            dpi = max(36.0, dpi)
+        px = (cw * dpi / 72.0) * (ch * dpi / 72.0)
+        if px > max_pixels:
+            dpi = dpi * (max_pixels / px) ** 0.5
+        dpi = float(dpi)
+        if marks:
+            # Drawing marks writes into the page; render from a fresh copy so
+            # the cached document (and its text extraction) stays untouched.
+            png = render_region(content=self._doc.tobytes(), page=index,
+                                bbox=tuple(bbox) if bbox is not None else None,
+                                dpi=int(round(dpi)), pad_frac=pad_frac,
+                                marks=[tuple(m) for m in marks], frame="page")
+        else:
+            pix = page.get_pixmap(dpi=int(round(dpi)), clip=fitz.Rect(clip))
+            png = pix.tobytes("png")
+        info = {"page": index, "clip": [round(v, 1) for v in clip],
+                "dpi": round(dpi, 1),
+                "width_px": int(round(cw * dpi / 72.0)),
+                "height_px": int(round(ch * dpi / 72.0))}
+        return png, info
 
     # -- markups / text -----------------------------------------------------
     def markups(self, pages: PageSpec = None,

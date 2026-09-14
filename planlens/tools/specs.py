@@ -19,13 +19,15 @@ TOOL_SPECS = [
     {
         "name": "open_document",
         "description": (
-            "Open a PDF for review (report, drawing set, submittal, calcs). "
-            "Returns a handle plus a map of the whole document: which pages "
-            "are text, drawing sheets, figures or scans; sheet labels; "
-            "bookmarks; how many review markups there are and by whom. Call "
-            "this first for any document question — you do not need to know "
-            "in advance whether the answer is in prose, a table, a drawing or "
-            "a reviewer's comment."),
+            "Open a PDF (or an image file) for review — report, drawing set, "
+            "submittal, calcs, scan. Returns a handle plus a map of the whole "
+            "document: which pages are text, drawing sheets, figures or "
+            "scans; sheet labels; bookmarks; how many review markups there "
+            "are and by whom; and pages_to_view — the pages whose content is "
+            "a picture, to be read by looking. Call this first for any "
+            "document question — you do not need to know in advance whether "
+            "the answer is in prose, a table, a drawing, an image or a "
+            "reviewer's comment."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -67,7 +69,10 @@ TOOL_SPECS = [
             "origin) plus its direction when not horizontal — use it to cite "
             "or zoom into a spot. Text drawn by reviewers is NOT mixed into "
             "page text; it appears under 'review markup(s)'. Lines tagged "
-            "'cad' are AutoCAD hidden text behind stroked lettering. When the "
+            "'cad' are AutoCAD hidden text behind stroked lettering. A line "
+            "starting '! look:' means the text is not the page — a scan, a "
+            "figure, a drawing sheet, a form — and says how to view it; do "
+            "that before concluding anything from such a page. When the "
             "result has 'next', call again with those pages and start_line."),
         "parameters": {
             "type": "object",
@@ -93,7 +98,10 @@ TOOL_SPECS = [
             "and reviewers' markup comments — including phrases broken "
             "across lines. Each hit has page, label, a snippet, the matched "
             "line ids or markup id, and a box. Use it to locate a topic, a "
-            "value, a boring or sheet id before reading those pages."),
+            "value, a boring or sheet id before reading those pages. It "
+            "cannot see into scans, figures or drawing sheets: "
+            "pages_not_searchable_as_text lists those, and a miss there is "
+            "not absence — view them."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -129,6 +137,52 @@ TOOL_SPECS = [
                 "offset": {"type": "integer", "minimum": 0},
             },
             "required": ["handle"],
+        },
+    },
+    {
+        "name": "render_page",
+        "description": (
+            "Render one page to a PNG file and return its path, so you can "
+            "look at the page. Use it for any page the other tools flag with "
+            "'! look:' (scans, figures, drawing sheets, forms) and whenever a "
+            "text or table result looks incomplete or wrong. The image is in "
+            "the displayed-page frame: boxes from read_document and markups "
+            "map onto it directly. Resolution is chosen automatically (about "
+            "2000 px on the long side); pass dpi to change it."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "page": {"type": "integer", "minimum": 0},
+                "dpi": {"type": "number", "minimum": 36, "maximum": 400},
+            },
+            "required": ["handle", "page"],
+        },
+    },
+    {
+        "name": "render_region",
+        "description": (
+            "Render a zoomed-in region of a page to a PNG file — to read "
+            "small lettering, see what a markup points at, or check a "
+            "dimension, symbol or detail. bbox is [x0, y0, x1, y1] in PDF "
+            "points, displayed page, top-left origin: pass a box straight "
+            "from a text line, table or markup. Optional marks = [[x, y, "
+            "label], ...] draw numbered circles so you can ask 'what is at "
+            "mark 2'. Default 200 dpi, padded 10%."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "page": {"type": "integer", "minimum": 0},
+                "bbox": {"type": "array", "items": {"type": "number"},
+                         "minItems": 4, "maxItems": 4},
+                "marks": {"type": "array",
+                          "items": {"type": "array", "minItems": 2,
+                                    "maxItems": 3}},
+                "dpi": {"type": "number", "minimum": 36, "maximum": 600},
+                "pad_frac": {"type": "number", "minimum": 0, "maximum": 1},
+            },
+            "required": ["handle", "page", "bbox"],
         },
     },
 ]

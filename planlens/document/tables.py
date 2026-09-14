@@ -55,9 +55,10 @@ def extract_tables(page, page_index: int) -> Tuple[List[Table], List[str]]:
             if any(names):
                 header = names
                 notes.append("header read from text above the table grid")
+        n_cells, n_empty = _cell_counts(grid)
         grid, dropped = _drop_empty_columns(grid, header)
         if dropped:
-            notes.append(f"{dropped} empty column(s) omitted")
+            notes.append(f"{len(dropped)} empty column(s) omitted")
             if header is not None:
                 header = [v for i, v in enumerate(header) if i not in dropped]
         tables.append(Table(
@@ -69,8 +70,15 @@ def extract_tables(page, page_index: int) -> Tuple[List[Table], List[str]]:
             rows=grid,
             header=header,
             notes=notes,
+            n_cells=n_cells,
+            n_empty_cells=n_empty,
         ))
     return tables, warnings
+
+
+def _cell_counts(grid: List[List[Optional[str]]]):
+    cells = [c for row in grid for c in row]
+    return len(cells), sum(1 for c in cells if not c)
 
 
 def _drop_empty_columns(grid: List[List[Optional[str]]],

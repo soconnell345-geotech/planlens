@@ -18,7 +18,12 @@ located, attributed data:
 - **`planlens.tools`** — the above as LLM tools, framework-neutral: JSON-Schema
   specs in Anthropic or OpenAI style and a dispatcher whose every result is
   valid JSON inside the size limit the host sets, paging losslessly through
-  anything longer.
+  anything longer. Text first, eyes second — and the tools say when: a scan,
+  a figure, a drawing sheet or a ruled form read as a sparse grid comes back
+  with a `! look:` line and the host's instruction for viewing it, and
+  `render_page` / `render_region` produce the image (displayed frame,
+  pixel-capped, numbered marks on request). Image files open as one-page
+  documents.
 - **`planlens.ir`** — drawing geometry: lines, arcs, text, and the annotation
   constructs built from them (below).
 

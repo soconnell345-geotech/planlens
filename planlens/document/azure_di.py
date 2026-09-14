@@ -47,7 +47,7 @@ from planlens.document.model import (
     SOURCE_AZURE_DI, Table, TextBlock, TextLine,
 )
 from planlens.document.pdf_text import _rotation
-from planlens.document.tables import _drop_empty_columns
+from planlens.document.tables import _cell_counts, _drop_empty_columns
 
 Point = Tuple[float, float]
 
@@ -402,6 +402,7 @@ class AzureLayout:
             caption = _k(t, "caption")
             if caption:
                 notes.append(f"caption: {(_k(caption, 'content') or '').strip()}")
+            n_cells, n_empty = _cell_counts(grid)
             grid, dropped = _drop_empty_columns(grid, header)
             if dropped:
                 notes.append(f"{len(dropped)} empty column(s) omitted")
@@ -412,5 +413,6 @@ class AzureLayout:
             out.append(Table(
                 id=f"p{index}.atbl{len(out)}", page=index, bbox=bbox,
                 n_rows=len(grid), n_cols=max((len(r) for r in grid), default=0),
-                rows=grid, header=header, source=SOURCE_AZURE_DI, notes=notes))
+                rows=grid, header=header, source=SOURCE_AZURE_DI, notes=notes,
+                n_cells=n_cells, n_empty_cells=n_empty))
         return out

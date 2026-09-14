@@ -115,11 +115,14 @@ def page_header(s: PageSummary) -> str:
 
 def render_page(pc: PageContent, summary: PageSummary, *,
                 include_tables: bool, include_markups: bool,
-                with_locations: bool) -> List[str]:
+                with_locations: bool,
+                advice: Sequence[str] = ()) -> List[str]:
     """The page as a list of output lines (header first)."""
     rows = [page_header(summary)]
     for w in pc.warnings:
         rows.append(f"! {w}")
+    for a in advice:
+        rows.append(f"! look: {a}")
     body = [render_line(ln, with_locations) for ln in pc.lines]
     rows.extend(body if body else ["[no text on this page]"])
     if include_tables:
