@@ -1,8 +1,46 @@
 # planlens
 
-Drawing & submittal intelligence: deterministic geometry extraction plus
-confidence-scored annotation constructs from PDF and DXF construction
-drawings.
+Review-ready data from architecture / engineering / construction documents,
+for a language model to read and cite. An engineer reviewing a submittal, a
+report or a drawing set should not have to tell the model whether the answer
+is in the prose, a table, a drawing or a reviewer's markup, and the model
+should not have to read geometry off pixels. planlens turns the PDF into
+located, attributed data:
+
+- **`planlens.document`** — the whole document: a page map (text pages,
+  drawing sheets, figures, scans, each with the evidence for the call); text
+  lines with exact boxes and true reading direction; tables; the review
+  record (comments, callouts, clouds, arrows, stamps — author, date, and the
+  exact spot each points at); the hidden text AutoCAD stores behind stroked
+  SHX lettering; search across all of it. An optional Azure Document
+  Intelligence result can supply text for scanned pages — planlens reads the
+  result, it never calls or requires the paid service.
+- **`planlens.tools`** — the above as LLM tools, framework-neutral: JSON-Schema
+  specs in Anthropic or OpenAI style and a dispatcher whose every result is
+  valid JSON inside the size limit the host sets, paging losslessly through
+  anything longer.
+- **`planlens.ir`** — drawing geometry: lines, arcs, text, and the annotation
+  constructs built from them (below).
+
+Every coordinate `planlens.document` emits is in PDF points in the displayed
+page frame (top-left origin, y down, page rotation applied) — the frame of a
+rendered page image. Design notes: `planlens/document/DESIGN.md`,
+`planlens/ir/DESIGN.md`.
+
+```python
+from planlens.document import open_document
+
+with open_document("submittal.pdf") as doc:
+    for row in doc.page_map():
+        print(row.page, row.kind, row.label, row.heading)
+    hits = doc.search("raker load")
+    comments = doc.markups(author="Reviewer A")
+```
+
+## Drawing geometry (`planlens.ir`)
+
+Deterministic geometry extraction plus confidence-scored annotation
+constructs from PDF and DXF construction drawings.
 
 ## Architecture
 
