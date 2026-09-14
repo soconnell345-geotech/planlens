@@ -20,15 +20,31 @@ the interpretation, with the raw coordinates always one `get_entities` call away
 ## What it is
 
 ```
-drawing_ir/
-  results.py   # DrawingIR + Entity types (Line/Polyline/Arc/Circle/TextItem/Region)
+planlens/ir/
+  results.py   # DrawingIR + Entity types (Line/Polyline/Arc/Circle/TextItem/
+               # Region/Leader/Dimension)
   ingest.py    # from_dxf / from_pdf_vector / from_raster
   raster.py    # the OpenCV tracing leg (isolated so cv2 stays optional)
-  queries.py   # the LLM-facing slice queries
+  queries.py   # the LLM-facing slice queries + the construct finders
   render.py    # render_region — the region-snip "zoom in" vision primitive
+  align.py     # fit_plot_transform — model space -> plotted page
+  measure.py   # Quantity: derived numbers that carry unit + confidence
+  spatial.py   # point-pattern measures (spacing conventions, hulls)
   tests/       # programmatic DXF/PDF/raster fixtures + query correctness
-               # (leader_fixtures.py: synthetic multi-leader + decoy PDF sheets)
+planlens/pdf/      # vector-path + text extraction, scale parsing (the ingest leg)
+planlens/dxf/      # unit detection, native-annotation truth extraction
+planlens/ocr.py    # optional optical text (RapidOCR) merged into the IR
+planlens/document/ # the whole-document layer (page map, text, tables,
+                   # markups, structure) — see planlens/document/DESIGN.md
+planlens/tools/    # the framework-neutral LLM tool layer
+planlens/testing/  # shipped synthetic fixtures (public API)
 ```
+
+(Historical note: this package began life as `drawing_ir/` inside the
+geotech app and was split out as `planlens` on 2026-09-04; older prose and
+commit messages use the old module names `drawing_ir` / `pdf_import` /
+`dxf_import` for what are now `planlens.ir` / `planlens.pdf` /
+`planlens.dxf`.)
 
 ## The IR schema (`results.py`)
 
@@ -115,8 +131,8 @@ unsupported entity types included — and reads 4, 8 and 3 on those three
 sheets rather than following the inheritance. Entities drawn on an explicit layer inside a block keep that layer.
 
 ### `from_pdf_vector` (PyMuPDF) — confidence 1.0
-Reuses `pdf_import.extract_colored_paths` (per-path point lists + color) and
-`pdf_import.discover_pdf_content` (page size + text). Each path becomes a Line
+Reuses `planlens.pdf.extract_colored_paths` (per-path point lists + color) and
+`planlens.pdf.discover_pdf_content` (page size + text). Each path becomes a Line
 (2 points) or Polyline; each text span a TextItem carrying its reading
 direction in the IR frame (until 2026-09-13 every PDF TextItem said rotation 0,
 wrong for 215 of 245 lines on a real /Rotate 270 sheet). Text drawn by
@@ -126,11 +142,11 @@ annotations — a reviewer's comment, a stamp — is excluded (ordinary
 `source="pdf_annotation"` TextItems with a box-estimated rotation; it is off
 by default because the corpus figures were measured without that channel. With an explicit `scale`
 (m per point) or a two-point `calibration` (`{p1, p2, distance_m}` via
-`pdf_import.calibrate_scale`), coordinates are promoted to model meters;
+`planlens.pdf.calibrate_scale`), coordinates are promoted to model meters;
 otherwise the IR stays in page points and **scale candidates** parsed from the
-page text (`pdf_import.propose_scale`) are attached to `metadata` as *proposals,
+page text (`planlens.pdf.propose_scale`) are attached to `metadata` as *proposals,
 never applied*. PDF has no layers. Bezier curves are SAMPLED (8 subdivisions
-per cubic, `pdf_import.extractor._sample_cubic_bezier`, Phase 2) — a drawn
+per cubic, `planlens.pdf.extractor._sample_cubic_bezier`, Phase 2) — a drawn
 circle arrives as a ~32-vertex circle-like ring and a cloud scallop keeps its
 bump; before Phase 2 curves collapsed to their chord, which made curve-aware
 construct detection impossible.
@@ -138,17 +154,14 @@ construct detection impossible.
 ### `from_raster` (OpenCV) — confidence < 1.0
 Delegates to `drawing_ir.raster.trace_raster` (keeps `cv2` optional). See below.
 
-### The cross-import ruling
+### The import ruling
 
-`ingest.py` imports the `dxf_import` / `pdf_import` I/O modules directly. This is
-consistent with the house convention, **not** a violation of it: the
-"no cross-module imports" rule targets the 30 computational *analysis* modules
-(so they stay independently testable). The **I/O modules already form a
-dependency layer** — `pdf_import` imports `dxf_import.converter`, and
-`geo_project/ingest.py` imports both `dxf_import` and `pdf_import`. `drawing_ir`
-joins that same I/O layer with the same pattern. `results.py` and `queries.py`
-are kept pure-schema (no module imports) so the schema/query core has zero
-heavy dependencies.
+`ingest.py` imports the `planlens.pdf` / `planlens.dxf` ingest legs directly:
+they are one I/O layer inside one package. `results.py` and `queries.py` are
+kept pure-schema (no ingest imports) so the schema/query core has zero heavy
+dependencies. planlens imports **nothing** from the geotech app — the app
+depends on planlens, never the reverse; the only geotech-facing bridge
+(`to_dxf_parse_result`) lives app-side in `dxf_import/pdf_bridge.py`.
 
 ## The raster leg's honest limits (`raster.py`)
 
@@ -218,7 +231,7 @@ The agent narrows with queries, then pulls exact coordinates for a shortlist via
   geometrically and scores HIGH (~0.78), so the DOCUMENTED precision
   contract is `exclude_dimensions=True`, which lets `find_dimensions`
   claim those arrowheads first). Validated on synthetic PDF-vector
-  fixtures (`drawing_ir/tests/leader_fixtures.py` + `test_find_leaders.py`):
+  fixtures (`planlens/testing/leader_fixtures.py` + `test_find_leaders.py`):
   100% recall, 100% precision at confidence >= 0.5 *under
   exclude_dimensions* — fixture-scoped numbers, not a general benchmark
   claim.
@@ -301,7 +314,7 @@ coordinates to this frame for the caller.
 TextItem — see `ingest.py`'s `from_pdf_vector` loop). A filled-triangle
 arrowhead therefore arrives as a **closed Polyline with 3 vertices and a
 small bbox** — verified empirically by round-tripping a synthetic PyMuPDF
-leader through `from_pdf_vector` (see `drawing_ir/tests/leader_fixtures.py`).
+leader through `from_pdf_vector` (see `planlens/testing/leader_fixtures.py`).
 Gotcha along the way: PyMuPDF's `Shape.finish()` defaults `closePath=True`
 even for plain multi-segment line-work, so a NAIVELY-drawn shaft (without
 `closePath=False`) also comes back `closed=True` — geometrically
@@ -394,9 +407,20 @@ Clark-Evans `R` is reported with its edge-effect caveat rather than a
 correction: on the 3x3 grid it reads 3.0 where infinite-grid theory says 2.0,
 which is exactly the small-`n` upward bias the caveat describes.
 
-## Funhouse adapter
+## LLM surfaces
 
-`funhouse_agent/adapters/drawing_ir_adapter.py` exposes five methods and
+Two, as of planlens 0.3.0:
+
+- **`planlens.tools.ReviewToolkit`** (in this package, framework-neutral) —
+  the whole-document tools over `planlens.document`: `open_document`,
+  `document_structure`, `document_page_map`, `read_document`,
+  `search_document`, `document_markups`, `render_page_thumbnails`,
+  `render_page`, `render_region`. See `planlens/document/DESIGN.md`.
+- **The geotech app's drawing adapter** — the drawing-geometry tools below
+  still live in `GeotechStaffEngineer/funhouse_agent/adapters/drawing_ir_adapter.py`;
+  moving them into `planlens.tools` is the next step on the open list.
+
+That adapter exposes five methods and
 **caches the IR server-side keyed by a `handle`** (a full IR can be large):
 
 - `digitize_drawing(file_path, source=auto|dxf|pdf_vector|raster, …)` → `handle`
@@ -421,8 +445,13 @@ analysis-layer tool for the primary agent (it is an I/O tool, not a reference).
 
 ## Downstream
 
-The IR is a superset of what `geo_project` / `slope_stability` / `fem2d`
-ingestion needs. Wiring `geo_project` ingestion to consume a confirmed IR (with
+`planlens.document` joins to this layer through the frame conversions in
+`planlens/document/frame.py` (`to_ir_point` / `from_ir_point`): a text line,
+table or markup box found by the document layer can be handed to the
+geometry queries, and a geometry result rendered in the document frame.
+
+In the geotech app, the IR is a superset of what `geo_project` /
+`slope_stability` / `fem2d` ingestion needs. Wiring `geo_project` ingestion to consume a confirmed IR (with
 its provenance quarantine for anything below confidence 1.0) is the natural
 follow-up — the schema already carries the provenance + confidence that
 quarantine keys on.

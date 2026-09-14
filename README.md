@@ -451,6 +451,18 @@ from planlens.testing import (
     build_synthetic_bubble_pdf, build_synthetic_cloud_pdf,
     build_synthetic_drawing_set_pdf,
 )
+# Whole-document fixtures for the document layer and the tools:
+from planlens.testing import (
+    build_synthetic_review_document,   # a report page with a review stamp, a
+                                       # /Rotate 90 sheet with a reviewer's
+                                       # callout, a reply, a cloud, an arrow and
+                                       # hidden CAD text, a ruled table, a blank
+                                       # page and a scan
+    build_synthetic_submittal,         # a stapled submittal: cover, report with
+                                       # running header and "Page N", appendix
+                                       # divider, ruled logs, a duplicated page,
+                                       # two D-size sheets, attachment divider
+)
 ```
 
 Import them from `planlens.testing`, not from `planlens.ir.tests` — the

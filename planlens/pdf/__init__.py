@@ -1,5 +1,15 @@
 """
-PDF Import Module for Geotechnical Cross-Section Extraction
+PDF vector/text extraction and scale parsing — plus the geotechnical
+cross-section leg.
+
+Two things live here. The generic part — :func:`discover_pdf_content`,
+:func:`extract_colored_paths`, the scale parser and the cleanup helpers — is
+the PDF ingest leg of :mod:`planlens.ir` and :mod:`planlens.document`. The
+rest (:func:`extract_vector_geometry` with role mappings,
+:mod:`planlens.pdf.vision` with its soil-layer prompts, labels, cross-check)
+is the geotechnical CROSS-SECTION importer that predates the planlens split;
+it is kept so the geotech app keeps working, and moving it back into that
+app is on planlens' open list.
 
 Extracts geometry from PDF drawings using two methods:
     1. Vector extraction — PyMuPDF path analysis (exact, requires role_mapping)

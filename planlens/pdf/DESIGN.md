@@ -1,5 +1,14 @@
 # PDF Import Module — Design Notes
 
+> **Status (2026-09-14).** The generic extraction in this package
+> (`discover_pdf_content`, `extract_colored_paths`, `scale.py`, `cleanup.py`)
+> serves `planlens.ir` and `planlens.document`. The cross-section pipeline
+> described below (role mappings, the soil-layer vision prompts, `labels.py`,
+> `crosscheck.py`) is geotechnical and predates the planlens split; moving it
+> back into the geotech app is on the open list. `discover_pdf_content` text
+> blocks now carry `rotation` and exclude text drawn by annotations (see
+> `planlens/document/DESIGN.md`).
+
 ## Purpose
 
 Extract cross-section geometry from PDF drawings (Plaxis, Slope/W, hand sketches)
