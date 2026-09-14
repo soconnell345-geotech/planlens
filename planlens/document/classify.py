@@ -10,6 +10,9 @@ Kinds:
 - ``drawing_sheet`` — larger than tabloid (11x17) with linework, images or CAD
   text. Large-format pages are almost always drawings.
 - ``scanned`` — letter/tabloid page that is mostly image with no text layer.
+- ``form`` — a ruled grid (many horizontal AND vertical rules) on a letter or
+  tabloid page: boring logs, schedules, printed tables. Measured: boring logs
+  23-44 x 32-39 rules, prose pages 0 x 0, program printouts under 10.
 - ``figure`` — heavy linework or image coverage with modest text.
 - ``text`` — text-dense page with little graphics (prose, calcs, printouts).
 - ``blank`` — nothing on it.
@@ -27,15 +30,21 @@ from typing import Any, Dict, Tuple
 #: Tabloid (11x17 in) is 187 sq in; anything clearly bigger is large format.
 LARGE_FORMAT_IN2 = 250.0
 
+#: Axis-aligned rules in EACH direction for a page to read as a ruled form.
+FORM_MIN_RULES = 12
+
 
 def classify_page(width_pt: float, height_pt: float, n_text_chars: int,
                   n_cad_text_chars: int, n_vector_paths: int,
                   image_coverage: float,
-                  text_is_optical: bool = False) -> Tuple[str, Dict[str, Any]]:
+                  text_is_optical: bool = False,
+                  ruling_h: int = 0, ruling_v: int = 0
+                  ) -> Tuple[str, Dict[str, Any]]:
     """Return ``(kind, evidence)`` for one page's measurements.
 
     ``text_is_optical`` says ``n_text_chars`` came from reading the page image
-    (OCR / Azure) rather than from the PDF text layer.
+    (OCR / Azure) rather than from the PDF text layer. ``ruling_h`` /
+    ``ruling_v`` count long axis-aligned drawn lines.
     """
     area_in2 = (width_pt / 72.0) * (height_pt / 72.0)
     chars = n_text_chars + n_cad_text_chars
@@ -53,6 +62,8 @@ def classify_page(width_pt: float, height_pt: float, n_text_chars: int,
         kind, rule = "scanned", ("mostly image, text read optically"
                                  if text_is_optical else
                                  "mostly image, no text layer")
+    elif ruling_h >= FORM_MIN_RULES and ruling_v >= FORM_MIN_RULES:
+        kind, rule = "form", "ruled grid in both directions"
     elif chars < 1500 and (n_vector_paths >= 300 or image_coverage >= 0.35):
         kind, rule = "figure", "heavy graphics, modest text"
     elif chars >= 600 and n_vector_paths < 300 and image_coverage < 0.35:

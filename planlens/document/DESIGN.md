@@ -21,7 +21,11 @@ document/
   annotations.py  review markups + hidden CAD text
   tables.py       find_tables wrapper
   classify.py     coarse page kinds with evidence
-  document.py     Document: page_map, page, search, markups, text
+  structure.py    headers/footers, printed page numbers, dividers, duplicates,
+                  segments (the constituent documents)
+  advice.py       when text is not enough: "! look:" statements
+  document.py     Document: page_map, segments, page, search, markups, text,
+                  render, render_thumbnails
   azure_di.py     Azure Document Intelligence result -> text source (optional)
 ```
 
@@ -97,12 +101,54 @@ took over 260 pages.
 ## Page map
 
 `classify.classify_page` from cheap measurements (text chars, CAD-text chars,
-vector path count, image coverage, page area): `drawing_sheet` (larger than
-tabloid with content), `scanned`, `figure`, `text`, `blank`, `mixed`. Coarse on
-purpose; every row carries the numbers and the rule. `needs_ocr` is separate
-from kind and is cleared when the page's text came from an optical source.
-Measured: 3.8 s for 260 pages. Headings: an Azure title/sectionHeading block if
-present, else the largest-font text-layer line.
+vector path count, image coverage, page area, ruling lines): `drawing_sheet`
+(larger than tabloid with content), `scanned`, `form` (a ruled grid — at
+least 12 long horizontal AND 12 vertical rules on a letter/tabloid page;
+measured: boring logs 23-44 x 32-39, prose 0 x 0, program printouts under
+10), `figure`, `text`, `blank`, `mixed`. Coarse on purpose; every row carries
+the numbers and the rule. `needs_ocr` is separate from kind and is cleared when
+the page's text came from an optical source. Measured: 4.5 s for 260 pages.
+Headings: an Azure title/sectionHeading block if present, else the largest-font
+text-layer line.
+
+Each `PageSummary` also carries (2026-09-14, after the owner asked what else
+the map could say): `n_words` and `text_density` (words per square inch —
+prose 1.5-6, dividers and drawings 0.1-0.7), `n_images`, `ruling_h/v`,
+`rotated_text_fraction`, the `header` and `footer` band text (top and bottom
+8 %), the page number PRINTED on the page (`printed_page`, `printed_of`), a
+`sheet` reference ("1 of 7", "S-101"), `scales` on drawing sheets, a
+`divider_title` (APPENDIX / ATTACHMENT / ITEM / cover ... on a page under 60
+words), `duplicate_of` (same kind, text and path count as an earlier page) and
+the `segment` it belongs to.
+
+### Structure (`structure.py`)
+
+A stapled submittal is several documents, and nobody wrote a contents page
+for the staple — but each constituent prints its own running header/footer and
+its own page numbers, and those change exactly at the seams. `segments()` cuts
+the page list where the running key changes (digits masked, numeric-only
+fragments dropped, containment allowed so a package's page stamp matches the
+longer footers inside it), at dividers, at page-size changes, between drawing
+sheets and everything else (consecutive sheets never split — their bands are
+full of labels), and where printed numbering restarts at 1 (a nested
+document). A segment reports its pages, title (divider > running header >
+footer with numbering stripped > first heading; a drawing set by its sheets),
+kinds, `printed_pages`/`printed_of`, header, footer, sheets, first heading.
+
+Measured on the real 260-page submittal: 29 segments — transmittal, review
+letter, tabs, the seven-sheet drawing set as one segment, the calc package
+stamped 1-245 with its Appendices A-E as dividers, the boring logs as one
+`form` run, and four calc sheets recognised as nested documents by their own
+"Page 1 of 4" numbering. `printed_pages` is what lets the agent turn "see
+page 24 of the calcs" into a PDF page, and cite the printed number back.
+
+### Thumbnails
+
+`Document.render_thumbnails()` composes contact sheets — every page as a small
+thumbnail with "<page> <kind> (<label>)" beneath, 6 x 8 per sheet, a red frame
+on pages with review markups — the way a viewer's page panel shows a document.
+A model can take in 48 pages in one image and pick out the plan, the logs, the
+tables. Cost: 3.2 s for all 260 pages; six 910 x 1322 px images.
 
 ## Text sources
 

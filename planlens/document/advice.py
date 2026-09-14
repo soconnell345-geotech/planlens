@@ -47,10 +47,13 @@ def page_advice(summary: PageSummary,
                    "order, not a reading of the sheet — view the sheet (or a "
                    "region of it), and use drawing-geometry tools for "
                    "measurements")
+    elif kind == "form":
+        out.append("ruled form or table page: text lines are cell contents in "
+                   "drafting order and the extracted table may not follow the "
+                   "printed layout — view the page to read it as laid out")
     elif kind == "figure":
-        out.append("figure or form page: text lines are labels and cell "
-                   "contents in drafting order — view the page to read it as "
-                   "laid out")
+        out.append("figure page: text lines are its labels in drafting order "
+                   "— view the page to read the figure")
     elif kind == "mixed" and ev.get("image_coverage", 0) >= 0.2:
         out.append("page carries images: their content is not in the text — "
                    "view the page for them")

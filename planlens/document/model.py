@@ -250,12 +250,22 @@ class Markup:
 # ---------------------------------------------------------------------------
 
 #: Values of ``PageSummary.kind`` — coarse on purpose, with evidence attached.
-PAGE_KINDS = ("text", "drawing_sheet", "figure", "scanned", "blank", "mixed")
+PAGE_KINDS = ("text", "drawing_sheet", "form", "figure", "scanned", "blank",
+              "mixed")
 
 
 @dataclass
 class PageSummary:
-    """One row of a document's page map: cheap to compute for every page."""
+    """One row of a document's page map: cheap to compute for every page.
+
+    Beyond the kind: how much text (``n_words``, ``text_density`` in words per
+    square inch), how ruled (``ruling_h`` / ``ruling_v`` axis-aligned lines —
+    forms and tables), what the page prints about itself (``header``,
+    ``footer``, ``printed_page`` / ``printed_of``, ``sheet``, ``scales``),
+    whether it is a divider (``divider_title``) or a repeat
+    (``duplicate_of``), and which constituent document it belongs to
+    (``segment``, from :func:`planlens.document.structure.segments`).
+    """
     page: int
     width: float
     height: float
@@ -267,21 +277,56 @@ class PageSummary:
     n_text_chars: int = 0
     n_markups: int = 0
     n_cad_text: int = 0
+    n_words: int = 0
+    text_density: float = 0.0
+    n_images: int = 0
+    ruling_h: int = 0
+    ruling_v: int = 0
+    rotated_text_fraction: float = 0.0
+    header: Optional[str] = None
+    footer: Optional[str] = None
+    printed_page: Optional[int] = None
+    printed_of: Optional[int] = None
+    sheet: Optional[str] = None
+    scales: List[str] = field(default_factory=list)
+    divider_title: Optional[str] = None
+    duplicate_of: Optional[int] = None
+    segment: Optional[int] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, detail: bool = True) -> Dict[str, Any]:
         d = _compact({
             "page": self.page,
             "label": self.label,
             "kind": self.kind,
+            "segment": self.segment,
             "size_in": [_r(self.width / 72.0), _r(self.height / 72.0)],
             "rotation": self.rotation,
             "heading": self.heading,
-            "n_text_chars": self.n_text_chars,
+            "divider_title": self.divider_title,
+            "words": self.n_words,
+            "printed_page": self.printed_page,
+            "printed_of": self.printed_of,
+            "sheet": self.sheet,
+            "scales": self.scales,
             "n_markups": self.n_markups,
             "n_cad_text": self.n_cad_text,
-            "evidence": self.evidence,
+            "duplicate_of": self.duplicate_of,
         })
         d["page"] = self.page   # page 0 must survive _compact
+        if self.segment is not None:
+            d["segment"] = self.segment
+        if detail:
+            d["evidence"] = _compact({
+                **self.evidence,
+                "text_density": _r(self.text_density),
+                "n_images": self.n_images,
+                "ruling_lines": ([self.ruling_h, self.ruling_v]
+                                 if (self.ruling_h or self.ruling_v) else None),
+                "rotated_text_fraction": (_r(self.rotated_text_fraction, 2)
+                                          if self.rotated_text_fraction else None),
+                "header": self.header,
+                "footer": self.footer,
+            })
         return d
 
 

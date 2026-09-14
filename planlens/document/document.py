@@ -32,6 +32,10 @@ from planlens.document.model import (
     TextBlock, TextLine,
 )
 from planlens.document.pdf_text import extract_text
+from planlens.document.structure import (
+    BAND_MAX_CHARS, band_texts, content_hash, divider_title, printed_numbers,
+    segments,
+)
 from planlens.document.tables import extract_tables
 
 PageSpec = Union[None, int, Sequence[int], range, str]
@@ -86,6 +90,26 @@ def _image_coverage(page) -> float:
         if not r.is_empty:
             covered += abs(r.width * r.height)
     return min(1.0, covered / area)
+
+
+def _ruling_lines(page) -> Tuple[int, int]:
+    """Counts of long horizontal and vertical drawn lines (rules)."""
+    h = v = 0
+    for d in page.get_cdrawings():
+        for it in d.get("items", ()):
+            if it[0] == "l":
+                (x0, y0), (x1, y1) = it[1], it[2]
+                if abs(y1 - y0) < 0.5 and abs(x1 - x0) > 20:
+                    h += 1
+                elif abs(x1 - x0) < 0.5 and abs(y1 - y0) > 20:
+                    v += 1
+            elif it[0] == "re":
+                r = it[1]
+                if r[2] > 20 and r[3] < 2:
+                    h += 1
+                elif r[3] > 20 and r[2] < 2:
+                    v += 1
+    return h, v
 
 
 def _heading(lines: List[TextLine],
@@ -167,6 +191,8 @@ class Document:
         self._annots: Dict[int, tuple] = {}
         self._summaries: Dict[int, PageSummary] = {}
         self._pages: Dict[tuple, PageContent] = {}
+        self._hashes: Dict[str, int] = {}
+        self._segments: Optional[List[Dict[str, Any]]] = None
 
     # -- lifecycle ---------------------------------------------------------
     def close(self) -> None:
@@ -235,27 +261,134 @@ class Document:
         markups, cad = self._page_annots(index)
         cad, _ = drop_cad_text_already_in_layer(cad, lines)
         n_paths = len(page.get_cdrawings())
+        ruling_h, ruling_v = _ruling_lines(page)
         coverage = _image_coverage(page)
         n_chars = int(stats.get("n_text_chars", 0))
         n_cad_chars = sum(len(c.text) for c in cad)
         kind, evidence = classify_page(
             page.rect.width, page.rect.height, n_chars, n_cad_chars, n_paths,
-            coverage, text_is_optical=src_name in (SOURCE_AZURE_DI, SOURCE_OCR))
+            coverage, text_is_optical=src_name in (SOURCE_AZURE_DI, SOURCE_OCR),
+            ruling_h=ruling_h, ruling_v=ruling_v)
         if stats.get("n_unmapped_chars"):
             evidence["unmapped_chars"] = stats["n_unmapped_chars"]
         if src_name != SOURCE_PDF_TEXT:
             evidence["text_source"] = src_name
+        width, height = page.rect.width, page.rect.height
+        n_words = sum(len(ln.text.split()) for ln in lines)
+        area_in2 = (width / 72.0) * (height / 72.0) or 1.0
+        heading = _heading(lines, blocks)
+        top, bottom = band_texts(lines, height)
+        numbers = printed_numbers(top + bottom)
+        scales: List[str] = []
+        if kind == "drawing_sheet":
+            from planlens.pdf.scale import parse_scale_annotations
+            seen = set()
+            for c in parse_scale_annotations([{"text": ln.text}
+                                              for ln in lines]):
+                prov = " ".join(str(c.get("provenance", "")).split())[:40]
+                if prov and prov not in seen:
+                    seen.add(prov)
+                    scales.append(prov)
+            scales = scales[:4]
         s = PageSummary(
-            page=index, width=page.rect.width, height=page.rect.height,
+            page=index, width=width, height=height,
             rotation=int(page.rotation), label=self.label(index), kind=kind,
-            evidence=evidence, heading=_heading(lines, blocks),
-            n_text_chars=n_chars, n_markups=len(markups), n_cad_text=len(cad))
+            evidence=evidence, heading=heading,
+            n_text_chars=n_chars, n_markups=len(markups), n_cad_text=len(cad),
+            n_words=n_words, text_density=n_words / area_in2,
+            n_images=len(page.get_image_info()) if coverage else 0,
+            ruling_h=ruling_h, ruling_v=ruling_v,
+            rotated_text_fraction=(
+                sum(1 for ln in lines if ln.rotation) / len(lines)
+                if lines else 0.0),
+            header=(" | ".join(top)[:BAND_MAX_CHARS] or None),
+            footer=(" | ".join(bottom)[:BAND_MAX_CHARS] or None),
+            printed_page=numbers.get("printed_page"),
+            printed_of=numbers.get("printed_of"),
+            sheet=numbers.get("sheet"),
+            scales=scales,
+            divider_title=divider_title(
+                heading, n_words, [ln.text for ln in lines[:3]]),
+        )
+        if kind != "blank" and (n_words >= 15 or n_paths >= 30):
+            key = content_hash(kind, lines, n_paths)
+            first = self._hashes.setdefault(key, index)
+            if first != index:
+                s.duplicate_of = first
         self._summaries[index] = s
+        self._segments = None
         return s
 
     def page_map(self, pages: PageSpec = None) -> List[PageSummary]:
-        """One :class:`PageSummary` per page — kind, size, heading, counts."""
-        return [self.summary(i) for i in parse_pages(pages, self.n_pages)]
+        """One :class:`PageSummary` per page — kind, size, heading, counts.
+
+        Reading the whole document also assigns each page its ``segment``
+        (see :meth:`segments`)."""
+        wanted = parse_pages(pages, self.n_pages)
+        out = [self.summary(i) for i in wanted]
+        if len(wanted) == self.n_pages:
+            self.segments()
+        return out
+
+    def segments(self) -> List[Dict[str, Any]]:
+        """The document's constituent documents, from running headers /
+        footers, printed numbering, dividers, page size and drawing sheets
+        (:func:`planlens.document.structure.segments`). Reads every page."""
+        if self._segments is None:
+            summaries = [self.summary(i) for i in range(self.n_pages)]
+            self._segments = segments(summaries)
+        return self._segments
+
+    def render_thumbnails(self, pages: PageSpec = None, columns: int = 6,
+                          thumb_px: int = 140, per_sheet: int = 48
+                          ) -> List[Tuple[bytes, Dict[str, Any]]]:
+        """Contact sheets: every page as a small thumbnail with its number
+        and kind beneath, laid out in a grid like a viewer's page panel — so a
+        model can take in a long document at a glance and pick out the plan,
+        the logs, the tables. Pages with review markups get a red frame.
+        Returns one ``(png, info)`` per sheet of ``per_sheet`` pages."""
+        import fitz
+        wanted = parse_pages(pages, self.n_pages)
+        columns = max(1, min(int(columns), 12))
+        thumb = max(60, min(int(thumb_px), 400))
+        gap, label_h = 10, 14
+        cell_w, cell_h = thumb + gap, thumb + gap + label_h
+        out: List[Tuple[bytes, Dict[str, Any]]] = []
+        for start in range(0, len(wanted), per_sheet):
+            chunk = wanted[start:start + per_sheet]
+            rows = (len(chunk) + columns - 1) // columns
+            sheet = fitz.open()
+            canvas = sheet.new_page(width=columns * cell_w + gap,
+                                    height=rows * cell_h + gap)
+            for n, index in enumerate(chunk):
+                col, row = n % columns, n // columns
+                x0 = gap + col * cell_w
+                y0 = gap + row * cell_h
+                src = self._doc[index]
+                z = thumb / max(src.rect.width, src.rect.height)
+                pix = src.get_pixmap(matrix=fitz.Matrix(z, z), annots=True)
+                w, h = pix.width, pix.height
+                ox, oy = x0 + (thumb - w) / 2.0, y0 + (thumb - h) / 2.0
+                rect = fitz.Rect(ox, oy, ox + w, oy + h)
+                canvas.insert_image(rect, pixmap=pix)
+                summary = self.summary(index)
+                color = (0.85, 0.1, 0.1) if summary.n_markups else (0.6, 0.6, 0.6)
+                canvas.draw_rect(rect, color=color,
+                                 width=1.5 if summary.n_markups else 0.5)
+                label = f"{index} {summary.kind}"
+                if summary.label and summary.label != str(index + 1):
+                    label += f" ({summary.label[:12]})"
+                canvas.insert_text((x0, y0 + thumb + label_h - 3), label,
+                                   fontsize=7, color=(0, 0, 0))
+            png = canvas.get_pixmap(dpi=72).tobytes("png")
+            sheet.close()
+            out.append((png, {
+                "pages": chunk, "columns": columns, "thumb_px": thumb,
+                "width_px": int(columns * cell_w + gap),
+                "height_px": int(rows * cell_h + gap),
+                "legend": ("each thumbnail is labelled '<page> <kind>'; a red "
+                           "frame means the page carries review markups")}))
+        return out
 
     # -- full page content ------------------------------------------------
     def page(self, index: int, words: bool = False,

@@ -23,6 +23,10 @@ from planlens.testing.document_fixtures import (
     DocumentGT,
     build_synthetic_review_document,
 )
+from planlens.testing.submittal_fixtures import (
+    SubmittalGT,
+    build_synthetic_submittal,
+)
 from planlens.testing.construct_fixtures import (
     build_synthetic_bubble_pdf,
     build_synthetic_cloud_pdf,
@@ -42,6 +46,8 @@ from planlens.testing.leader_fixtures import (
 __all__ = [
     "DocumentGT",
     "build_synthetic_review_document",
+    "SubmittalGT",
+    "build_synthetic_submittal",
     "ARROW_HALF_WIDTH",
     "ARROW_LENGTH",
     "PAGE_HEIGHT",

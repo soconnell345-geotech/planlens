@@ -13,8 +13,12 @@ Tools
 ``read_document``      text (optionally with locations), tables and markups
 ``search_document``    find text, hidden CAD text and markup comments
 ``document_markups``   the review record: every markup, with its threads
+``document_structure`` the constituent documents: segments with their
+                       running headers/footers and printed page numbers
 ``render_page``        a page as a PNG image, for the model to look at
 ``render_region``      a zoomed region (with optional numbered marks) as a PNG
+``render_page_thumbnails``  contact sheets of every page, like a viewer's
+                       page panel, to take a long document in at a glance
 
 Text first, eyes second — and the tools say when. Every result that touches a
 page the text cannot represent (a scan, a figure, a drawing sheet, a ruled form
@@ -62,7 +66,11 @@ DEFAULT_VISION_HINT = ("to view it: render_page(handle, page) for a page, "
                        "look at the image")
 
 #: Page kinds whose content is mostly not in the text.
-VIEW_KINDS = ("scanned", "figure", "drawing_sheet")
+VIEW_KINDS = ("scanned", "figure", "drawing_sheet", "form")
+
+#: How the model views a PNG this toolkit wrote, when the host has no other
+#: way to say it.
+DEFAULT_IMAGE_VIEW_HINT = "open the image file at image_path and look at it"
 
 #: The size limit of the call in progress (set by call_json; a ContextVar so
 #: concurrent calls with different limits cannot see each other's).
@@ -118,6 +126,9 @@ class ReviewToolkit:
     output_dir : str, optional
         Where the render tools write PNG files. Defaults to a temporary
         directory created on first use.
+    image_view_hint : str, optional
+        How the model views a PNG file the render tools wrote (a host with an
+        image-analysis tool names it here, e.g. "analyze_image(path)").
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -125,7 +136,8 @@ class ReviewToolkit:
                  max_open: int = DEFAULT_MAX_OPEN,
                  text_source_for: Optional[Callable[[str, str], Any]] = None,
                  vision_hint: Optional[str] = None,
-                 output_dir: Optional[str] = None):
+                 output_dir: Optional[str] = None,
+                 image_view_hint: Optional[str] = None):
         if max_chars < 1000:
             raise ValueError("max_chars below 1000 cannot hold a useful result")
         self.resolve_source = resolve_source or _default_resolver
@@ -135,6 +147,8 @@ class ReviewToolkit:
         self.vision_hint = (vision_hint if vision_hint is not None
                             else DEFAULT_VISION_HINT)
         self._output_dir = output_dir
+        self.image_view_hint = (image_view_hint if image_view_hint is not None
+                                else DEFAULT_IMAGE_VIEW_HINT)
         self._entries: "OrderedDict[str, _Entry]" = OrderedDict()
         self._by_key: Dict[str, str] = {}
         self._guard = threading.Lock()
@@ -352,15 +366,20 @@ class ReviewToolkit:
             add("markups", {"n": len(markups),
                             "pages": compact_ranges(m.page for m in markups),
                             "by_author": authors})
+        dups = [s.page for s in summaries if s.duplicate_of is not None]
+        add("duplicate_pages", compact_ranges(dups))
         add("pages_without_text_layer", compact_ranges(
             s.page for s in summaries if s.evidence.get("needs_ocr")))
         add("pages_with_hidden_cad_text", compact_ranges(
             s.page for s in summaries if s.n_cad_text))
         add("coordinates", "PDF points, displayed page frame: top-left "
                            "origin, y down; pages are 0-based")
-        add("next", "document_page_map for per-page detail; search_document "
-                    "to find a topic; read_document to read pages; "
-                    "document_markups for the review record")
+        add("next", "document_structure for the constituent documents and "
+                    "their printed page numbers; document_page_map for "
+                    "per-page detail; search_document to find a topic; "
+                    "read_document to read pages; document_markups for the "
+                    "review record; render_page_thumbnails to see the whole "
+                    "document at a glance")
         if view:
             add("pages_to_view_note", self._look([
                 "these pages are scans, figures or drawing sheets: their "
@@ -368,6 +387,17 @@ class ReviewToolkit:
         add("metadata", {k: meta[k] for k in
                          ("title", "author", "subject", "creator", "producer")
                          if meta.get(k)})
+        with entry.lock:
+            segs = doc.segments()
+        if segs:
+            brief = [{"id": g["id"], "pages": g["pages"], "title": g["title"]}
+                     for g in segs]
+            rows, nxt = fit_items(brief, max(0, (budget - json_len(out)) // 2))
+            if rows:
+                out["segments"] = rows
+                if nxt is not None:
+                    out["segments_truncated"] = (
+                        f"{len(segs) - nxt} more; see document_structure")
         if toc:
             rows, nxt = fit_items(toc, max(0, (budget - json_len(out)) // 2))
             if rows:
@@ -397,11 +427,9 @@ class ReviewToolkit:
             summaries = [s for s in summaries if s.kind == kind]
 
         def row(s):
-            d = s.to_dict()
-            if not with_evidence:
-                d.pop("evidence", None)
-                if s.evidence.get("needs_ocr"):
-                    d["needs_ocr"] = True
+            d = s.to_dict(detail=with_evidence)
+            if not with_evidence and s.evidence.get("needs_ocr"):
+                d["needs_ocr"] = True
             if s.kind in VIEW_KINDS:
                 d["look"] = True
             return d
@@ -559,6 +587,51 @@ class ReviewToolkit:
                 "is being commented on"])[0]
         return out
 
+    def _tool_document_structure(self, handle: str,
+                                 offset: int = 0) -> Dict[str, Any]:
+        entry = self._entry(handle)
+        with entry.lock:
+            segs = entry.doc.segments()
+        if offset < 0 or (segs and offset >= len(segs)):
+            raise ToolError(f"offset {offset} is outside 0-{len(segs) - 1}")
+        rows, nxt = fit_items(segs, self._budget(400), start=offset)
+        out: Dict[str, Any] = {
+            "handle": handle, "n_segments": len(segs), "segments": rows,
+            "note": ("segments are runs of pages sharing a running header/"
+                     "footer and printed numbering, split at dividers, page-"
+                     "size changes, drawing sheets and where printed numbering "
+                     "restarts; printed_pages are the numbers printed ON the "
+                     "pages (cite those to the reader) and 'pages' are the "
+                     "0-based PDF pages these tools take")}
+        if nxt is not None:
+            out["next_offset"] = nxt
+        return out
+
+    def _tool_render_page_thumbnails(self, handle: str, pages: Any = None,
+                                     columns: int = 6) -> Dict[str, Any]:
+        entry = self._entry(handle)
+        with entry.lock:
+            sheets = entry.doc.render_thumbnails(pages, columns=columns)
+        out_sheets = []
+        for n, (png, info) in enumerate(sheets):
+            pages_txt = compact_ranges(info["pages"])
+            first, last = info["pages"][0], info["pages"][-1]
+            if self._output_dir is None:
+                self._output_dir = tempfile.mkdtemp(prefix="planlens_")
+            os.makedirs(self._output_dir, exist_ok=True)
+            path = os.path.join(self._output_dir,
+                                f"{handle}_thumbs_{first}-{last}.png")
+            with open(path, "wb") as fh:
+                fh.write(png)
+            out_sheets.append({"image_path": path, "pages": pages_txt,
+                               "n_pages": len(info["pages"]),
+                               "width_px": info["width_px"],
+                               "height_px": info["height_px"]})
+        return {"handle": handle, "sheets": out_sheets,
+                "legend": sheets[0][1]["legend"] if sheets else "",
+                "note": f"reading order is left to right, top to bottom; "
+                        f"{self.image_view_hint}"}
+
     def _tool_render_page(self, handle: str, page: int,
                           dpi: Optional[float] = None) -> Dict[str, Any]:
         entry = self._entry(handle)
@@ -566,9 +639,9 @@ class ReviewToolkit:
             png, info = entry.doc.render(page, dpi=dpi)
         path = self._write_png(png, handle, info)
         info.update({"handle": handle, "image_path": path,
-                     "note": "look at the image; its frame is the displayed "
-                             "page, so boxes from read_document / markups "
-                             "map onto it directly"})
+                     "note": f"{self.image_view_hint}; the image is the "
+                             f"displayed page, so boxes from read_document / "
+                             f"markups map onto it directly"})
         return info
 
     def _tool_render_region(self, handle: str, page: int, bbox: Any,
@@ -594,7 +667,8 @@ class ReviewToolkit:
             png, info = entry.doc.render(page, bbox=box, dpi=dpi, marks=mk,
                                          pad_frac=pad_frac)
         path = self._write_png(png, handle, info)
-        info.update({"handle": handle, "image_path": path, "bbox": box})
+        info.update({"handle": handle, "image_path": path, "bbox": box,
+                     "note": self.image_view_hint})
         if mk:
             info["marks"] = [[x, y, lab] for x, y, lab in mk]
         return info

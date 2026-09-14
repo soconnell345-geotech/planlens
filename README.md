@@ -8,7 +8,12 @@ should not have to read geometry off pixels. planlens turns the PDF into
 located, attributed data:
 
 - **`planlens.document`** — the whole document: a page map (text pages,
-  drawing sheets, figures, scans, each with the evidence for the call); text
+  drawing sheets, forms, figures, scans, each with the evidence for the call,
+  its word density, the page number printed on it, its sheet reference and
+  scale notes) and the document's structure — the transmittal, drawing set,
+  calc package, nested reports and appendices, found from the running
+  headers, footers and printed numbering the pages themselves carry; contact
+  sheets of every page like a viewer's page panel; text
   lines with exact boxes and true reading direction; tables; the review
   record (comments, callouts, clouds, arrows, stamps — author, date, and the
   exact spot each points at); the hidden text AutoCAD stores behind stroked

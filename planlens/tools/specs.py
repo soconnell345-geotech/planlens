@@ -40,9 +40,13 @@ TOOL_SPECS = [
     {
         "name": "document_page_map",
         "description": (
-            "One row per page: kind (text / drawing_sheet / figure / scanned "
-            "/ blank / mixed), label, largest heading, size, rotation, "
-            "markup and hidden-CAD-text counts. Use it to find the pages "
+            "One row per page: kind (text / drawing_sheet / form / figure / "
+            "scanned / blank / mixed), segment id, label, largest heading, "
+            "word count, the page number PRINTED on the page (printed_page / "
+            "printed_of — cite these to the reader), sheet reference, scale "
+            "notes on drawing sheets, divider title, markup and "
+            "hidden-CAD-text counts, duplicate_of. with_evidence adds the "
+            "measurements, header and footer text. Use it to find the pages "
             "that matter before reading. Continues via next_pages."),
         "parameters": {
             "type": "object",
@@ -50,7 +54,7 @@ TOOL_SPECS = [
                 "handle": HANDLE_SCHEMA,
                 "pages": PAGES_SCHEMA,
                 "kind": {"type": "string",
-                         "enum": ["text", "drawing_sheet", "figure",
+                         "enum": ["text", "drawing_sheet", "form", "figure",
                                   "scanned", "blank", "mixed"],
                          "description": "Only pages of this kind."},
                 "with_evidence": {"type": "boolean",
@@ -135,6 +139,45 @@ TOOL_SPECS = [
                 "pages": PAGES_SCHEMA,
                 "author": {"type": "string"},
                 "offset": {"type": "integer", "minimum": 0},
+            },
+            "required": ["handle"],
+        },
+    },
+    {
+        "name": "document_structure",
+        "description": (
+            "The constituent documents inside a stapled PDF — transmittal, "
+            "drawing set, calculation package, the report nested inside it, "
+            "appendices — as segments: a run of pages, its title (from a "
+            "divider page or its running header/footer), the page numbers "
+            "printed on those pages (e.g. calc package pages 1-245 vs the "
+            "PDF's own 0-based pages), sheet references, and the mix of page "
+            "kinds. Use it to orient in a long document and to translate a "
+            "citation like 'see page 24 of the calcs' into a PDF page."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "offset": {"type": "integer", "minimum": 0},
+            },
+            "required": ["handle"],
+        },
+    },
+    {
+        "name": "render_page_thumbnails",
+        "description": (
+            "Contact sheets of the document: every page as a small thumbnail "
+            "with its page number and kind beneath, in a grid like a PDF "
+            "viewer's page panel (48 pages per sheet). Look at them to take a "
+            "long document in at a glance — spot the plan, the logs, the "
+            "tables, the marked-up pages (red frame) — before reading. Pass "
+            "pages to sheet only a range (e.g. pages_to_view)."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "pages": PAGES_SCHEMA,
+                "columns": {"type": "integer", "minimum": 1, "maximum": 12},
             },
             "required": ["handle"],
         },
