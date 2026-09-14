@@ -19,6 +19,10 @@ runtime package; ``fitz`` (PyMuPDF, a hard dependency) is imported lazily
 inside the builders.
 """
 
+from planlens.testing.document_fixtures import (
+    DocumentGT,
+    build_synthetic_review_document,
+)
 from planlens.testing.construct_fixtures import (
     build_synthetic_bubble_pdf,
     build_synthetic_cloud_pdf,
@@ -36,6 +40,8 @@ from planlens.testing.leader_fixtures import (
 )
 
 __all__ = [
+    "DocumentGT",
+    "build_synthetic_review_document",
     "ARROW_HALF_WIDTH",
     "ARROW_LENGTH",
     "PAGE_HEIGHT",
