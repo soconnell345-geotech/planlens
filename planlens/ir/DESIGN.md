@@ -117,7 +117,14 @@ sheets rather than following the inheritance. Entities drawn on an explicit laye
 ### `from_pdf_vector` (PyMuPDF) — confidence 1.0
 Reuses `pdf_import.extract_colored_paths` (per-path point lists + color) and
 `pdf_import.discover_pdf_content` (page size + text). Each path becomes a Line
-(2 points) or Polyline; each text span a TextItem. With an explicit `scale`
+(2 points) or Polyline; each text span a TextItem carrying its reading
+direction in the IR frame (until 2026-09-13 every PDF TextItem said rotation 0,
+wrong for 215 of 245 lines on a real /Rotate 270 sheet). Text drawn by
+annotations — a reviewer's comment, a stamp — is excluded (ordinary
+`get_text` includes it; see `planlens/document/DESIGN.md`).
+`include_cad_hidden_text=True` adds AutoCAD's hidden SHX-text annotations as
+`source="pdf_annotation"` TextItems with a box-estimated rotation; it is off
+by default because the corpus figures were measured without that channel. With an explicit `scale`
 (m per point) or a two-point `calibration` (`{p1, p2, distance_m}` via
 `pdf_import.calibrate_scale`), coordinates are promoted to model meters;
 otherwise the IR stays in page points and **scale candidates** parsed from the

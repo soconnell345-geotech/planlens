@@ -730,7 +730,8 @@ def from_pdf_vector(filepath: str = None, content: bytes = None,
                     page: int = 0, scale: Optional[float] = None,
                     calibration: Optional[Dict[str, Any]] = None,
                     origin: str = "bottom_left",
-                    name: str = "PDF vector import") -> DrawingIR:
+                    name: str = "PDF vector import",
+                    include_cad_hidden_text: bool = False) -> DrawingIR:
     """Build a DrawingIR from a PDF page's vector line-work + text.
 
     Reuses ``pdf_import.extract_colored_paths`` (per-path point lists + color)
@@ -739,6 +740,15 @@ def from_pdf_vector(filepath: str = None, content: bytes = None,
     is supplied, coordinates are promoted to model meters; otherwise the IR
     stays in page points and scale CANDIDATES are attached to metadata (via the
     ``pdf_import`` scale module) as proposals, never applied.
+
+    Text items carry their reading direction in the IR frame, and exclude text
+    drawn by annotations (reviewer comments, stamps), which is not drawing
+    content. ``include_cad_hidden_text=True`` also ingests the strings AutoCAD
+    stores behind SHX lettering as invisible "AutoCAD SHX Text" annotations
+    (``source="pdf_annotation"``); off by default because it gives the
+    construct finders a text channel the validation corpus was measured
+    without. Those items record only a box, so their rotation is ESTIMATED
+    from its shape and ``style`` says so.
     """
     from planlens.pdf import (
         calibrate_scale, discover_pdf_content, extract_colored_paths,
@@ -808,8 +818,13 @@ def from_pdf_vector(filepath: str = None, content: bytes = None,
             continue
         size = tb.get("size", 0.0)
         ir.add(TextItem(content=txt, position=text_xy(tb["x"], tb["y"]),
-                        rotation=0.0, height=size * smul,
+                        rotation=float(tb.get("rotation", 0.0)),
+                        height=size * smul,
                         source="pdf_vector", confidence=1.0))
+
+    if include_cad_hidden_text:
+        ir.metadata["n_cad_hidden_text"] = _add_cad_hidden_text(
+            ir, filepath, content, page, text_blocks, text_xy, smul)
 
     ir.metadata.setdefault("page_number", page)
     if not ir.entities:
@@ -817,6 +832,52 @@ def from_pdf_vector(filepath: str = None, content: bytes = None,
             "No vector paths or text found on this page — the drawing may be a "
             "raster scan (try from_raster) or a different page.")
     return ir
+
+
+def _add_cad_hidden_text(ir: DrawingIR, filepath, content, page: int,
+                         text_blocks, text_xy, smul: float) -> int:
+    """Add AutoCAD SHX hidden-text annotations as TextItems (see from_pdf_vector).
+
+    Strings the text layer already has at the same spot are skipped. The
+    annotation rect is in the unrotated page frame, like the text blocks.
+    """
+    from planlens.document.annotations import CAD_HIDDEN_TEXT_TITLE
+    from planlens.pdf.extractor import _open_document
+
+    doc = _open_document(filepath, content)
+    try:
+        pg = doc[page]
+        layer: Dict[str, list] = {}
+        for tb in text_blocks:
+            key = "".join((tb.get("text") or "").split()).lower()
+            layer.setdefault(key, []).append((tb["x"], tb["y"]))
+        n = 0
+        for annot in pg.annots() or []:
+            info = annot.info or {}
+            if info.get("title") != CAD_HIDDEN_TEXT_TITLE:
+                continue
+            txt = " ".join((info.get("content") or "").split())
+            if not txt:
+                continue
+            r = annot.rect                      # unrotated, y down
+            key = "".join(txt.split()).lower()
+            if any(r.x0 - 2 <= x <= r.x1 + 2 and r.y0 - 2 <= y <= r.y1 + 2
+                   for x, y in layer.get(key, [])):
+                continue
+            if r.height > 1.5 * r.width and len(txt) > 2:
+                # A tall box: assume it reads bottom-to-top, insertion point at
+                # its bottom-left as seen, letter height across the box.
+                pos, rot, h = (r.x1, r.y1), 90.0, r.width
+            else:
+                pos, rot, h = (r.x0, r.y1), 0.0, r.height
+            ir.add(TextItem(content=txt, position=text_xy(*pos), rotation=rot,
+                            height=h * smul, source="pdf_annotation",
+                            style="cad_hidden_text;rotation_estimated_from_box",
+                            confidence=1.0))
+            n += 1
+        return n
+    finally:
+        doc.close()
 
 
 # ---------------------------------------------------------------------------

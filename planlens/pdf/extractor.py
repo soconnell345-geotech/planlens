@@ -7,6 +7,7 @@ and assigns geometric roles via user-supplied role_mapping.
 Requires: PyMuPDF >= 1.23 (optional dependency)
 """
 
+import math
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -35,6 +36,30 @@ def _open_document(filepath=None, content=None):
     if filepath is not None:
         return fitz.open(filepath)
     raise ValueError("Provide either filepath or content")
+
+
+def _snap_rotation(deg: float, tol: float = 0.5) -> float:
+    nearest = round(deg / 90.0) * 90.0
+    if abs(deg - nearest) <= tol:
+        deg = nearest
+    deg = round(deg % 360.0, 1)
+    return 0.0 if deg >= 359.95 else deg
+
+
+def _page_text_dict_without_annotations(page) -> dict:
+    """``get_text("dict")`` of the page content only, in the DISPLAYED frame.
+
+    Ordinary ``get_text`` also reads text drawn by annotation appearances, so a
+    reviewer's comment would be ingested as drawing text. See
+    ``planlens.document.pdf_text`` for the verification of both properties.
+    """
+    fitz = _import_fitz()
+    flags = (fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE
+             | fitz.TEXT_MEDIABOX_CLIP)
+    stext = page.get_displaylist(annots=False).get_textpage(flags)
+    tp = stext if isinstance(stext, fitz.TextPage) else fitz.TextPage(stext)
+    tp.parent = page
+    return page.get_text("dict", textpage=tp)
 
 
 def _color_to_hex(color) -> str:
@@ -71,8 +96,16 @@ def discover_pdf_content(
         'page_size' : dict with 'width' and 'height' in points
         'n_drawings' : int — total vector path count
         'colors' : dict — {hex_color: count}
-        'text_blocks' : list of dict — {text, x, y, size}
+        'text_blocks' : list of dict — {text, x, y, size, rotation}
         'has_images' : bool — whether page contains raster images
+
+    Text blocks are spans. ``x``/``y`` is the span's baseline origin in
+    PyMuPDF's UNROTATED page space (top-left origin, y down), as it always was;
+    ``rotation`` is the span's reading direction in that same unrotated frame,
+    degrees counter-clockwise as seen (0 = left-to-right), snapped to the
+    nearest multiple of 90 within 0.5 deg. Text drawn by ANNOTATIONS — a
+    reviewer's FreeText comment, a stamp — is excluded: it is not part of the
+    drawing (``planlens.document`` reports it as attributed markups).
     """
     doc = _open_document(filepath, content)
     n_pages = len(doc)
@@ -90,18 +123,30 @@ def discover_pdf_content(
         c = _color_to_hex(d.get("color"))
         colors[c] = colors.get(c, 0) + 1
 
-    # Extract text blocks
+    # Extract text blocks from the annotation-free display list. It reports in
+    # the DISPLAYED frame, so each origin and direction is derotated back to
+    # the unrotated frame this function has always returned.
     text_blocks = []
-    text_dict = pg.get_text("dict")
+    text_dict = _page_text_dict_without_annotations(pg)
+    dm = pg.derotation_matrix
     for block in text_dict.get("blocks", []):
         if block.get("type") == 0:  # text block
             for line in block.get("lines", []):
+                ddx, ddy = line.get("dir", (1.0, 0.0))
+                ux = dm.a * ddx + dm.c * ddy
+                uy = dm.b * ddx + dm.d * ddy
+                rotation = _snap_rotation(
+                    math.degrees(math.atan2(-uy, ux)) % 360.0)
                 for span in line.get("spans", []):
+                    ox, oy = span.get("origin", (0, 0))
+                    x = dm.a * ox + dm.c * oy + dm.e
+                    y = dm.b * ox + dm.d * oy + dm.f
                     text_blocks.append({
                         "text": span.get("text", "").strip(),
-                        "x": round(span.get("origin", (0, 0))[0], 2),
-                        "y": round(span.get("origin", (0, 0))[1], 2),
+                        "x": round(x, 2),
+                        "y": round(y, 2),
                         "size": round(span.get("size", 0), 1),
+                        "rotation": rotation,
                     })
 
     # Check for images
