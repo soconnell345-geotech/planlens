@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed: a scanned appendix could be claimed as 69 duplicates of its first
+  page.** The picture hash behind `duplicate_rule == "image"` read a 9x8 grid,
+  and a laboratory appendix — one printed template, a diagonal DRAFT
+  watermark, and the numbers that make each sheet itself a few percent of the
+  ink — is below that grid's resolution: measured on a real 202-page report,
+  1,260 of the 2,628 pairs its 73 different sheets make came within the
+  threshold and the closest sat at 0 bits. An ingest that skipped duplicates
+  would have dropped the whole appendix. The grid is now 17x16 (256 bits, 64
+  hex characters), where no two of those sheets come within 5 bits and the
+  appendix draws no claim at all. Normalising the ink first, so the watermark
+  and the paper tone drop out, was tried and is measurably worse; resolution,
+  not contrast, is what separates two filled-in copies of one form.
+  `DUP_HASH_DISTANCE` stays 2, re-derived at the new width. The emptiness
+  floor changed with it: the grey RANGE of the whole grid (`MIN_GRID_SPREAD`)
+  is defeated by a single printed border, which at the finer grid made two
+  appendix dividers the same picture, so a page must now carry
+  `MIN_CONFIDENT_BITS` (8 of 256) bits set by real contrast — measured, the
+  near-blank pages of five real documents score 9 or less and every page with
+  a figure, a form or a scan of one scores 10 or more. Across those five
+  documents (202, 455, 97, 94 and 260 pages) the rule now claims no image
+  duplicate at all, and the same page placed twice is still caught at 0 bits.
+  The finer grid costs nothing: hashing 260 pages measures 1.26 s either way,
+  because the cost is the render and not the grid. See
+  `planlens/document/DESIGN.md`, "Duplicates on scans".
+
 ## 0.4.0 — 2026-09-16
 
 The take-the-document-at-its-word release: the scale, the CAD layers, the fill

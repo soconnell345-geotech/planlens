@@ -23,7 +23,7 @@ document/
   scale.py        the measurement calibration the PDF itself stores
   quantities.py   the numbers the text STATES, with their units
   classify.py     coarse page kinds with evidence
-  imagehash.py    a page's picture in 64 bits, for duplicates on scans
+  imagehash.py    a page's picture in 256 bits, for duplicates on scans
   structure.py    headers/footers, printed page numbers, dividers, duplicates,
                   segments (the constituent documents)
   advice.py       when text is not enough: "! look:" statements
@@ -403,17 +403,19 @@ precisely the evidence a SCANNED page does not have: two scans of one sheet
 both carry no text and no linework, so neither was ever a duplicate of
 anything. A reviewer with the file open in a viewer can see the repeat at a
 glance. `imagehash.py` gives the same evidence in numbers — the page rendered
-to a 9x8 grayscale grid in the DISPLAYED orientation, each pixel compared with
-its right-hand neighbour: 64 bits, 16 hex characters, numpy and PyMuPDF only
-(no `imagehash`, `Pillow` or `scipy`). MuPDF does the resize, by rendering
-through a matrix straight to the target grid rather than scaling a big image
-here. Annotations are left out of the render: a reviewer's cloud on one copy
-must not hide that it is the same sheet. `duplicate_rule` on the page-map row
-now names which rule fired, `"text"` or `"image"`; the hash itself is never
-printed, because 16 hex characters tell a reader nothing.
+to a 17x16 grayscale grid in the DISPLAYED orientation, each pixel compared
+with its right-hand neighbour: 256 bits, 64 hex characters, numpy and PyMuPDF
+only (no `imagehash`, `Pillow` or `scipy`). MuPDF does the resize, by
+rendering through a matrix straight to the target grid rather than scaling a
+big image here. Annotations are left out of the render: a reviewer's cloud on
+one copy must not hide that it is the same sheet. `duplicate_rule` on the
+page-map row now names which rule fired, `"text"` or `"image"`; the hash
+itself is never printed, because 64 hex characters tell a reader nothing.
 
-**Measured before any threshold was chosen** — a real 260-page submittal and
-the ten public Mecklenburg sheets:
+**Measured before any threshold was chosen**, on the 9x8 grid the first build
+used — a real 260-page submittal and the ten public Mecklenburg sheets. The
+figures below are all at 64 bits; the grid is now 17x16, and what that changed
+is the section after next.
 
 | | distance (of 64 bits) |
 |---|---|
@@ -429,36 +431,87 @@ Three findings shaped the rule.
 - **The claim is "placed twice", not "scanned twice".** A copy re-encoded
   through another resolution and JPEG quality drifts as far from its original
   as two different pages of one template sit from each other — the two classes
-  overlap, and a finer grid does not separate them: at 16x16 = 256 bits a true
-  copy of one sheet drifts 20-31 bits while two different boring logs sit 21
-  apart, the same overlap one scale up. So the threshold is set for pages that
-  RENDER the same, which is how a duplicate actually reaches an assembled
-  submittal: an appendix bound in twice, one scan filed under two tabs, a
-  sheet repeated in a set. `DUP_HASH_DISTANCE` is **2** — the midpoint between
-  0 and the closest different pair at 4, two bits of margin each way. It is
-  deliberately tight: a wrongly-claimed duplicate tells a reviewer to skip a
-  page they have not read, while a missed one leaves the map as blind as it
-  was before.
+  overlap, and a finer grid does not separate them: at 256 bits a true copy of
+  one sheet drifts 20-31 bits while two different boring logs sit 21 apart,
+  the same overlap one scale up. So the threshold is set for pages that RENDER
+  the same, which is how a duplicate actually reaches an assembled submittal:
+  an appendix bound in twice, one scan filed under two tabs, a sheet repeated
+  in a set. A page placed twice is 0 bits away at any grid size.
 - **The picture never overrules the words.** Sheets off one border and title
   block differ by a sheet number and a few labels — most of what a reviewer
   needs and almost none of the ink. The synthetic submittal's two D-size
-  sheets are *within* the threshold of each other, and the first build
-  collapsed the drawing set into its first sheet. So when both pages carry
-  enough text for the text rule to have hashed them and those hashes differ,
-  no image match is allowed. The picture speaks where the text is SILENT.
-- **A page with no picture gets no hash.** A page of one flat tone compares
-  every pixel with an equal neighbour and hashes to all zeros — and so does
-  the next flat page, which made three different near-blank pages "the same
-  page" at any threshold. `MIN_GRID_SPREAD` (32 of 255) withholds the hash
-  instead. Measured: every page the gate lets through spans at least 67 grey
-  levels, and every near-uniform page at most 19.
+  sheets are *within* the threshold of each other (0 bits apart at 256 as at
+  64), and the first build collapsed the drawing set into its first sheet. So
+  when both pages carry enough text for the text rule to have hashed them and
+  those hashes differ, no image match is allowed. The picture speaks where the
+  text is SILENT.
+- **A page with no picture gets no hash.** A near-blank page hashes to
+  almost-nothing — and so does the next near-blank page, which made three
+  different near-blank pages "the same page" at any threshold.
 
-**The gate is a cost decision, measured.** Hashing all 260 pages costs 2.3-3.3
-s; the 13 pages that qualify cost 0.45-0.64 s. Over one second is too much to
-spend on pages whose text already decides, so a hash is computed only where it
-cannot: `needs_ocr`, kinds `scanned` / `figure` / `drawing_sheet`, or under 50
-text-layer characters — and never on a `blank` page, because every blank page
-looks like every other. In four paired page-map runs the gated cost sits
+#### The grid is 17x16 because 9x8 cannot read a FORM (2026-09-16)
+
+The first build hashed to a 9x8 grid, and on a 202-page report that grid
+claimed **69 pages of a 73-page laboratory appendix as duplicates of the
+first**. Rendered, they are different sheets: sieve and Atterberg results for
+different samples, a density table, a moisture table. What they share is one
+printed template, one diagonal DRAFT watermark and very little ink — the
+numbers that make a sheet itself are a few percent of it. An ingest that
+skipped duplicates would have dropped the entire appendix, which is the worst
+failure this field can have: it tells a reviewer to skip pages nobody read.
+
+Measured over the 2,628 pairs that appendix makes, and over five real
+documents (202, 455, 97, 94 and 260 pages) plus the ten public Mecklenburg
+sheets:
+
+| rule | pairs within 2 bits, 73 sheets that are all DIFFERENT | closest pair |
+|---|---|---|
+| 8x8 = 64 bits | **1,260 of 2,628** | **0** |
+| 8x8 on an INK-NORMALISED render | 1,763 of 2,628 | 0 |
+| 16x16 = 256 bits | **0 of 2,628** | **5** |
+| 24x24 = 576 bits | 0 of 2,628 | 11 |
+
+Thresholding the render first — so the light watermark and the paper tone drop
+out and only ink remains — was the obvious fix and is the WRONG one: it is
+measurably worse than doing nothing, because the template's own rules and
+boxes survive the threshold while the data does not. **Resolution, not
+contrast, is what tells two filled-in forms apart.** 16x16 is the first grid
+that separates them and 24x24 buys nothing further, so `HASH_SIDE` is 16.
+
+`DUP_HASH_DISTANCE` stays at **2**, re-derived at the new width: a page placed
+twice is 0 bits away, and the closest genuinely different pair anywhere in
+that measurement set is 5 (two laboratory sheets) — two bits of margin below,
+three above. The old figure it replaces was 4, on the 260-page submittal at 64
+bits; that pair re-measures at 24 bits of 256.
+
+**The emptiness gate had to change with it.** The old floor was the grey RANGE
+of the whole grid (`MIN_GRID_SPREAD`, 32 of 255), and a single printed border
+defeats it: an appendix divider is white paper inside a rule, the rule spans
+the full range, and the page sails through. At 9x8 that page was withheld for
+an unrelated reason — the coarse grid averaged the border away — so the flaw
+only surfaced when the grid got finer, and "APPENDIX D" and "APPENDIX E"
+became the same picture at a distance of 0. The floor is now
+`MIN_CONFIDENT_BITS`: how many of the 256 bits sit between two cells whose
+greys differ by more than `INK_CONTRAST` (16 of 255) — bits set by a picture
+rather than by rounding. Measured over 198 gated pages of those five documents
+and ten sheets, the two populations do not touch:
+
+| | confident bits (of 256) |
+|---|---|
+| near-blank pages — dividers, cover sheets, a slip-sheet (12 pages) | 0, 1, 2, 2, 2, 2, 2, 2, 3, 4, 4, 9 |
+| every page carrying a figure, a form, or a scan of one (186 pages) | **10 and up** (median 25) |
+
+The floor sits in the gap at **8**. Across those five documents the new rule
+claims no image duplicate at all: 69 claims become 0 on the report with the
+appendix, and the other four claimed none before and none now.
+
+**The gate is a cost decision, measured.** A hash is computed only where the
+text cannot decide: `needs_ocr`, kinds `scanned` / `figure` / `drawing_sheet`,
+or under 50 text-layer characters — and never on a `blank` page, because every
+blank page looks like every other. The finer grid costs nothing: on the
+260-page submittal, hashing all 260 pages measures 1.26 s at 9x8 and 1.26 s at
+17x16, and the 13 pages the gate admits 0.27-0.29 s either way — the cost is
+the render, not the grid. In four paired page-map runs the gated cost sits
 inside the run-to-run spread (median 6.1 s with against 5.8 s without, on runs
 ranging 3.1-7.3 s). The 260-page document contains no duplicates and the rule
 claims none; its 29 segments are unchanged, because segmentation reads
@@ -469,7 +522,8 @@ A page a viewer shows sideways or upside down is **not** called a duplicate:
 the hash is taken in the displayed orientation like every coordinate here, and
 a turned page is one a reviewer still has to look at. /Rotate 90 fails the
 page-size guard before the hash is consulted; /Rotate 180 keeps the size and
-is rejected on the picture alone (measured 31 bits apart on a public sheet).
+is rejected on the picture alone (measured 130 bits of 256 apart on a public
+sheet).
 
 ### Thumbnails
 

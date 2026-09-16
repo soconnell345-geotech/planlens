@@ -14,7 +14,8 @@ fitz = pytest.importorskip("fitz")
 
 from planlens.document import open_document                      # noqa: E402
 from planlens.document.imagehash import (                        # noqa: E402
-    DUP_HASH_DISTANCE, MIN_GRID_SPREAD, hamming, page_dhash, wants_image_hash,
+    DUP_HASH_DISTANCE, HASH_SIDE, MIN_CONFIDENT_BITS, _gray_grid,
+    confident_bits, hamming, page_dhash, wants_image_hash,
 )
 from planlens.testing.submittal_fixtures import (                # noqa: E402
     build_synthetic_submittal,
@@ -63,12 +64,13 @@ def test_hamming_counts_differing_bits():
         hamming("0000", "0000000000000000")
 
 
-def test_a_hash_is_64_bits_of_hex_and_survives_a_second_open():
+def test_a_hash_is_256_bits_of_hex_and_survives_a_second_open():
     data = _scan_doc([_drawn()])
     with open_document(data) as first, open_document(data) as second:
         a, b = first.summary(0), second.summary(0)
     assert a.image_hash is not None
-    assert len(a.image_hash) == 16 and int(a.image_hash, 16) >= 0
+    assert HASH_SIDE == 16
+    assert len(a.image_hash) == 64 and int(a.image_hash, 16) >= 0
     assert a.image_hash == b.image_hash
 
 
@@ -88,15 +90,51 @@ def test_a_page_with_no_picture_gets_no_hash():
     """A page of one flat tone hashes to zeros — and so does the next one.
 
     Withholding the hash is what stops two different near-blank scans being
-    called the same page (:data:`MIN_GRID_SPREAD`).
+    called the same page (:data:`MIN_CONFIDENT_BITS`).
     """
     doc = fitz.open()
     doc.new_page(width=LETTER[0], height=LETTER[1])
     page = doc[0]
     page.draw_rect(page.rect, color=None, fill=(0.97, 0.97, 0.97))
     assert page_dhash(page) is None
-    assert page_dhash(page, guard=False) == "0" * 16
+    assert page_dhash(page, guard=False) == "0" * 64
     doc.close()
+
+
+def _divider(title: str) -> "fitz.Pixmap":
+    """A scanned appendix divider: white paper, a printed rule, two words."""
+    src = fitz.open()
+    page = src.new_page(width=LETTER[0], height=LETTER[1])
+    page.draw_rect(fitz.Rect(36, 36, 576, 756), color=(0, 0, 0), width=1)
+    page.insert_text((230, 380), title, fontsize=13)
+    pix = page.get_pixmap(dpi=96)
+    src.close()
+    return pix
+
+
+def test_a_rule_and_two_words_of_type_is_not_a_picture():
+    """The case the whole-grid grey RANGE floor let through.
+
+    An appendix divider is white paper inside a printed border. The border
+    alone spans the range of greys, so a RANGE floor passes the page — and the
+    next divider, whose two words say something else entirely, hashes to the
+    same almost-nothing. Measured on two real reports, pages like these score
+    2 confident bits of 256 while every page carrying a figure, a form or a
+    scan of one scores at least 10.
+    """
+    data = _scan_doc([_divider("APPENDIX D"), _divider("APPENDIX E")])
+    raw = fitz.open(stream=data, filetype="pdf")
+    # Hashed anyway, the two would have been the same picture at distance 0.
+    forced = [page_dhash(p, guard=False) for p in raw]
+    assert hamming(*forced) <= DUP_HASH_DISTANCE
+    assert all(confident_bits(_gray_grid(p, HASH_SIDE + 1, HASH_SIDE))
+               < MIN_CONFIDENT_BITS for p in raw)
+    raw.close()
+
+    with open_document(data) as doc:
+        rows = doc.page_map()
+    assert [s.image_hash for s in rows] == [None, None]
+    assert [s.duplicate_of for s in rows] == [None, None]
 
 
 # -- the rule ---------------------------------------------------------------
@@ -229,4 +267,105 @@ def test_the_hash_is_withheld_rather_than_guessed_on_a_flat_scan():
     assert [s.image_hash for s in rows] == [None, None]
     assert [s.duplicate_of for s in rows] == [None, None]
     # ... and they would have been "identical" without the floor
-    assert MIN_GRID_SPREAD > 0
+    assert MIN_CONFIDENT_BITS > 0
+
+
+def _lab_sheet(sample: str, values, curve: bool = True) -> "fitz.Pixmap":
+    """One filled-in copy of a printed laboratory form, under a watermark.
+
+    The template — the rules, the boxes, the headings, the diagonal DRAFT —
+    is identical on every sheet. What differs is the sample, the numbers in
+    the table and whether the chart carries a plotted line: a few percent of
+    the ink, which is exactly the proportion that makes a filled-in form the
+    hard case for a picture hash.
+    """
+    src = fitz.open()
+    page = src.new_page(width=LETTER[0], height=LETTER[1])
+    page.draw_rect(fitz.Rect(60, 56, 552, 84), color=None,
+                   fill=(0.75, 0.75, 0.75))
+    page.insert_text((120, 76), "FOUNDATION INDICATOR TEST RESULTS",
+                     fontsize=16)
+    page.draw_rect(fitz.Rect(60, 90, 552, 150), color=(0, 0, 0), width=1.6)
+    page.insert_text((70, 110), "CLIENT   Example Client Ltd", fontsize=12)
+    page.insert_text((70, 132), "BOREHOLE", fontsize=12)
+    page.draw_rect(fitz.Rect(60, 160, 552, 430), color=(0, 0, 0), width=1.6)
+    for i in range(13):                       # the template's own ruling
+        page.draw_line((60, 160 + i * 22.5), (552, 160 + i * 22.5), width=1.6)
+    for x in (180, 300, 430):
+        page.draw_line((x, 160), (x, 430), width=1.6)
+    page.draw_rect(fitz.Rect(60, 450, 552, 720), color=(0, 0, 0), width=1.6)
+    page.insert_text((210, 468), "PARTICLE SIZE ANALYSIS", fontsize=14)
+    for i in range(9):
+        page.draw_line((90 + i * 55, 480), (90 + i * 55, 710), width=1.6)
+    for i in range(7):
+        page.draw_line((90, 480 + i * 38), (530, 480 + i * 38), width=1.6)
+    page.insert_text((140, 560), "D R A F T", fontsize=72,
+                     fill=(0.82, 0.82, 0.82), color=(0.82, 0.82, 0.82))
+    # ... and here is everything that makes this sheet THIS sheet
+    page.insert_text((200, 132), sample, fontsize=12)
+    for i in range(11):
+        y = 160 + (i + 1) * 22.5 - 5
+        v = values[i]
+        page.insert_text((66, y), f"{25.4 / (i + 1):.3f}", fontsize=12)
+        page.insert_text((188, y), f"{v}", fontsize=12)
+        page.insert_text((306, y), f"TEST {i % 4 + 1}  {v / 3:.2f}",
+                         fontsize=12)
+        page.insert_text((436, y), f"{v * 7 % 100:.1f} %", fontsize=12)
+    if curve:
+        pts = [(90 + i * 44, 700 - i * i * 2.4) for i in range(11)]
+        for a, b in zip(pts, pts[1:]):
+            page.draw_line(a, b, width=2.2)
+    pix = page.get_pixmap(dpi=96)
+    src.close()
+    return pix
+
+
+LAB_VALUES = (
+    (100, 100, 100, 100, 99, 94, 79, 44, 38, 20, 13),
+    (62, 48, 31, 19, 12, 8, 5, 4, 3, 2, 1),
+    (100, 100, 100, 96, 88, 71, 52, 31, 24, 15, 9),
+)
+
+
+def test_filled_in_copies_of_one_form_are_not_the_same_page():
+    """An appendix of laboratory sheets: one template, different results.
+
+    MEASURED on a real 202-page report whose 73-page laboratory appendix is
+    exactly this — every sheet a different sample off one printed form, under
+    one diagonal watermark. At 8x8 the hash claimed 69 of those pages as
+    duplicates of the first, and an ingest that skipped duplicates would have
+    dropped the whole appendix. At 16x16 no two of them come within 5 bits.
+    """
+    sheets = [_lab_sheet("SB-01 / 0.50", LAB_VALUES[0]),
+              _lab_sheet("SB-02 / 1.20", LAB_VALUES[1]),
+              _lab_sheet("SB-03 / 2.70", LAB_VALUES[2], curve=False)]
+    data = _scan_doc(sheets)
+    with open_document(data) as doc:
+        rows = doc.page_map()
+    assert [s.kind for s in rows] == ["scanned"] * 3
+    assert [s.duplicate_of for s in rows] == [None, None, None]
+    # Every sheet still HAS a hash: a filled-in form is picture enough to
+    # compare, it simply does not match. Withholding would be the blunt fix,
+    # and it would lose the repeat that IS bound in twice.
+    assert all(s.image_hash is not None for s in rows)
+    pairs = ((0, 1), (0, 2), (1, 2))
+    fine = [hamming(rows[a].image_hash, rows[b].image_hash) for a, b in pairs]
+    assert min(fine) > DUP_HASH_DISTANCE
+
+    # ... and the coarser grid this replaced could not tell them apart.
+    raw = fitz.open(stream=data, filetype="pdf")
+    coarse = [page_dhash(p, side=8, guard=False) for p in raw]
+    raw.close()
+    assert min(hamming(coarse[a], coarse[b]) for a, b in pairs) \
+        <= DUP_HASH_DISTANCE
+
+
+def test_one_of_those_sheets_bound_in_twice_is_still_caught():
+    """Sharpening the hash must not cost the claim it exists to make."""
+    pix = _lab_sheet("SB-01 / 0.50", LAB_VALUES[0])
+    sheets = [pix, _lab_sheet("SB-02 / 1.20", LAB_VALUES[1]), pix]
+    with open_document(_scan_doc(sheets)) as doc:
+        rows = doc.page_map()
+    assert (rows[2].duplicate_of, rows[2].duplicate_rule) == (0, "image")
+    assert rows[1].duplicate_of is None
+    assert hamming(rows[0].image_hash, rows[2].image_hash) == 0

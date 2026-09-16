@@ -331,7 +331,7 @@ class PageSummary:
     duplicate_rule: Optional[str] = None
     #: The page's picture hash, when one was computed (see
     #: :func:`planlens.document.imagehash.wants_image_hash`). Not serialized:
-    #: 16 hex characters mean nothing to a reader, and the rule that uses them
+    #: 64 hex characters mean nothing to a reader, and the rule that uses them
     #: reports its verdict instead.
     image_hash: Optional[str] = None
     segment: Optional[int] = None
