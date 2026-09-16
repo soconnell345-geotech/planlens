@@ -107,7 +107,7 @@ def test_page_map_row_is_compact_and_detail_is_optional(doc, gt):
 def test_running_keys_ignore_stray_numbers_and_match_by_containment():
     stamp = _norm_key("Page 15 of 300 | Checked: AB/CD 2031-01-15")
     assert stamp == _norm_key("5 | 5 | Page 14 of 300 | Checked: AB/CD 2031-01-15")
-    longer = _norm_key("TEST | SB-04 | Project: CAA | Page 17 of 245 | "
+    longer = _norm_key("TEST | SB-04 | Project: ABC | Page 17 of 300 | "
                        "Checked: AB/CD 2031-01-15")
     assert _same_running(stamp, longer)
     assert not _same_running(stamp, _norm_key("Design By: XYZ | Page 1 of 4"))
@@ -117,7 +117,7 @@ def test_running_keys_ignore_stray_numbers_and_match_by_containment():
 def test_printed_numbers_and_divider_titles():
     assert printed_numbers(["Page 7"]) == {"printed_page": 7}
     assert printed_numbers(["Page 15 of 300", "Checked"]) == {
-        "printed_page": 15, "printed_of": 245}
+        "printed_page": 15, "printed_of": 300}
     assert printed_numbers(["SHEET", "2", "OF 7"])["sheet"] == "2 of 7"
     assert printed_numbers(["DWG NO. S-101"])["sheet"] == "S-101"
     assert printed_numbers(["nothing here"]) == {}

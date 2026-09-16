@@ -8,7 +8,7 @@ and those change exactly where one document ends and the next begins. This
 module reads them:
 
 - the **header** and **footer** bands of each page (top and bottom 8%);
-- the **printed page number** ("Page 15 of 245", "Page 7") and **sheet
+- the **printed page number** ("Page 15 of 300", "Page 7") and **sheet
   reference** ("SHEET 1 OF 7") found there;
 - **divider pages** — a cover or tab whose heading says APPENDIX, ATTACHMENT,
   ITEM, SECTION, CONTENTS, ...;
