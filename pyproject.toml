@@ -55,6 +55,11 @@ raster = ["opencv-python-headless>=4.8"]
 # TinyApps) should use the verified --no-deps recipe in README
 # "Install" instead, which runs the whole OCR leg on headless alone.
 ocr = ["rapidocr-onnxruntime>=1.2,<1.3"]  # <1.3: the OCR corner-role-shift correction reads engine internals (text_cls); re-verify the role table before raising
+# Text that has letter errors in it: approximate (fuzzy) search over the same
+# candidates the exact search uses. Pure C++ extension, no models, no runtime
+# downloads, ~1 MB. >=3.9 rather than the newest, because 3.9 is the last line
+# that still resolves on Python 3.10, which this package supports.
+text = ["rapidfuzz>=3.9"]
 
 [tool.setuptools.packages.find]
 include = ["planlens*"]

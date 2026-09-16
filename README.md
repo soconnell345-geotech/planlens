@@ -17,7 +17,10 @@ located, attributed data:
   lines with exact boxes and true reading direction; tables; the review
   record (comments, callouts, clouds, arrows, stamps — author, date, and the
   exact spot each points at); the hidden text AutoCAD stores behind stroked
-  SHX lettering; search across all of it. An optional Azure Document
+  SHX lettering; search across all of it. Search also matches
+  approximately (`search(..., fuzzy=True)`, the optional `text` extra), so a
+  term still turns up in text that was read optically or recovered from
+  stroked lettering and has a letter wrong. An optional Azure Document
   Intelligence result can supply text for scanned pages — planlens reads the
   result, it never calls or requires the paid service.
 
@@ -422,7 +425,11 @@ by a fixture so it cannot move silently):
 pip install planlens            # DXF + vector-PDF ingest
 pip install "planlens[raster]"  # + raster/scanned-sheet tracing
 pip install "planlens[ocr]"     # + optical text for stroked/scanned sheets
+pip install "planlens[text]"    # + forgiving (fuzzy) search over that text
 ```
+
+The `[text]` extra is `rapidfuzz` alone — a small C++ extension, no models
+and no runtime downloads — and it buys `Document.search(fuzzy=True)`.
 
 The `[ocr]` extra installs RapidOCR + onnxruntime with PP-OCR models
 inside the wheel (no runtime downloads; all-permissive licenses:

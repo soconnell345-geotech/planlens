@@ -280,3 +280,77 @@ def test_per_call_limit_overrides_the_toolkit_limit(kit, gt):
     assert len(kit.call_json("read_document", {"handle": handle})) <= 7500
     with pytest.raises(ValueError):
         kit.call_json("read_document", {"handle": handle}, max_chars=10)
+
+
+# -- forgiving (fuzzy) search --------------------------------------------------
+
+def test_fuzzy_search_spec_is_published(kit):
+    spec = [s for s in kit.specs("plain") if s["name"] == "search_document"][0]
+    props = spec["parameters"]["properties"]
+    assert "fuzzy" in props and props["fuzzy"]["type"] == "boolean"
+    assert props["min_score"]["type"] == "integer"
+    assert "fuzzy=true" in spec["description"]
+
+
+def test_fuzzy_search_dispatches_and_scores_its_hits(kit, gt):
+    pytest.importorskip("rapidfuzz")
+    handle = _open(kit)
+    # One letter wrong in a phrase the report really contains.
+    out = call(kit, "search_document", handle=handle,
+               pattern="approximately 40-foot centbrs", fuzzy=True)
+    assert out["fuzzy"] is True and out["min_score"] == 80
+    assert out["n_hits"] >= 1
+    assert all("score" in h and "source" in h for h in out["hits"])
+    scores = [h["score"] for h in out["hits"]]
+    assert scores == sorted(scores, reverse=True)
+    assert "40-foot" in out["hits"][0]["snippet"]
+
+
+def test_fuzzy_search_min_score_is_passed_through(kit):
+    pytest.importorskip("rapidfuzz")
+    handle = _open(kit)
+    out = call(kit, "search_document", handle=handle, pattern="borings",
+               fuzzy=True, min_score=95)
+    assert out["min_score"] == 95
+    assert all(h["score"] >= 95 for h in out["hits"])
+
+
+def test_an_exact_miss_suggests_fuzzy(kit):
+    pytest.importorskip("rapidfuzz")
+    handle = _open(kit)
+    out = call(kit, "search_document", handle=handle, pattern="Zeppelin")
+    assert out["n_hits"] == 0
+    assert "fuzzy=true" in out["hint"]
+
+
+def test_a_fuzzy_hit_does_not_suggest_fuzzy_again(kit):
+    pytest.importorskip("rapidfuzz")
+    handle = _open(kit)
+    out = call(kit, "search_document", handle=handle, pattern="borings")
+    assert out["n_hits"] >= 1
+    assert "fuzzy=true" not in out.get("hint", "")
+
+
+def test_fuzzy_without_rapidfuzz_is_an_instruction_not_a_crash(kit,
+                                                              monkeypatch):
+    import sys
+    handle = _open(kit)
+    monkeypatch.setitem(sys.modules, "rapidfuzz", None)
+    out = call(kit, "search_document", handle=handle, pattern="borings",
+               fuzzy=True)
+    assert 'planlens[text]' in out["error"]
+    assert "without fuzzy" in out["hint"]
+
+
+def test_fuzzy_results_stay_inside_the_size_limit(gt):
+    pytest.importorskip("rapidfuzz")
+    k = _kit(gt, max_chars=1500)
+    try:
+        handle = _open(k)
+        text = k.call_json("search_document",
+                           {"handle": handle, "pattern": "borings were drilled",
+                            "fuzzy": True, "min_score": 60})
+        assert len(text) <= 1500
+        assert "error" not in json.loads(text)
+    finally:
+        k.close()

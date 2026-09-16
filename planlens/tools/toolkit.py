@@ -11,7 +11,8 @@ Tools
 ``open_document``      open a PDF or image; returns a handle and a document map
 ``document_page_map``  one row per page: kind, label, heading, counts
 ``read_document``      text (optionally with locations), tables and markups
-``search_document``    find text, hidden CAD text and markup comments
+``search_document``    find text, hidden CAD text and markup comments,
+                       exactly or approximately (``fuzzy``)
 ``document_markups``   the review record: every markup, with its threads
 ``document_structure`` the constituent documents: segments with their
                        running headers/footers and printed page numbers
@@ -45,7 +46,10 @@ from collections import OrderedDict
 from contextvars import ContextVar
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from planlens.document import Document, page_advice, parse_pages
+from planlens.document import (
+    DEFAULT_FUZZY_MIN_SCORE, Document, fuzzy_search_available, page_advice,
+    parse_pages,
+)
 from planlens.tools.formatting import (
     compact_ranges, fit_items, json_len, render_markup, render_page,
 )
@@ -519,7 +523,9 @@ class ReviewToolkit:
                               pages: Any = None, regex: bool = False,
                               case_sensitive: bool = False,
                               include_markups: bool = True,
-                              max_hits: int = 100) -> Dict[str, Any]:
+                              max_hits: int = 100, fuzzy: bool = False,
+                              min_score: int = DEFAULT_FUZZY_MIN_SCORE
+                              ) -> Dict[str, Any]:
         if not pattern:
             raise ToolError("pattern is empty")
         entry = self._entry(handle)
@@ -528,15 +534,26 @@ class ReviewToolkit:
                 res = entry.doc.search(pattern, pages=pages, regex=regex,
                                        case_sensitive=case_sensitive,
                                        include_markups=include_markups,
-                                       max_hits=max(1, min(int(max_hits), 500)))
+                                       max_hits=max(1, min(int(max_hits), 500)),
+                                       fuzzy=bool(fuzzy),
+                                       min_score=int(min_score))
         except re.error as exc:
             raise ToolError(f"invalid regular expression: {exc}",
                             hint="pass regex=false for a literal search")
+        except ImportError as exc:
+            raise ToolError(str(exc),
+                            hint="retry without fuzzy for an exact search")
         hits, nxt = fit_items(res["hits"], self._budget(500))
         out = {"handle": handle, "pattern": pattern, "n_hits": res["n_hits"],
                "pages_with_hits": {str(k): v for k, v in
                                    res["pages_with_hits"].items()},
                "hits": hits}
+        if res.get("fuzzy"):
+            out["fuzzy"] = True
+            out["min_score"] = res["min_score"]
+            out["note"] = ("approximate matches, best score first; a hit's "
+                           "score is 0-100 and its source says which "
+                           "extractor read the text")
         # Text search cannot see into scans, figures or sheets: say which
         # pages in the searched range it could not read, so a miss there is
         # not taken as absence.
@@ -550,6 +567,17 @@ class ReviewToolkit:
                     "no text hit; the pages listed are scans, figures or "
                     "drawing sheets whose content is not in the text — the "
                     "term may be on one of them"])[0]
+        # An exact miss has two explanations, and the model should hear both:
+        # the text is not there, or the text is there with a letter wrong.
+        # Only offered when rapidfuzz is actually installed — advice that
+        # would raise is worse than none.
+        if not fuzzy and not hits and fuzzy_search_available():
+            tip = ("retry with fuzzy=true if the term may be spelled "
+                   "differently or was read with a wrong letter (optical or "
+                   "stroke-plotted text); for a word under 8 letters also "
+                   "pass min_score=75")
+            out["hint"] = (out["hint"] + " — " + tip if out.get("hint")
+                           else tip)
         if res["truncated"]:
             out["max_hits_reached"] = True
         if nxt is not None:

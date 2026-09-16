@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Forgiving search.** `Document.search(fuzzy=True, min_score=...)` matches
+  approximately over the same candidates the exact search uses — lines, hidden
+  CAD text, markup comments — so a term is still found in text read optically
+  or recovered from stroked lettering with a letter wrong. Every hit carries a
+  `score` (0-100) and the `source` that read it, best score first; exact search
+  is unchanged. `search_document` gains `fuzzy` / `min_score`, and an exact
+  search that finds nothing now says to try `fuzzy: true`. Needs the new
+  optional extra `planlens[text]` (`rapidfuzz`); without it the call names the
+  extra to install, and `fuzzy_search_available()` answers before it is asked.
+- The default `min_score` of 80 is measured, not chosen: real drawing callouts
+  from a submittal's sheets, each corrupted by a substituted letter, a dropped
+  letter and a transposition, against words confirmed absent from the same
+  document. The measurement also found that `rapidfuzz`'s partial ratio slides
+  whichever string is shorter, so a one-character line scored 100 against any
+  query holding that character — a candidate shorter than the query is now
+  scored whole. See `planlens/document/DESIGN.md`, "Forgiving search".
+
 - **`planlens.document.scale`** — the measurement calibration a PDF already
   stores is now read, so a scale need not be inferred from a title block. A
   page's `/VP` viewports (ISO 32000-1 §12.9) and the `/Measure` dictionary on

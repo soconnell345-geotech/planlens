@@ -90,6 +90,74 @@ Measured: 320 on a real submittal's drawing sheets; 66 on one of the ten
 Mecklenburg validation sheets, none on the other nine — so it complements OCR,
 it does not replace it.
 
+## Forgiving search (2026-09-16)
+
+An exact search that finds nothing says one of two things, and the tools
+cannot tell them apart: the term is not in the document, or the term is there
+with a letter wrong. The second is common on exactly the pages a reviewer
+cares about — a scan read optically, SHX lettering recovered from strokes, a
+callout retyped from a photograph. "Not found" is the one answer a review tool
+must never give wrongly, so `Document.search(fuzzy=True)` offers the second
+reading.
+
+**What it is.** The SAME candidates the exact search scores — a block's lines
+joined, each unblocked line, each hidden CAD string, each markup's comment,
+author and subject — compared with `rapidfuzz`'s partial ratio instead of a
+regular expression. Every hit carries its `score` (0-100) and its `source`
+(text layer, hidden CAD text, OCR, Azure, markup), and hits come back best
+score first, then by page. `rapidfuzz` is the optional `text` extra; without it
+the call raises with the install command in the message, and
+`fuzzy_search_available()` lets a caller ask before offering the advice. Exact
+mode is untouched: no `score`, no reordering, and it still stops at the first
+`max_hits`. Fuzzy mode cannot — ordering by score means there is no such thing
+as the first `max_hits` — so it costs a full pass over the requested pages.
+
+**Measured before the default was chosen**, on a real submittal's drawing
+sheets (260 pages, 7,261 search candidates): 15 real callout strings off those
+sheets, each corrupted three ways — one substituted letter, one dropped
+letter, one transposition — and 10 words confirmed absent from the document,
+every candidate scored against every query.
+
+| threshold | of 45 corrupted callouts, source line found | unrelated hits per query, median / max | of 10 absent words, any hit |
+|---|---|---|---|
+| 70 | 45 | 10 / 68 | 0 |
+| 75 | 45 | 7 / 44 | 0 |
+| **80** | **45** | **5 / 40** | **0** |
+| 85 | 45 | 3 / 28 | 0 |
+| 88 | 45 | 2 / 28 | 0 |
+| 90 | 43 | 1 / 28 | 0 |
+| 95 | 21 | 0 / 15 | 0 |
+
+Three findings changed the design.
+
+- **A candidate shorter than the query must be scored whole.** `partial_ratio`
+  slides the SHORTER of the two strings over the longer one, whichever that
+  is, so a one-character line — a grid bubble, a dimension tick — scores 100
+  against any query containing that character. In the first run that alone put
+  a median of 120 hits under each of the ten absent words, at EVERY threshold
+  up to 95: no threshold could have fixed it, because the mismatch was in the
+  part of the query nobody compared. A candidate shorter than the query is now
+  scored with the full ratio instead, and the absent words return nothing from
+  70 up.
+- **The score falls with the query's LENGTH, not its wrongness.** One wrong
+  letter in a 20-character callout scores about 95; the same one letter in a
+  5-letter word scores 80, and a dropped letter in a 5-letter word scores 75 —
+  its ceiling, whatever the threshold. Measured on single words off the same
+  sheets: 45/45 recovered at 75, 41/45 at 80, 22/45 at 85. So the default
+  serves the phrase and the tool says the rule for the word: `min_score` near
+  75 for a query under about 8 letters, which the `search_document` schema and
+  its no-hit advice both state.
+- **Unrelated hits cost tokens, not the answer.** Whenever the source line
+  cleared the threshold it ranked FIRST for 44 of the 45 corrupted callouts
+  and in the top five for all 45 (37 of 41 first for single words). That
+  asymmetry is what sets the default low rather than high: a threshold too high
+  loses the answer outright, while one too low ranks it first and pads the tail.
+
+`DEFAULT_FUZZY_MIN_SCORE` is therefore **80** — every corrupted callout
+recovered with 9 points of margin on the worst (88.9), every absent word still
+silent with 10 points of margin (nothing scored above 70), and a median of 5
+unrelated hits ranked below the answer.
+
 ## Scale (2026-09-16)
 
 `planlens.ir.measure` refuses to turn page points into feet without a resolved

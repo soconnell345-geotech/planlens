@@ -166,6 +166,44 @@ DEFAULT_MAX_PIXELS = 4_000_000
 #: Full-page renders target this long side in pixels when no dpi is given.
 DEFAULT_PAGE_LONG_SIDE_PX = 2000
 
+#: Lowest rapidfuzz partial-ratio score (0-100) a fuzzy search hit may have.
+#: MEASURED, not chosen — see "Forgiving search" in DESIGN.md: real drawing
+#: callouts from a submittal's sheets, each corrupted by one substituted
+#: letter, one dropped letter and one transposition, against the count of
+#: unrelated lines the same threshold lets through.
+DEFAULT_FUZZY_MIN_SCORE = 80
+
+
+def _load_rapidfuzz():
+    """The optional ``rapidfuzz`` package, or a clear instruction.
+
+    Import-guarded here rather than at module import because approximate
+    matching is one option on one method: a caller who never asks for it must
+    not have to install a package to open a PDF.
+    """
+    try:
+        from rapidfuzz import fuzz
+    except ImportError as exc:  # pragma: no cover - exercised by monkeypatch
+        raise ImportError(
+            'fuzzy search needs the optional package rapidfuzz: '
+            'pip install "planlens[text]"') from exc
+    return fuzz
+
+
+def fuzzy_search_available() -> bool:
+    """Whether :meth:`Document.search` can be asked for ``fuzzy=True`` here.
+
+    A caller offering fuzzy search as ADVICE — "your exact search found
+    nothing, try this" — must know whether the advice is followable before it
+    gives it. Telling a model to retry with an option that will raise is worse
+    than saying nothing.
+    """
+    try:
+        _load_rapidfuzz()
+    except ImportError:
+        return False
+    return True
+
 
 def _is_pdf(head: bytes) -> bool:
     return head.lstrip()[:5] == b"%PDF-"
@@ -467,15 +505,80 @@ class Document:
         return pc
 
     # -- search -------------------------------------------------------------
+    def _search_groups(self, index: int
+                       ) -> Tuple[List[List[TextLine]], List[Markup]]:
+        """The runs of text a search matches WITHIN, plus the page's markups.
+
+        One group per text block (its lines joined, so a phrase broken across
+        a line break still matches), one per line outside any block, one per
+        hidden CAD string. Exact and fuzzy search share this so that turning
+        fuzzy on widens how a candidate is compared and never which candidates
+        are compared.
+        """
+        lines, blocks, *_ = self._page_text(index)
+        markups, cad = self._page_annots(index)
+        cad, _ = drop_cad_text_already_in_layer(cad, lines)
+        by_id = {ln.id: ln for ln in lines}
+        groups: List[List[TextLine]] = [
+            [by_id[i] for i in b.line_ids if i in by_id] for b in blocks]
+        in_blocks = {i for b in blocks for i in b.line_ids}
+        groups.extend([ln] for ln in lines if ln.id not in in_blocks)
+        groups.extend([c] for c in cad)
+        return [g for g in groups if g], markups
+
+    @staticmethod
+    def _join_group(group: Sequence[TextLine]
+                    ) -> Tuple[str, List[Tuple[int, int, TextLine]]]:
+        """``(joined text, [(start, end, line), ...])`` — one space per join."""
+        spans, pos, parts = [], 0, []
+        for ln in group:
+            spans.append((pos, pos + len(ln.text), ln))
+            parts.append(ln.text)
+            pos += len(ln.text) + 1
+        return " ".join(parts), spans
+
+    def _line_hit(self, index: int, text: str,
+                  spans: Sequence[Tuple[int, int, TextLine]],
+                  start: int, end: int, matched: str,
+                  context_chars: int) -> Dict[str, Any]:
+        involved = [ln for a, b, ln in spans if a < end and b > start]
+        a = max(0, start - context_chars)
+        b = min(len(text), end + context_chars)
+        hit = {
+            "page": index,
+            "match": matched,
+            "snippet": ("..." if a else "") + text[a:b]
+                       + ("..." if b < len(text) else ""),
+            "line_ids": [ln.id for ln in involved],
+            "bbox": [round(v, 1) for v in
+                     bbox_union([ln.bbox for ln in involved])],
+        }
+        label = self.label(index)
+        if label:
+            hit["label"] = label
+        return hit
+
     def search(self, pattern: str, pages: PageSpec = None, regex: bool = False,
                case_sensitive: bool = False, include_markups: bool = True,
-               max_hits: int = 200, context_chars: int = 60) -> Dict[str, Any]:
+               max_hits: int = 200, context_chars: int = 60,
+               fuzzy: bool = False,
+               min_score: int = DEFAULT_FUZZY_MIN_SCORE) -> Dict[str, Any]:
         """Find text across pages. Matches may span line breaks within a block.
 
         Each hit names its page (and label), the matched line ids, a snippet and
         the union box of those lines, so the caller can render or open exactly
         that spot. Markup comments, authors and subjects are searched too.
+
+        ``fuzzy=True`` matches approximately instead of exactly (see
+        :meth:`_search_fuzzy`), for text that was read optically or plotted as
+        strokes and so carries letter errors. It needs the optional package
+        ``rapidfuzz`` and ignores ``regex``.
         """
+        if fuzzy:
+            return self._search_fuzzy(
+                pattern, pages=pages, case_sensitive=case_sensitive,
+                include_markups=include_markups, max_hits=max_hits,
+                context_chars=context_chars, min_score=min_score)
         flags = 0 if case_sensitive else re.IGNORECASE
         rx = re.compile(pattern if regex else re.escape(pattern), flags)
         hits: List[Dict[str, Any]] = []
@@ -483,46 +586,19 @@ class Document:
         truncated = False
         page_list = parse_pages(pages, self.n_pages)
         for index in page_list:
-            lines, blocks, *_ = self._page_text(index)
-            markups, cad = self._page_annots(index)
-            cad, _ = drop_cad_text_already_in_layer(cad, lines)
-            by_id = {ln.id: ln for ln in lines}
-            groups: List[List[TextLine]] = [
-                [by_id[i] for i in b.line_ids if i in by_id] for b in blocks]
-            in_blocks = {i for b in blocks for i in b.line_ids}
-            groups.extend([ln] for ln in lines if ln.id not in in_blocks)
-            groups.extend([c] for c in cad)
+            groups, markups = self._search_groups(index)
             for group in groups:
-                if not group:
-                    continue
-                joined, spans, pos = [], [], 0
-                for ln in group:
-                    spans.append((pos, pos + len(ln.text), ln))
-                    joined.append(ln.text)
-                    pos += len(ln.text) + 1
-                text = " ".join(joined)
+                text, spans = self._join_group(group)
                 for m in rx.finditer(text):
                     if len(hits) >= max_hits:
                         truncated = True
                         break
+                    hit = self._line_hit(index, text, spans, m.start(),
+                                         m.end(), m.group(0), context_chars)
                     involved = [ln for a, b, ln in spans
                                 if a < m.end() and b > m.start()]
-                    a = max(0, m.start() - context_chars)
-                    b = min(len(text), m.end() + context_chars)
-                    hit = {
-                        "page": index,
-                        "match": m.group(0),
-                        "snippet": ("..." if a else "") + text[a:b]
-                                   + ("..." if b < len(text) else ""),
-                        "line_ids": [ln.id for ln in involved],
-                        "bbox": [round(v, 1) for v in
-                                 bbox_union([ln.bbox for ln in involved])],
-                    }
                     if involved and involved[0].source != SOURCE_PDF_TEXT:
                         hit["source"] = involved[0].source
-                    label = self.label(index)
-                    if label:
-                        hit["label"] = label
                     hits.append(hit)
                     per_page[index] = per_page.get(index, 0) + 1
             if include_markups and not truncated:
@@ -547,6 +623,115 @@ class Document:
         return {"pattern": pattern, "n_hits": len(hits),
                 "pages_with_hits": per_page, "truncated": truncated,
                 "hits": hits}
+
+    def _search_fuzzy(self, pattern: str, pages: PageSpec = None,
+                      case_sensitive: bool = False,
+                      include_markups: bool = True, max_hits: int = 200,
+                      context_chars: int = 60,
+                      min_score: int = DEFAULT_FUZZY_MIN_SCORE
+                      ) -> Dict[str, Any]:
+        """Approximate search: the same candidates, compared by similarity.
+
+        A sheet's lettering does not always survive into characters intact.
+        OCR reads B for R, SHX strokes recovered by an optical pass drop a
+        letter, a typist transposes two. An exact search for the word the
+        reviewer has in mind then returns nothing at all, which reads as
+        absence — the one answer a review tool must never give wrongly.
+
+        Every candidate is scored with ``rapidfuzz``'s partial ratio: the best
+        alignment of the query anywhere inside the candidate, 0-100, so a short
+        query still scores against a long line. Hits at or above ``min_score``
+        are returned best first, then by page. Every hit carries its ``score``
+        and its ``source``, because a reader deciding whether an 88 is the word
+        they meant needs to know it came off a scan rather than the text layer.
+
+        Unlike the exact path this scores every candidate on every requested
+        page before answering — ordering by score means there is no such thing
+        as the first ``max_hits`` — so a fuzzy search over a long document
+        costs a full pass.
+        """
+        fuzz = _load_rapidfuzz()
+        needle = pattern if case_sensitive else pattern.lower()
+        if not needle:
+            return {"pattern": pattern, "n_hits": 0, "pages_with_hits": {},
+                    "truncated": False, "hits": [], "fuzzy": True,
+                    "min_score": min_score}
+        cutoff = float(min_score)
+        scored: List[Tuple[float, int, Dict[str, Any]]] = []
+
+        def align(hay: str) -> Optional[Tuple[float, int, int]]:
+            """``(score, start, end)`` of the query's best place in ``hay``.
+
+            ``partial_ratio`` slides the SHORTER string over the longer one,
+            whichever that turns out to be — so a one-character line on a
+            drawing sheet scores 100 against any query containing that
+            character. Measured on a real submittal, that alone put 120 hits
+            under words the document does not contain, at EVERY threshold up
+            to 95: the sliding was hiding the mismatch in the part of the
+            query nobody compared. A candidate shorter than the query is
+            therefore scored whole, against the whole query.
+            """
+            probe, query = hay, pattern
+            if not case_sensitive:
+                low = hay.lower()
+                if len(low) == len(hay):
+                    probe, query = low, needle
+                # Otherwise the case fold changed the string's LENGTH (a rare
+                # Unicode fold), and the alignment offsets it returns would
+                # point at the wrong characters of the original — so that one
+                # candidate is compared as written rather than mislocated.
+            if len(probe) < len(query):
+                score = fuzz.ratio(query, probe, score_cutoff=cutoff)
+                return (score, 0, len(probe)) if score else None
+            al = fuzz.partial_ratio_alignment(query, probe,
+                                              score_cutoff=cutoff)
+            return None if al is None else (al.score, al.dest_start,
+                                            al.dest_end)
+
+        for index in parse_pages(pages, self.n_pages):
+            groups, markups = self._search_groups(index)
+            for group in groups:
+                text, spans = self._join_group(group)
+                if not text:
+                    continue
+                al = align(text)
+                if al is None:
+                    continue
+                score, start, end = al
+                hit = self._line_hit(index, text, spans, start, end,
+                                     text[start:end], context_chars)
+                involved = [ln for a, b, ln in spans if a < end and b > start]
+                hit["score"] = round(score, 1)
+                hit["source"] = (involved[0].source if involved
+                                 else SOURCE_PDF_TEXT)
+                scored.append((score, index, hit))
+            if include_markups:
+                for mk in markups:
+                    hay = " | ".join(x for x in (mk.text, mk.author,
+                                                 mk.subject) if x)
+                    if not hay:
+                        continue
+                    al = align(hay)
+                    if al is None:
+                        continue
+                    score, start, end = al
+                    scored.append((score, index, {
+                        "page": index,
+                        "match": hay[start:end],
+                        "snippet": mk.text[:2 * context_chars + 40],
+                        "markup_id": mk.id, "author": mk.author,
+                        "bbox": [round(v, 1) for v in mk.bbox],
+                        "score": round(score, 1),
+                        "source": "pdf_annotation"}))
+        scored.sort(key=lambda row: (-row[0], row[1]))
+        kept = [row[2] for row in scored[:max(1, int(max_hits))]]
+        per_page: Dict[int, int] = {}
+        for hit in kept:
+            per_page[hit["page"]] = per_page.get(hit["page"], 0) + 1
+        return {"pattern": pattern, "n_hits": len(kept),
+                "pages_with_hits": per_page,
+                "truncated": len(scored) > len(kept), "hits": kept,
+                "fuzzy": True, "min_score": min_score}
 
     # -- reading advice / rendering ------------------------------------------
     def advice(self, index: int, content: bool = True) -> List[str]:

@@ -45,7 +45,13 @@ from planlens.document.azure_di import (
     pages_needing_ocr,
     pages_to_azure_range,
 )
-from planlens.document.document import Document, open_document, parse_pages
+from planlens.document.document import (
+    DEFAULT_FUZZY_MIN_SCORE,
+    Document,
+    fuzzy_search_available,
+    open_document,
+    parse_pages,
+)
 from planlens.document.model import (
     PAGE_KINDS,
     SOURCE_AZURE_DI,
@@ -79,6 +85,8 @@ __all__ = [
     "Document",
     "open_document",
     "parse_pages",
+    "fuzzy_search_available",
+    "DEFAULT_FUZZY_MIN_SCORE",
     "PageContent",
     "PageSummary",
     "TextLine",

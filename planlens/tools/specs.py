@@ -105,7 +105,11 @@ TOOL_SPECS = [
             "value, a boring or sheet id before reading those pages. It "
             "cannot see into scans, figures or drawing sheets: "
             "pages_not_searchable_as_text lists those, and a miss there is "
-            "not absence — view them."),
+            "not absence — view them. fuzzy=true matches approximately, for "
+            "text read optically or plotted as strokes, where a letter may be "
+            "wrong: use it when an exact search of a page you believe holds "
+            "the term comes back empty. Fuzzy hits carry a score (0-100), "
+            "best first."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -120,6 +124,16 @@ TOOL_SPECS = [
                                     "description": "Default true."},
                 "max_hits": {"type": "integer", "minimum": 1,
                              "maximum": 500},
+                "fuzzy": {"type": "boolean",
+                          "description": "Match approximately, tolerating "
+                                         "wrong, missing or swapped letters. "
+                                         "Ignores regex."},
+                "min_score": {"type": "integer", "minimum": 50, "maximum": 100,
+                              "description": "Lowest fuzzy score to return "
+                                             "(default 80). A short query "
+                                             "scores lower for the same one "
+                                             "letter wrong, so drop to about "
+                                             "75 for a word under 8 letters."},
             },
             "required": ["handle", "pattern"],
         },
