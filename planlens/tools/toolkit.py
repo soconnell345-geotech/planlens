@@ -354,7 +354,22 @@ class ReviewToolkit:
             "n_pages": doc.n_pages,
             "pages_by_kind": {k: compact_ranges(v) for k, v in by_kind.items()},
         }
-        budget = self._budget(200)
+        # This dict IS the JSON the host receives, so measure everything
+        # against the whole limit rather than reserving a flat guess for the
+        # parts still to come: the look line below carries the HOST's own
+        # vision instruction and can be any length, and the row blocks are as
+        # long as the document's segments, bookmarks and sheet labels happen
+        # to be. A flat reserve is how this result quietly grew past the limit
+        # and came back to the model as "over the limit" with no handle in it.
+        ceiling = self._budget(0)
+        if json_len(out) > ceiling:
+            # Not even the map fits. The handle is the one thing the caller
+            # cannot continue without, so keep it and name the tools that
+            # report the rest in pages.
+            return {"handle": entry.handle, "n_pages": doc.n_pages,
+                    "truncated": ("the document map does not fit this size "
+                                  "limit; call document_page_map and "
+                                  "document_structure for it")}
 
         def add(key: str, value: Any) -> None:
             # Optional facts, in priority order: each is kept only if the
@@ -364,8 +379,33 @@ class ReviewToolkit:
                 return
             trial = dict(out)
             trial[key] = value
-            if json_len(trial) <= budget:
+            if json_len(trial) <= ceiling:
                 out[key] = value
+
+        def add_rows(key: str, items: List[Any], room: int,
+                     to_payload: Callable[[Any], Any] = lambda x: x,
+                     more: Optional[Callable[[int], str]] = None) -> None:
+            """Rows under ``key`` — only rows that fit, and the count dropped.
+
+            ``fit_items`` returns one payload even when it is larger than the
+            budget, so a caller paging through a cursor can never stall. There
+            is no cursor here (``next`` names the tool that pages), so an
+            oversized row must be dropped rather than sent past the host's
+            limit. Each candidate list is measured as the whole result,
+            truncation note included, and shortened until it fits.
+            """
+            if not items:
+                return
+            rows, _ = fit_items(items, max(0, room), to_payload=to_payload)
+            while rows:
+                trial = dict(out)
+                trial[key] = rows
+                if len(rows) < len(items) and more is not None:
+                    trial[key + "_truncated"] = more(len(items) - len(rows))
+                if json_len(trial) <= ceiling:
+                    out.update(trial)
+                    return
+                rows = rows[:-1]
 
         view = [s.page for s in summaries if s.kind in VIEW_KINDS]
         add("pages_to_view", compact_ranges(view))
@@ -399,28 +439,18 @@ class ReviewToolkit:
         if segs:
             brief = [{"id": g["id"], "pages": g["pages"], "title": g["title"]}
                      for g in segs]
-            rows, nxt = fit_items(brief, max(0, (budget - json_len(out)) // 2))
-            if rows:
-                out["segments"] = rows
-                if nxt is not None:
-                    out["segments_truncated"] = (
-                        f"{len(segs) - nxt} more; see document_structure")
+            # Half the room left, so bookmarks and sheet labels below still
+            # have some; add_rows enforces the ceiling either way.
+            add_rows("segments", brief, (ceiling - json_len(out)) // 2,
+                     more=lambda n: f"{n} more; see document_structure")
         if toc:
-            rows, nxt = fit_items(toc, max(0, (budget - json_len(out)) // 2))
-            if rows:
-                out["toc"] = rows
-                if nxt is not None:
-                    out["toc_truncated"] = f"{len(toc) - nxt} more entries"
+            add_rows("toc", list(toc), (ceiling - json_len(out)) // 2,
+                     more=lambda n: f"{n} more entries")
         sheets = [s for s in summaries if s.kind == "drawing_sheet" and s.label]
         if sheets:
-            rows, nxt = fit_items(
-                sheets, max(0, budget - json_len(out) - 60),
-                to_payload=lambda s: {"page": s.page, "label": s.label})
-            if rows:
-                out["drawing_sheets"] = rows
-                if nxt is not None:
-                    out["drawing_sheets_truncated"] = (
-                        f"{len(sheets) - nxt} more; see document_page_map")
+            add_rows("drawing_sheets", sheets, ceiling - json_len(out) - 60,
+                     to_payload=lambda s: {"page": s.page, "label": s.label},
+                     more=lambda n: f"{n} more; see document_page_map")
         return out
 
     def _tool_document_page_map(self, handle: str, pages: Any = None,

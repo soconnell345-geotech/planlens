@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Fixed: `open_document` could exceed the host's size limit.** The result
+  reserved a flat 200 characters for the parts still to come, but the segment,
+  bookmark and sheet-label rows were fitted with whatever room arithmetic said
+  was left, and `fit_items` always returns one row even when that row is
+  bigger than the budget. One long row therefore pushed the result past the
+  limit, and `call_json` replaced the whole payload with "produced N
+  characters, over the limit" — leaving the model no handle and nothing to
+  continue from. Observed between two limits that both looked fine: 1,000 and
+  1,500 characters passed, 1,200 did not. The fixed parts are now measured
+  rather than guessed at (as `find_quantities` already did), every candidate
+  row block is measured as the whole result and shortened until it fits, and a
+  limit too small even for the map returns the handle with a `truncated` note
+  naming `document_page_map` and `document_structure`.
 - **Duplicate pages on scans.** `duplicate_of` used to read a page's text and
   path count, which is exactly what a scanned page has none of, so a sheet
   bound in twice went unnoticed. New `planlens.document.imagehash` hashes the

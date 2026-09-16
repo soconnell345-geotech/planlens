@@ -12,7 +12,9 @@ import pytest
 
 fitz = pytest.importorskip("fitz")
 
-from planlens.testing import build_synthetic_review_document  # noqa: E402
+from planlens.testing import (  # noqa: E402
+    build_synthetic_review_document, build_synthetic_submittal,
+)
 from planlens.tools import ReviewToolkit, ToolError  # noqa: E402
 
 UPLOAD = "review.pdf"
@@ -266,6 +268,56 @@ def test_every_result_fits_the_limit(gt, max_chars):
             text = k.call_json(name, args)
             assert len(text) <= max_chars, (name, len(text))
             assert "error" not in json.loads(text), (name, text[:200])
+    finally:
+        k.close()
+
+
+@pytest.mark.parametrize("builder", [build_synthetic_review_document,
+                                     build_synthetic_submittal])
+def test_open_document_fits_every_size_limit(builder):
+    """Whatever the host's limit, the answer carries a usable handle.
+
+    open_document is assembled from optional facts plus three row blocks
+    (segments, bookmarks, sheet labels), and a single long row used to push
+    the result past the limit — the model then got "produced N characters,
+    over the limit" back, with no handle in it and nothing to continue from.
+    The limit is swept because the overflow only showed between two sizes
+    that both looked fine (1,000 and 1,500 characters passed; 1,200 did not).
+    """
+    gt = builder()
+    n_pages = None
+    for max_chars in range(600, 3001, 100):
+        if max_chars < 1000:
+            # Documented floor: a limit this small cannot hold a useful
+            # result, and the toolkit says so instead of guessing.
+            with pytest.raises(ValueError):
+                ReviewToolkit(resolve_source=lambda key: gt.pdf,
+                              max_chars=max_chars)
+            continue
+        k = ReviewToolkit(resolve_source=lambda key: gt.pdf,
+                          max_chars=max_chars)
+        try:
+            text = k.call_json("open_document", {"source": UPLOAD})
+            assert len(text) <= max_chars, (max_chars, len(text))
+            out = json.loads(text)
+            assert "error" not in out, (max_chars, text[:200])
+            assert out["handle"].startswith("doc_"), (max_chars, text[:200])
+            assert out["pages_by_kind"]
+            # The map itself never varies with the limit; only its tail does.
+            n_pages = n_pages if n_pages is not None else out["n_pages"]
+            assert out["n_pages"] == n_pages
+        finally:
+            k.close()
+
+
+def test_open_document_keeps_the_handle_when_nothing_else_fits(gt):
+    """A map that cannot fit at all still leaves the caller a handle."""
+    k = ReviewToolkit(resolve_source=lambda key: gt.pdf, max_chars=1000)
+    try:
+        out = call(k, "open_document", source="x" * 1200 + ".pdf")
+        assert out["handle"].startswith("doc_")
+        assert out["n_pages"] == 5
+        assert "document_page_map" in out["truncated"]
     finally:
         k.close()
 
