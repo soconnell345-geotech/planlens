@@ -20,7 +20,11 @@ located, attributed data:
   SHX lettering; search across all of it. Search also matches
   approximately (`search(..., fuzzy=True)`, the optional `text` extra), so a
   term still turns up in text that was read optically or recovered from
-  stroked lettering and has a letter wrong. An optional Azure Document
+  stroked lettering and has a letter wrong. And it pulls out the numbers the
+  document STATES — "approximately 40-foot centers", "2,500 psf", "EL. 1684",
+  "2H:1V", "20 to 35 ft" — each with its raw wording, its qualifier and its
+  place on the page, so what the text claims can be compared with what the
+  drawing measures. An optional Azure Document
   Intelligence result can supply text for scanned pages — planlens reads the
   result, it never calls or requires the paid service.
 
@@ -45,7 +49,10 @@ located, attributed data:
   with a `! look:` line and the host's instruction for viewing it, and
   `render_page` / `render_region` produce the image (displayed frame,
   pixel-capped, numbered marks on request). Image files open as one-page
-  documents.
+  documents. `search_document` takes `fuzzy` for text whose letters were read
+  wrong, and `find_quantities` returns every value-with-unit the document
+  states, filterable by kind and unit, so a model can compare the narrative's
+  claims with the drawing's geometry.
 - **`planlens.ir`** — drawing geometry: lines, arcs, text, and the annotation
   constructs built from them (below).
 

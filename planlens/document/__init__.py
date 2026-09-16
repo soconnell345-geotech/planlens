@@ -17,7 +17,11 @@ PDF into data an LLM can navigate and cite:
 - the **scale the PDF itself stores** — a page's ``/VP`` viewports and the
   ``/Measure`` on a dimension markup, so points become feet on the drafter's
   own calibration rather than a guess (:mod:`planlens.document.scale`);
-- **search** across all of it (:meth:`Document.search`);
+- **search** across all of it (:meth:`Document.search`), exactly or — for
+  text a letter of which was read wrong — approximately;
+- **stated quantities** — every number the document gives a unit, with its
+  raw wording and any "approximately" on it (:meth:`Document.quantities`),
+  so what the text CLAIMS can be compared with what the drawing MEASURES;
 - an optional **Azure Document Intelligence** text source for scanned pages,
   paragraph roles and header-marked tables — the caller runs the paid
   analysis, planlens only reads the result (:class:`AzureLayout`).
@@ -65,6 +69,11 @@ from planlens.document.model import (
     TextBlock,
     TextLine,
 )
+from planlens.document.quantities import (
+    KINDS as QUANTITY_KINDS,
+    QuantityMention,
+    scan_text,
+)
 from planlens.document.scale import (
     SOURCE_MEASUREMENT_MARKUP,
     SOURCE_VIEWPORT,
@@ -87,6 +96,9 @@ __all__ = [
     "parse_pages",
     "fuzzy_search_available",
     "DEFAULT_FUZZY_MIN_SCORE",
+    "QuantityMention",
+    "QUANTITY_KINDS",
+    "scan_text",
     "PageContent",
     "PageSummary",
     "TextLine",

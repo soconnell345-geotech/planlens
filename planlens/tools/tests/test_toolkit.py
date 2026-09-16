@@ -354,3 +354,79 @@ def test_fuzzy_results_stay_inside_the_size_limit(gt):
         assert "error" not in json.loads(text)
     finally:
         k.close()
+
+
+# -- stated quantities ---------------------------------------------------------
+
+def test_find_quantities_spec_is_published(kit):
+    spec = [s for s in kit.specs("plain") if s["name"] == "find_quantities"][0]
+    props = spec["parameters"]["properties"]
+    assert props["kinds"]["items"]["enum"][:3] == ["length", "area", "volume"]
+    assert "units" in props and "offset" in props
+    assert spec["parameters"]["required"] == ["handle"]
+    # published in every style the hosts use
+    assert any(s["name"] == "find_quantities" for s in kit.specs("anthropic"))
+    assert any(s["function"]["name"] == "find_quantities"
+               for s in kit.specs("openai"))
+    assert "find_quantities" in kit.tool_names
+
+
+def test_find_quantities_reads_the_narrative(kit, gt):
+    handle = _open(kit)
+    out = call(kit, "find_quantities", handle=handle, pages=[gt.narrative_page])
+    assert out["n_mentions"] >= 3
+    rows = " | ".join(out["quantities"])
+    assert "approximately" in rows          # the qualifier is kept
+    assert "40 ft [length]" in rows
+    assert "20 to 35 ft [length]" in rows   # a range is one row
+    assert "p0" in rows
+
+
+def test_find_quantities_filters(kit, gt):
+    handle = _open(kit)
+    lengths = call(kit, "find_quantities", handle=handle,
+                   pages=[gt.narrative_page], kinds=["length"])
+    assert all("[length]" in r for r in lengths["quantities"])
+    feet = call(kit, "find_quantities", handle=handle,
+                pages=[gt.narrative_page], units=["ft"])
+    assert feet["n_mentions"] == lengths["n_mentions"]
+    none = call(kit, "find_quantities", handle=handle,
+                pages=[gt.narrative_page], kinds=["volume"])
+    assert none["n_mentions"] == 0 and "no stated quantity" in none["note"]
+
+
+def test_find_quantities_rejects_an_unknown_kind(kit):
+    handle = _open(kit)
+    out = call(kit, "find_quantities", handle=handle, kinds=["pressure"])
+    assert "unknown quantity kind" in out["error"]
+    assert "pressure_or_stress" in out["hint"]
+
+
+def test_find_quantities_flags_pages_it_cannot_read_as_text(kit, gt):
+    handle = _open(kit)
+    out = call(kit, "find_quantities", handle=handle)
+    assert out["pages_not_searchable_as_text"] == "1,4"
+    assert out["look"].startswith("the pages listed are scans")
+
+
+def test_find_quantities_pages_and_fits_the_limit(kit):
+    handle = _open(kit)
+    limit = 1000              # per-call, the way a host budgets one tool
+    rows, offset, calls = [], 0, 0
+    while True:
+        text = kit.call_json("find_quantities",
+                             {"handle": handle, "offset": offset},
+                             max_chars=limit)
+        assert len(text) <= limit
+        out = json.loads(text)
+        rows.extend(out["quantities"])
+        calls += 1
+        if "next_offset" not in out:
+            break
+        assert out["next_offset"] > offset
+        offset = out["next_offset"]
+        assert calls < 20
+    assert len(rows) == out["n_mentions"]
+    assert calls > 1                        # it really did page
+    bad = call(kit, "find_quantities", handle=handle, offset=999)
+    assert "outside" in bad["error"]

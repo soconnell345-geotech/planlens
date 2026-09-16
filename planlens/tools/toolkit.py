@@ -13,6 +13,7 @@ Tools
 ``read_document``      text (optionally with locations), tables and markups
 ``search_document``    find text, hidden CAD text and markup comments,
                        exactly or approximately (``fuzzy``)
+``find_quantities``    every number WITH A UNIT the document states, located
 ``document_markups``   the review record: every markup, with its threads
 ``document_structure`` the constituent documents: segments with their
                        running headers/footers and printed page numbers
@@ -50,8 +51,10 @@ from planlens.document import (
     DEFAULT_FUZZY_MIN_SCORE, Document, fuzzy_search_available, page_advice,
     parse_pages,
 )
+from planlens.document.quantities import KINDS as QUANTITY_KINDS
 from planlens.tools.formatting import (
     compact_ranges, fit_items, json_len, render_markup, render_page,
+    render_quantity,
 )
 
 Source = Union[bytes, str]
@@ -584,6 +587,60 @@ class ReviewToolkit:
             out["hits_omitted_for_size"] = len(res["hits"]) - nxt
             out["hint"] = ("narrow with pages=... (see pages_with_hits) to "
                            "see the rest")
+        return out
+
+    def _tool_find_quantities(self, handle: str, pages: Any = None,
+                              kinds: Any = None, units: Any = None,
+                              include_markups: bool = True,
+                              offset: int = 0) -> Dict[str, Any]:
+        entry = self._entry(handle)
+        kind_list = [kinds] if isinstance(kinds, str) else kinds
+        unit_list = [units] if isinstance(units, str) else units
+        bad = [k for k in (kind_list or []) if k not in QUANTITY_KINDS]
+        if bad:
+            raise ToolError(f"unknown quantity kind(s) {bad}",
+                            hint=f"kinds are: {list(QUANTITY_KINDS)}")
+        with entry.lock:
+            mentions = entry.doc.quantities(
+                pages=pages, kinds=kind_list, units=unit_list,
+                include_markups=include_markups)
+        if offset < 0 or (mentions and offset >= len(mentions)):
+            raise ToolError(f"offset {offset} is outside 0-{len(mentions) - 1}")
+        # A quantity printed inside a drawing, a scan or a figure is ink, not
+        # text, so this tool cannot see it — the same caveat search carries.
+        with entry.lock:
+            unread = [s.page for s in entry.doc.page_map(pages)
+                      if s.kind in VIEW_KINDS]
+        trailer: Dict[str, Any] = {
+            "note": ("no stated quantity on these pages; a number without a "
+                     "unit is not reported") if not mentions else
+                    ("each row is: page, value (and 'to' value for a range), "
+                     "kind, qualifier, the raw wording, and where it is; "
+                     "units are as the page wrote them and nothing was "
+                     "converted")}
+        if unread:
+            trailer["pages_not_searchable_as_text"] = compact_ranges(unread)
+            trailer["look"] = self._look([
+                "the pages listed are scans, figures or drawing sheets: the "
+                "numbers printed on them are ink, not text, so a value "
+                "missing here may still be on one of them"])[0]
+        # Measure the fixed parts instead of reserving a flat guess for them:
+        # the look line carries the HOST's own vision instruction and can be
+        # any length, so a constant reserve is how a result quietly grows past
+        # the limit the host set.
+        head = {"handle": handle, "n_mentions": len(mentions)}
+        fixed = json_len(head) + json_len(trailer) + 40
+        room = self._budget(0) - fixed
+        if room < 200 and "note" in trailer:
+            del trailer["note"]             # the rows matter more than the gloss
+            room = self._budget(0) - json_len(head) - json_len(trailer) - 40
+        rows, nxt = fit_items(mentions, max(0, room),
+                              to_payload=render_quantity, start=offset)
+        out: Dict[str, Any] = dict(head)
+        out["quantities"] = rows
+        if nxt is not None:
+            out["next_offset"] = nxt
+        out.update(trailer)
         return out
 
     def _tool_document_markups(self, handle: str, pages: Any = None,

@@ -139,6 +139,45 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "find_quantities",
+        "description": (
+            "Every number WITH A UNIT the document states — \"approximately "
+            "40-foot centers\", \"6300 mm\", \"21 degrees\", \"2,500 psf\", "
+            "\"EL. 1684\", \"2H:1V\", \"STA 10+50\", \"20 to 35 ft\" — each "
+            "with its raw wording, any qualifier (approximately / minimum / "
+            "typ. / plus-minus), its page, line ids and box. Use it to check "
+            "what the report or the calculations CLAIM against what the "
+            "drawing shows, to collect every design parameter, or to find "
+            "where a value is stated. Filter with kinds and units. A bare "
+            "number with no unit is never returned, and nothing is converted: "
+            "the units are as the page wrote them."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "pages": PAGES_SCHEMA,
+                "kinds": {
+                    "type": "array",
+                    "items": {"type": "string",
+                              "enum": ["length", "area", "volume",
+                                       "pressure_or_stress", "force",
+                                       "unit_weight", "angle", "percent",
+                                       "elevation", "station", "slope",
+                                       "count", "other"]},
+                    "description": "Only these kinds of quantity."},
+                "units": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "Only these units, spelled as the result "
+                                   "does: ft, in, mm, m, ft^2, yd^3, psf, "
+                                   "pcf, kPa, kN, deg, %, sta, H:V."},
+                "include_markups": {"type": "boolean",
+                                    "description": "Default true."},
+                "offset": {"type": "integer", "minimum": 0},
+            },
+            "required": ["handle"],
+        },
+    },
+    {
         "name": "document_markups",
         "description": (
             "The review record: every comment, callout, cloud, arrow and "

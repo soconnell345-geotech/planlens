@@ -18,7 +18,12 @@ tables. Annotations (markups and hidden CAD text) always come from the PDF.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import (
+    TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union,
+)
+
+if TYPE_CHECKING:  # for typing only — the scanner is imported where it is used
+    from planlens.document.quantities import QuantityMention
 
 from planlens.document.annotations import (
     attach_appearance_text, drop_cad_text_already_in_layer,
@@ -732,6 +737,70 @@ class Document:
                 "pages_with_hits": per_page,
                 "truncated": len(scored) > len(kept), "hits": kept,
                 "fuzzy": True, "min_score": min_score}
+
+    # -- quantities ---------------------------------------------------------
+    def quantities(self, pages: PageSpec = None,
+                   kinds: Optional[Sequence[str]] = None,
+                   units: Optional[Sequence[str]] = None,
+                   include_markups: bool = True,
+                   max_mentions: int = 500
+                   ) -> List["QuantityMention"]:
+        """Every value-with-unit the document STATES, located on its page.
+
+        The other half of a review: :mod:`planlens.ir` measures what the plan
+        DRAWS, and this reads what the narrative, the schedule and the
+        reviewer's comment CLAIM, so the two can be compared. A bare number is
+        not a mention (see :mod:`planlens.document.quantities`), and nothing
+        is converted — the reader decides that with
+        :meth:`planlens.ir.measure.Quantity.to`.
+
+        Filters are by ``kinds`` (``length``, ``pressure_or_stress``,
+        ``elevation``, ...) and by ``units`` as this module spells them
+        (``ft``, ``psf``, ``kN``), both case-insensitive. Mentions come back in
+        page then reading order, capped at ``max_mentions``.
+        """
+        from planlens.document.quantities import (
+            filter_mentions, scan_text,
+        )
+        cap = max(0, int(max_mentions))
+        out: List["QuantityMention"] = []
+        for index in parse_pages(pages, self.n_pages):
+            if len(out) >= cap:
+                break
+            found: List["QuantityMention"] = []
+            groups, markups = self._search_groups(index)
+            label_source = None
+            for group in groups:
+                text, spans = self._join_group(group)
+                if not text:
+                    continue
+                label_source = group[0].source
+                for men in scan_text(text):
+                    start, end = men.span
+                    involved = [ln for a, b, ln in spans
+                                if a < end and b > start]
+                    men.page = index
+                    men.line_ids = [ln.id for ln in involved]
+                    men.bbox = tuple(
+                        round(v, 1) for v in
+                        bbox_union([ln.bbox for ln in involved])) if involved \
+                        else None
+                    men.source = (involved[0].source if involved
+                                  else label_source or SOURCE_PDF_TEXT)
+                    found.append(men)
+            if include_markups:
+                for mk in markups:
+                    for men in scan_text(mk.text or ""):
+                        men.page = index
+                        men.bbox = tuple(round(v, 1) for v in mk.bbox)
+                        men.source = "pdf_annotation"
+                        men.markup_id = mk.id
+                        found.append(men)
+            # Filtered per page, not at the end: a capped run over a long
+            # document must fill its cap with mentions the caller ASKED for,
+            # not stop early on pages full of the kinds they filtered out.
+            out.extend(filter_mentions(found, kinds=kinds, units=units))
+        return out[:cap]
 
     # -- reading advice / rendering ------------------------------------------
     def advice(self, index: int, content: bool = True) -> List[str]:

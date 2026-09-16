@@ -132,6 +132,41 @@ def render_measure(mm) -> str:
     return " ".join(bits)
 
 
+def render_quantity(q, with_locations: bool = True) -> str:
+    """One stated quantity as a line: what it says, where it says it.
+
+    The RAW text is quoted alongside the parsed value on purpose. "40-foot"
+    and "approximately 40 ft" are the same number with different authority,
+    and a reviewer comparing the narrative against the plan is reading that
+    difference as much as the number.
+    """
+    value = f"{q.value:g}"
+    if q.value_to is not None:
+        value += f" to {q.value_to:g}"
+    if q.units:
+        value += f" {q.units}"
+    parts = [f"p{q.page} {value} [{q.kind}]"]
+    if q.qualifier:
+        parts.append(q.qualifier)
+    parts.append(f'"{" ".join(q.text.split())}"')
+    if with_locations and q.bbox is not None:
+        parts.append(f"@ {_box(q.bbox)}")
+    if q.markup_id:
+        # "in markup p1.m1" already says a reviewer wrote it; a second
+        # "markup" tag after it is noise on a token budget.
+        parts.append(f"in markup {q.markup_id}")
+    else:
+        if q.line_ids:
+            parts.append("(" + ",".join(q.line_ids[:3]) + ")")
+        if q.source == SOURCE_CAD_HIDDEN:
+            parts.append("cad")
+        elif q.source == SOURCE_AZURE_DI:
+            parts.append("azure")
+        elif q.source != "pdf_text":
+            parts.append(q.source)
+    return " ".join(parts)
+
+
 def page_header(s: PageSummary) -> str:
     label = f" ({s.label})" if s.label else ""
     return f"=== page {s.page}{label} [{s.kind}] ==="

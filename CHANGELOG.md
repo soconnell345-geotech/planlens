@@ -11,6 +11,23 @@
   search that finds nothing now says to try `fuzzy: true`. Needs the new
   optional extra `planlens[text]` (`rapidfuzz`); without it the call names the
   extra to install, and `fuzzy_search_available()` answers before it is asked.
+- **The numbers the document SAYS.** New `planlens.document.quantities` and
+  `Document.quantities(pages, kinds, units)`: every value-with-unit in the
+  text, hidden CAD strings and reviewers' comments — `7'-6"`, `40-foot`,
+  `6300 mm`, `21 degrees`, `2,500 psf`, `120 pcf`, `18 kN/m³`, `150 kPa`,
+  `50 kN`, `EL. 1684`, `STA 10+50`, `2H:1V`, `1%`, `20 to 35 ft` — each with
+  its kind, its raw wording, any qualifier (`approximately`, `minimum`,
+  `typ.`, `±`), its page, line ids and box in the displayed frame. So what the
+  report CLAIMS can be set beside what `planlens.ir` MEASURES. A bare number
+  is never a mention, a range is one mention with `value_to`, and nothing is
+  converted; `units_known` says whether `planlens.ir.measure` can convert it.
+  New tool `find_quantities`.
+- That extractor stayed native after a measured bake-off against quantulum3 on
+  40 invented sentences and 40 real ones (precision/recall 0.97/0.97 and
+  1.00/0.52 against 0.62/0.61 and 0.09/0.35). The decisive number: of the ten
+  mentions quantulum3 found that the regex did not, all ten were wrong —
+  including the V of `2H:1V` read as volts and six ranges replaced by their
+  midpoint, a value stated nowhere in the document. It is not a dependency.
 - The default `min_score` of 80 is measured, not chosen: real drawing callouts
   from a submittal's sheets, each corrupted by a substituted letter, a dropped
   letter and a transposition, against words confirmed absent from the same

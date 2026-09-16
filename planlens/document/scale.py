@@ -94,6 +94,7 @@ __all__ = [
     "parse_pdf_object", "parse_ratio", "ratio_magnification",
     "parse_stated_value", "page_viewports", "viewport_at",
     "read_markup_measure", "scale_factor", "to_quantity",
+    "NUMBER", "FEET_INCHES", "AREA_UNITS", "parse_number",
 ]
 
 BBox = Tuple[float, float, float, float]
@@ -341,7 +342,16 @@ _AREA_UNITS = {
 }
 
 
-def _number(text: Optional[str]) -> Optional[float]:
+#: Building blocks published for :mod:`planlens.document.quantities`, so that
+#: prose and a measurement markup's ``/Contents`` are read by ONE number
+#: parser. A second spelling of "what a number looks like" is how two parts of
+#: a package start disagreeing about ``3/32"``.
+NUMBER = _NUM
+FEET_INCHES = _RE_FEET_INCHES
+AREA_UNITS = _AREA_UNITS
+
+
+def parse_number(text: Optional[str]) -> Optional[float]:
     """``"3/32"``, ``"1 1/2"``, ``"20"``, ``".5"`` -> float; else None."""
     if not text:
         return None
@@ -358,6 +368,10 @@ def _number(text: Optional[str]) -> Optional[float]:
         return float(t)
     except ValueError:
         return None
+
+
+#: Historic private spelling, kept so nothing inside this module had to move.
+_number = parse_number
 
 
 def _parse_length(text: str, anchored: bool = True

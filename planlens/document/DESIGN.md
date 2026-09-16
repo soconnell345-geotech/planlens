@@ -21,12 +21,14 @@ document/
   annotations.py  review markups + hidden CAD text
   tables.py       find_tables wrapper
   scale.py        the measurement calibration the PDF itself stores
+  quantities.py   the numbers the text STATES, with their units
   classify.py     coarse page kinds with evidence
   structure.py    headers/footers, printed page numbers, dividers, duplicates,
                   segments (the constituent documents)
   advice.py       when text is not enough: "! look:" statements
-  document.py     Document: page_map, segments, page, search, markups, text,
-                  render, render_thumbnails
+  document.py     Document: page_map, segments, page, search (exact or
+                  fuzzy), quantities, markups, text, render,
+                  render_thumbnails
   azure_di.py     Azure Document Intelligence result -> text source (optional)
 ```
 
@@ -157,6 +159,85 @@ Three findings changed the design.
 recovered with 9 points of margin on the worst (88.9), every absent word still
 silent with 10 points of margin (nothing scored above 70), and a median of 5
 unrelated hits ranked below the answer.
+
+## Quantities (2026-09-16)
+
+A review is a comparison. The report says "borings at approximately 40-foot
+centers"; the plan draws borings `planlens.ir` can measure. The calculation
+says "171 kN pre-load"; the schedule on the sheet says something else. This
+package could already measure the drawing while the narrative stayed an
+undifferentiated wall of text, so `Document.quantities()` makes the text's own
+numbers addressable — value, unit, kind, the raw wording, any hedge on it, and
+the page, line ids and box that locate it.
+
+The rules are `planlens.ir.measure`'s rules. **A bare number is not a
+mention**: without a unit there is nothing to compare, and a value that might
+be feet or metres is worse than silence. **Nothing is converted**: `6300 mm`
+stays 6300 mm, and `7'-6"` becomes 7.5 ft only because the two halves are one
+value in one unit. **A range is one mention**, carrying `value_to`, because
+"40 to 60 ft" is a single statement and splitting it loses that. The ONE
+exception to the first rule is an elevation: "EL. 1684" is a measurement whose
+unit the page leaves to its datum, so it is reported with `units=""` and
+`units_known=False` rather than given a unit nobody wrote. `kind` adds `slope`
+to the obvious list, because "2H:1V" is among the most-compared statements on
+a geotechnical sheet and does not belong in `other`.
+
+### The bake-off: native regex vs quantulum3
+
+Before choosing, both were run over 40 invented geotechnical sentences
+covering every claimed form, and 40 real sentences off a submittal's narrative
+and calculation pages (2,677 candidates on 236 pages; 20 sampled from prose,
+20 from program printout, because the calc package is 245 pages of printout
+and an even sample never reaches the narrative). Scored by the rule above: a
+united mention whose value is stated is a hit, a united mention of a value
+nobody stated is a false positive, and so is a bare number.
+
+| corpus | extractor | TP | FN | FP | precision | recall | crashes |
+|---|---|---|---|---|---|---|---|
+| A — 40 invented | regex | 37 | 1 | 1 | 0.97 | 0.97 | 0 |
+| A — 40 invented | quantulum3 | 23 | 15 | 14 | 0.62 | 0.61 | 9 |
+| B — 40 real | regex | 16 | 15 | 0 | 1.00 | 0.52 | 0 |
+| B — 40 real | quantulum3 | 11 | 20 | 114 | 0.09 | 0.35 | 2 |
+
+**quantulum3 is not adopted, and the decisive number is not in that table.**
+The condition was that it recover mentions the regex misses. Across both
+corpora it produced 10 united mentions the regex did not, and **every one of
+them was wrong**: 1 volt and 1 volt (the V in `2H:1V` and `1V:3H`), 1 byte
+("Task 1B"), 8 atomic mass units ("8 da"), and six range MIDPOINTS — 27.5 ft
+for "20 to 35 feet", and five more on real text — which are values that appear
+nowhere in the document and would be compared against a drawing as if someone
+had written them. It also raises `ImportError` mid-parse on surfaces its
+disambiguator cannot resolve without the heavier `[classifier]` extra (9 of
+the 40 invented sentences, including a plain `7'-6"`), and it knows none of
+the units this domain runs on: psf, pcf, tsf, ksf, cy, sf, kN/m³. It was
+installed into the venv for the measurement and uninstalled after.
+
+Two findings from the real corpus changed the native extractor.
+
+- **Scientific notation.** A calculation printout writes `2.540E-07 M`, and
+  the first version read that as SEVEN METRES — it found the `07` and the `M`.
+  A plausible number seven orders of magnitude wrong, in the right units, is
+  precisely the invisible failure `planlens.ir.measure` exists to prevent, so
+  the number grammar now carries an exponent.
+- **A hedge belongs to the value it touches.** "MAXIMUM" opens the next label
+  in `2.540E-07 M MAXIMUM NUMBER OF ITERATIONS 300`, and an earlier window-
+  based reading attached it to the tolerance. A qualifier must now be
+  adjacent — immediately before the value, or closing the clause after it —
+  and a following capitalized word rejects it. A note set entirely in capitals
+  loses its trailing hedge that way, which is the intended trade.
+
+**What is not read, measured rather than assumed:** the regex's 15 misses on
+the real corpus are all ONE form, `Label (unit): value` — "Axial Capacity Pc
+(kip): 437.0" — the unit-first shape of structural-calculation printouts,
+concentrated in 3 of the 40 sentences. quantulum3 misses it too (it crashed on
+two of those three), so adopting it would not have closed the gap. Reading it
+needs the label grammar of those programs and is deliberately left for when
+that is measured rather than guessed.
+
+Prose false positives were also measured rather than assumed. The largest
+single source is the preposition "in": "borings were advanced 12 in the
+northern block" reads as a 12-inch depth unless the following word is checked
+against a stop list, which is why one exists.
 
 ## Scale (2026-09-16)
 
