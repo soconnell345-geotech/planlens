@@ -63,7 +63,7 @@ Every entity carries a common envelope:
 | `layer`      | CAD layer / logical group: a DXF layer, or a vector PDF's optional-content group; `None` when the source gives none (raster always) |
 | `color`      | hex `#rrggbb`, or `ACI<n>` when only a DXF color index is known |
 | `filled`     | the shape is PAINTED, not just outlined — `False` unless the source says so |
-| `fill_color` | that fill's `(r, g, b)` in 0-1, or `None` |
+| `fill_color` | that fill's colour, hex `#rrggbb` like `color`, or `None` when unpainted |
 | `style`      | linetype / a note like `approx_from_spline`, `hough`, `contour` |
 | `source`     | `dxf` \| `pdf_vector` \| `raster_trace` (provenance) |
 | `confidence` | `1.0` for deterministic sources; `< 1.0` for raster detections |
@@ -222,10 +222,14 @@ nearest path's group.
 class, because the same fact reaches the IR as a closed `Polyline` (a plotted
 arrowhead or boring dot), a `Circle`, or a `Region` (a DXF hatch). `to_dict`
 emits `filled` only when true and `fill_color` only when present — an unfilled
-entity says nothing about fill — and `fill_color` stays raw device RGB
-(floats 0-1) rather than `color`'s hex, because a fill is read straight off
-the paint operator and quantizing it would lose the greys a drafter uses to
-separate materials. **What an entity IS did not change**: a filled triangle is
+entity says nothing about fill — and `fill_color` is written in `color`'s own
+hex `#rrggbb` spelling, by the same `_color_to_hex` that writes a stroke
+colour. Two colour fields on one envelope in two notations would be a trap for
+every reader of an entity, and the quantizing that a hex costs is the same
+quantizing `color` has always accepted. The one difference is the absence: a
+stroke with no stated colour is black, while an unpainted path has no fill at
+all, so `fill_color` is `None` there rather than `#000000`.
+**What an entity IS did not change**: a filled triangle is
 the same closed 3-vertex Polyline it always was (pinned by a test that ingests
 the same scene painted and unpainted and compares types, counts and vertices).
 The construct finders carry the new fact as EVIDENCE only —

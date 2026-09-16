@@ -35,8 +35,10 @@
 - Content on a layer the document HIDES is not ingested — MuPDF hides it as a
   viewer does — so the IR warns, naming the group, and
   `from_pdf_vector(include_hidden_layers=True)` reads it.
-- Entities gain `filled` and `fill_color`: a painted shape (a boring symbol, a
-  solid arrowhead, a hatch) can now say so. Measured on the ten-sheet corpus,
+- Entities gain `filled` and `fill_color` (hex `#rrggbb`, the same spelling
+  `color` uses; `None` when the entity is not painted): a painted shape (a
+  boring symbol, a solid arrowhead, a hatch) can now say so. Measured on the
+  ten-sheet corpus,
   the `closePath` flag is False on all 6,669 filled paths, so `filled` is the
   dependable "this is an area, not a line" signal. What an entity IS is
   unchanged — a filled triangle is still a closed 3-vertex `Polyline` — and

@@ -10,7 +10,7 @@ from planlens.pdf.extractor import (
     extract_vector_geometry,
     _color_to_hex,
     _extract_path_points,
-    _rgb_triple,
+    _fill_to_hex,
 )
 from planlens.pdf.results import PdfParseResult
 
@@ -295,7 +295,7 @@ class TestLayersAndFill:
         assert by_layer["EXISTING"]["fill_color"] is None
         # The unlayered rectangle is painted; "" is never reported as a layer.
         assert by_layer[None]["filled"] is True
-        assert by_layer[None]["fill_color"] == pytest.approx((1.0, 0.0, 0.0))
+        assert by_layer[None]["fill_color"] == "#ff0000"
 
     def test_discover_reports_the_document_layer_state(self, tmp_path):
         info = discover_pdf_content(filepath=self._pdf(tmp_path))
@@ -305,6 +305,10 @@ class TestLayersAndFill:
         path = _make_simple_pdf(tmp_path, lines=[((0, 0, 10, 10), (0, 0, 0))])
         assert discover_pdf_content(filepath=path)["ocgs"] == {}
 
-    def test_grayscale_fill_expands_to_a_triple(self):
-        assert _rgb_triple((0.5,)) == (0.5, 0.5, 0.5)
-        assert _rgb_triple(None) is None
+    def test_a_fill_colour_is_spelled_like_a_stroke_colour(self):
+        # Same hex as _color_to_hex, greyscale expanded the same way -- the
+        # ONE difference is that "no fill at all" is None, not black.
+        assert _fill_to_hex((0.5,)) == _color_to_hex((0.5,)) == "#7f7f7f"
+        assert _fill_to_hex((1.0, 0.0, 0.0)) == "#ff0000"
+        assert _fill_to_hex(None) is None
+        assert _fill_to_hex(()) is None

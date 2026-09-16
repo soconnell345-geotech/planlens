@@ -127,21 +127,18 @@ def _color_to_hex(color) -> str:
     return "#000000"
 
 
-def _rgb_triple(color) -> Optional[Tuple[float, float, float]]:
-    """A PyMuPDF colour as an ``(r, g, b)`` float triple in 0-1, or None.
+def _fill_to_hex(color) -> Optional[str]:
+    """A fill colour in the SAME hex spelling ``_color_to_hex`` gives a stroke.
 
-    A one-component colour is grayscale and expands to a grey triple; the
-    triple is what the IR carries, so a caller never has to know how many
-    components the source colour space had.
+    The difference is the absence: a stroke always has a colour, so
+    ``_color_to_hex`` answers ``"#000000"`` when the PDF names none, while a
+    path may genuinely have no fill at all. That case is ``None`` here, and
+    only that case — an unpainted path says nothing about fill rather than
+    claiming to be black.
     """
-    if not color:
+    if color is None or len(color) == 0:
         return None
-    vals = [float(c) for c in color]
-    if len(vals) == 1:
-        return (vals[0], vals[0], vals[0])
-    if len(vals) >= 3:
-        return (vals[0], vals[1], vals[2])
-    return None
+    return _color_to_hex(color)
 
 
 def discover_pdf_content(
@@ -395,7 +392,7 @@ def extract_colored_paths(
     Companion to ``discover_pdf_content`` (which gives text blocks) and
     ``planlens.pdf.labels.propose_role_mapping``: returns one entry per drawing path
     as ``{"color": hex, "points": [(x, y), ...], "layer": str|None,
-    "filled": bool, "fill_color": (r, g, b)|None}`` (same coordinate convention
+    "filled": bool, "fill_color": hex|None}`` (same coordinate convention
     as ``extract_vector_geometry``). No role_mapping is required.
 
     ``layer`` is the path's optional-content group — a PDF's layer — or None
@@ -407,8 +404,9 @@ def extract_colored_paths(
     unlike DXF, where ``"0"`` inside a block is an inheritance sentinel.
 
     ``filled`` is True when the path is PAINTED with a fill (PyMuPDF ``type``
-    "f" or "fs"), and ``fill_color`` is that fill's RGB as the PDF stores it
-    (floats 0-1), or None. A filled path is CLOSED by PDF semantics whatever
+    "f" or "fs"), and ``fill_color`` is that fill's colour as hex ``#rrggbb``
+    — the same spelling ``color`` uses, so one reader parses both — or None
+    when the path is not painted. A filled path is CLOSED by PDF semantics whatever
     its ``closePath`` flag says — measured across the ten-sheet corpus, that
     flag is False on all 6,669 filled paths — so ``filled`` is the reliable
     "this is an area, not a line" signal.
@@ -445,7 +443,7 @@ def extract_colored_paths(
             "points": out_pts,
             "layer": d.get("layer") or None,
             "filled": filled,
-            "fill_color": _rgb_triple(d.get("fill")) if filled else None,
+            "fill_color": _fill_to_hex(d.get("fill")) if filled else None,
         })
     doc.close()
     return regions

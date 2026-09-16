@@ -163,8 +163,8 @@ class TestFill:
         assert len(filled) == 2
         symbol = [e for e in filled if e.layer == "EXISTING"][0]
         triangle = [e for e in filled if e.layer == "PROPOSED"][0]
-        assert symbol.fill_color == pytest.approx((0.0, 0.0, 0.0))
-        assert triangle.fill_color == pytest.approx((0.0, 0.0, 1.0))
+        assert symbol.fill_color == "#000000"
+        assert triangle.fill_color == "#0000ff"
 
     def test_outline_only_paths_say_nothing_about_fill(self, tmp_path):
         ir = from_pdf_vector(_scene(tmp_path, "outline.pdf", fill=False))
@@ -200,7 +200,7 @@ class TestSerialization:
         painted = [e for e in ir.entities if e.filled][0].to_dict()
         plain = [e for e in ir.entities if not e.filled][0].to_dict()
         assert painted["filled"] is True
-        assert painted["fill_color"] == [0.0, 0.0, 0.0]
+        assert painted["fill_color"] == "#000000"
         assert "filled" not in plain and "fill_color" not in plain
 
     def test_round_trip(self, tmp_path):
@@ -209,7 +209,7 @@ class TestSerialization:
         back = DrawingIR.from_dict(d)
         assert back.to_dict() == d
         painted = [e for e in back.entities if e.filled][0]
-        assert painted.fill_color == (0.0, 0.0, 0.0)
+        assert painted.fill_color == "#000000"
         assert painted.layer == "EXISTING"
 
     def test_round_trip_of_a_filled_circle_entity(self):
@@ -217,11 +217,11 @@ class TestSerialization:
         # raster trace can produce a real Circle — the envelope carries fill
         # for any area-bearing type, so the round trip is pinned here too.
         c = Circle(id="e0", center=(1.0, 2.0), radius=3.0, filled=True,
-                   fill_color=(0.25, 0.5, 0.75), layer="BORINGS")
+                   fill_color="#4080bf", layer="BORINGS")
         back = DrawingIR.from_dict(
             {"entities": [c.to_dict()]}).entities[0]
         assert isinstance(back, Circle)
-        assert back.filled and back.fill_color == (0.25, 0.5, 0.75)
+        assert back.filled and back.fill_color == "#4080bf"
         assert back.layer == "BORINGS"
 
     def test_query_refs_carry_fill_only_when_painted(self, tmp_path):

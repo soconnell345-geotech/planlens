@@ -760,9 +760,9 @@ def from_pdf_vector(filepath: str = None, content: bytes = None,
     by default because the IR should say what the sheet SHOWS.
 
     FILL. An entity built from a painted path carries ``filled=True`` and the
-    fill's ``fill_color``. What an entity IS does not change — a filled
-    triangle is the same closed 3-vertex Polyline it has always been — only
-    what it can now say about itself.
+    fill's ``fill_color``, hex ``#rrggbb`` like ``color``. What an entity IS
+    does not change — a filled triangle is the same closed 3-vertex Polyline
+    it has always been — only what it can now say about itself.
 
     Text items carry their reading direction in the IR frame, and exclude text
     drawn by annotations (reviewer comments, stamps), which is not drawing
