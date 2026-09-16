@@ -534,6 +534,34 @@ toolkit exposes it as `render_page` / `render_region` (PNG files) and
 directly. An image file opens as a one-page document (`source_kind="image"`,
 converted to PDF by MuPDF), so a photographed drawing is reviewed like a scan.
 
+## MCP (2026-09-16)
+
+`planlens.mcp_server` puts the same tools on the Model Context Protocol, so a
+host discovers them instead of being programmed against them. It is generated
+from `ReviewToolkit.specs("plain")` — one MCP tool per spec, same name,
+description and input schema, dispatched through `call_json` — because a
+hand-written second list is a copy that drifts: a tool added to `specs.py`
+appears on the wire with no edit to the server.
+
+Three things the wire changes, and nothing else. The pictures travel: any
+result naming an `image_path` gets that PNG attached as image content (one
+rule, not a per-tool table), so `image_view_hint` says the image is attached
+rather than sending the model to a file it cannot open. The `! look:` hint
+defaults to `DEFAULT_VISION_HINT`, which names `render_page` / `render_region`
+— correct here, because on this surface those tools ARE the way to look,
+unlike an app that hands pages to its own vision tool. And a toolkit error
+(`{"error", "hint"}`, already the model's instruction for fixing it) becomes
+an MCP tool error with the message intact; nothing reaches the host as a
+crashed connection, and the calls run in a worker thread so a D-size render
+does not hold the event loop.
+
+The server opens the files the caller names, with the caller's privileges, and
+authenticates nobody: the host decides who may run it, `--root` confines it to
+one directory tree (`realpath` then prefix test, so `../`, an absolute path and
+a symlink out are all refused the same way), and a shared HTTP deployment needs
+authentication from the platform in front of it. The SDK (`mcp`) is an optional
+extra pinned to its major version; v1 and v2 are different APIs.
+
 ## Not built yet
 
 - RapidOCR (`planlens.ocr`) as a text source (it currently emits IR TextItems).

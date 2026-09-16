@@ -54,7 +54,9 @@ located, attributed data:
   documents. `search_document` takes `fuzzy` for text whose letters were read
   wrong, and `find_quantities` returns every value-with-unit the document
   states, filterable by kind and unit, so a model can compare the narrative's
-  claims with the drawing's geometry.
+  claims with the drawing's geometry. The same tools serve over the Model
+  Context Protocol (`planlens[mcp]`), generated from the same specs — see
+  "Use from an MCP host".
 - **`planlens.ir`** — drawing geometry: lines, arcs, text, and the annotation
   constructs built from them (below).
 
@@ -470,6 +472,59 @@ the other). Decision:
   could silently need something new. (1.2.3 is the newest wheel that
   installs on Python 3.14 today; newer versions keep the same runtime
   set — re-verify when bumping.)
+
+## Use from an MCP host
+
+`planlens.mcp_server` serves the same tools over the Model Context
+Protocol, so a host — Claude Code, Claude Desktop, an editor, a
+LangChain or deepagents program — can discover and call them with no
+planlens-specific integration code. The tool list is generated from
+`ReviewToolkit.specs`, so it cannot drift from the toolkit.
+
+```
+pip install "planlens[mcp]"
+claude mcp add planlens -- python -m planlens.mcp_server
+```
+
+Claude Desktop, in `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "planlens": {
+      "command": "planlens-mcp",
+      "args": ["--root", "C:/work/documents"]
+    }
+  }
+}
+```
+
+A deepagents or LangChain program reaches the same server through
+`langchain-mcp-adapters`, which turns an MCP session into LangChain
+tools.
+
+Flags: `--max-chars` matches the host's own result-size limit
+(default 7,500); `--vision-hint` replaces the text of the `! look:`
+lines, whose default names this server's `render_page` /
+`render_region` — pass your host's own vision tool instead if it has
+one; `--root DIR` confines reading to one directory tree; `--http
+HOST:PORT` serves streamable HTTP instead of stdio.
+
+Over MCP the pictures travel: `render_page`, `render_region` and
+`render_page_thumbnails` return the PNG as image content alongside the
+JSON, so a host whose model can see gets the page itself.
+
+**Two caveats, both about who is allowed to read what.** The server
+opens the files the caller names, with the privileges of whoever
+launched it, and it authenticates nobody — the host decides who may run
+it, and `--root` is what narrows the reach to one directory (relative
+`source` paths resolve against it; anything resolving outside it,
+including `../` and symlinks, is refused). `--http` is for a local
+process or a platform that puts authentication in front of it; this
+server provides none.
+
+If your organisation installs through a package firewall, `mcp` has to
+be approved there before this extra can be pinned in a deployment.
 
 ## Testing your own wiring (`planlens.testing`)
 

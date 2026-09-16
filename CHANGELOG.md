@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **An MCP server.** New `planlens.mcp_server` (`python -m
+  planlens.mcp_server`, or the `planlens-mcp` console script) serves the
+  review tools over the Model Context Protocol, so any host — Claude Code,
+  Claude Desktop, an editor, a LangChain or deepagents program through
+  `langchain-mcp-adapters` — can discover and call them with no
+  planlens-specific integration code. The tool list is GENERATED from
+  `ReviewToolkit.specs("plain")`, one MCP tool per spec with the same name,
+  description and input schema, so it cannot drift from the toolkit. Over the
+  wire the pictures travel: any result naming an image file (`render_page`,
+  `render_region`, `render_page_thumbnails`) carries the PNG as image content
+  beside the JSON. A toolkit error becomes an MCP tool error with its message
+  and hint intact, never a dropped connection. Flags: `--max-chars` to match
+  the host's result-size limit, `--vision-hint` (default names this server's
+  own render tools), `--root DIR` to confine reading to one directory tree
+  (`../`, absolute paths and symlinks out are refused), `--http HOST:PORT` for
+  streamable HTTP instead of stdio. The server authenticates nobody — the host
+  decides who may run it, and a shared deployment needs authentication from
+  the platform in front of it. Optional extra `planlens[mcp]` (the official
+  SDK, pinned to `mcp>=2,<3`: v1 and v2 are different APIs). See the README,
+  "Use from an MCP host", and `planlens/document/DESIGN.md`, "MCP".
 - **Fixed: `open_document` could exceed the host's size limit.** The result
   reserved a flat 200 characters for the parts still to come, but the segment,
   bookmark and sheet-label rows were fitted with whatever room arithmetic said

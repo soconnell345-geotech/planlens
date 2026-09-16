@@ -105,6 +105,40 @@ class TestShippedPackages:
         assert callable(_draw_shaft) and callable(_pt) and callable(_to_ir)
 
 
+class TestOptionalDependencies:
+    """`pip install planlens` must not grow when a new leg is added."""
+
+    @staticmethod
+    def _project() -> dict:
+        with PYPROJECT.open("rb") as fh:
+            return tomllib.load(fh)["project"]
+
+    @staticmethod
+    def _names(requirements) -> set[str]:
+        import re
+        return {re.split(r"[\[<>=!~; ]", r, maxsplit=1)[0].strip().lower()
+                for r in requirements}
+
+    def test_the_mcp_sdk_is_an_extra_not_a_dependency(self):
+        project = self._project()
+        assert "mcp" not in self._names(project["dependencies"])
+        # Bounded to the major: v1 and v2 of the SDK are different APIs, so an
+        # unbounded pin would install a version this server cannot run on.
+        assert project["optional-dependencies"]["mcp"] == ["mcp>=2,<3"]
+
+    def test_importing_planlens_does_not_need_the_extras(self):
+        # The server module is reachable by name and imported by nobody: the
+        # import guard inside it is the only thing that ever mentions `mcp`.
+        src = (REPO_ROOT / "planlens" / "__init__.py").read_text(
+            encoding="utf-8")
+        assert "mcp" not in src
+        assert (REPO_ROOT / "planlens" / "mcp_server.py").is_file()
+
+    def test_the_console_script_points_at_the_server(self):
+        assert self._project()["scripts"]["planlens-mcp"] == \
+            "planlens.mcp_server:main"
+
+
 class TestVersionLockstep:
     def test_pyproject_and_dunder_version_agree(self):
         import planlens
