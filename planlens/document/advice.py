@@ -62,7 +62,16 @@ def page_advice(summary: PageSummary,
         out.append("page carries images: their content is not in the text — "
                    "view the page for them")
 
-    if ev.get("unmapped_chars"):
+    if not summary.text_reliable:
+        # Said FIRST among the text warnings and in the strongest terms: on
+        # this page the transcript is not a thin reading of the page, it is
+        # the wrong words. A model that reasons over it reasons over noise.
+        out.append(f"the text layer of this page is UNRELIABLE — "
+                   f"{summary.unmapped_fraction:.0%} of its characters have "
+                   f"no Unicode mapping (shown as U+FFFD), so the extracted "
+                   f"string is not what the page says: view the page, or "
+                   f"attach OCR, and do not quote the text tools here")
+    elif ev.get("unmapped_chars"):
         out.append(f"{ev['unmapped_chars']} characters could not be decoded "
                    f"from the font (shown as U+FFFD) — view the page for "
                    f"those")

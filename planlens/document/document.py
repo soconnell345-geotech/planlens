@@ -39,7 +39,7 @@ from planlens.document.model import (
     PageContent, PageSummary,
     TextBlock, TextLine,
 )
-from planlens.document.pdf_text import extract_text
+from planlens.document.pdf_text import MAX_UNMAPPED_FRACTION, extract_text
 from planlens.document.scale import page_viewports
 from planlens.document.structure import (
     BAND_MAX_CHARS, band_texts, content_hash, divider_title, printed_numbers,
@@ -343,8 +343,18 @@ class Document:
             page.rect.width, page.rect.height, n_chars, n_cad_chars, n_paths,
             coverage, text_is_optical=src_name in (SOURCE_AZURE_DI, SOURCE_OCR),
             ruling_h=ruling_h, ruling_v=ruling_v)
-        if stats.get("n_unmapped_chars"):
-            evidence["unmapped_chars"] = stats["n_unmapped_chars"]
+        unmapped = int(stats.get("n_unmapped_chars", 0) or 0)
+        if unmapped:
+            evidence["unmapped_chars"] = unmapped
+        unmapped_fraction = (unmapped / n_chars) if n_chars else 0.0
+        text_reliable = unmapped_fraction <= MAX_UNMAPPED_FRACTION
+        if not text_reliable:
+            # The page HAS a text layer; it just does not say what the page
+            # says. That is the same problem as having none — the words must
+            # be read off the picture — so it joins `needs_ocr`, which is
+            # what `pages_needing_ocr` and the advice already read.
+            evidence["text_unreliable"] = True
+            evidence["needs_ocr"] = True
         if src_name != SOURCE_PDF_TEXT:
             evidence["text_source"] = src_name
         width, height = page.rect.width, page.rect.height
@@ -390,6 +400,8 @@ class Document:
             viewports=viewports,
             divider_title=divider_title(
                 heading, n_words, [ln.text for ln in lines[:3]]),
+            text_reliable=text_reliable,
+            unmapped_fraction=unmapped_fraction,
         )
         if kind != "blank" and (n_words >= 15 or n_paths >= 30):
             key = content_hash(kind, lines, n_paths)

@@ -206,3 +206,94 @@ def build_synthetic_review_document() -> DocumentGT:
     gt.pdf = doc.tobytes()
     doc.close()
     return gt
+
+
+# ---------------------------------------------------------------------------
+# A page whose text layer is there and says nothing
+# ---------------------------------------------------------------------------
+
+#: The CID an Identity-ordered font sends to the replacement character, so a
+#: page can be built whose extracted text is undecodable on purpose.
+UNMAPPABLE_CID = 0xFFFD
+
+
+def build_unmapped_text_pdf(fraction: float = 0.5, n_pages: int = 1,
+                            n_lines: int = 12, per_line: int = 40) -> bytes:
+    """A PDF whose text layer extracts, but ``fraction`` of it as U+FFFD.
+
+    This is what an analysis-program printout bound into a report looks like
+    to an extractor: thousands of characters come back and a large share of
+    them carry no Unicode mapping, so the string is not what the page says.
+    Nothing distinguishes it from prose without counting
+    (``PageSummary.text_reliable``).
+
+    The undecodable glyphs are drawn through the font's own CID map rather
+    than by omitting a ``ToUnicode`` entry, because MuPDF answers a missing
+    one by substituting a font and guessing — which yields confident nonsense
+    instead of the U+FFFD a caller can count. The proportion of the EXTRACTED
+    string that came back undecodable is the signal the rule reads, and this
+    fixture sets it exactly.
+
+    The PDF is written by hand: PyMuPDF has no API for an intentionally
+    broken font, and a fixture for undecodable text cannot be built out of
+    decodable text.
+    """
+    if not 0.0 <= fraction <= 1.0:
+        raise ValueError("fraction must be between 0 and 1")
+    n_pages = max(1, int(n_pages))
+
+    def codes() -> str:
+        n_bad = round(per_line * fraction)
+        out = []
+        for i in range(per_line):
+            # Spread them through the line, as a broken font does; they are
+            # not a block at one end.
+            bad = (i * n_bad) // per_line != ((i + 1) * n_bad) // per_line
+            out.append(f"{UNMAPPABLE_CID:04X}" if bad
+                       else f"{0x41 + (i % 26):04X}")
+        return "".join(out)
+
+    first_page = 8                       # object numbers 8.. are the pages
+    kids = " ".join(f"{first_page + 2 * i} 0 R" for i in range(n_pages))
+    objs = {
+        1: b"<</Type/Catalog/Pages 2 0 R>>",
+        2: ("<</Type/Pages/Kids[%s]/Count %d>>" % (kids, n_pages)).encode(),
+        5: (b"<</Type/Font/Subtype/Type0/BaseFont/BrokenSubset"
+            b"/Encoding/Identity-H/DescendantFonts[6 0 R]>>"),
+        6: (b"<</Type/Font/Subtype/CIDFontType2/BaseFont/BrokenSubset"
+            b"/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)"
+            b"/Supplement 0>>/FontDescriptor 7 0 R/DW 600>>"),
+        7: (b"<</Type/FontDescriptor/FontName/BrokenSubset/Flags 4"
+            b"/FontBBox[0 -200 1000 900]/ItalicAngle 0/Ascent 800"
+            b"/Descent -200/CapHeight 700/StemV 80>>"),
+    }
+    for i in range(n_pages):
+        page_num = first_page + 2 * i
+        content_num = page_num + 1
+        objs[page_num] = (
+            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 %d %d]"
+            "/Resources<</Font<</F1 5 0 R>>>>/Contents %d 0 R>>"
+            % (int(LETTER[0]), int(LETTER[1]), content_num)).encode()
+        parts = [b"BT /F1 11 Tf"]
+        for ln in range(n_lines):
+            parts.append(f"1 0 0 1 72 {720 - ln * 18} Tm "
+                         f"<{codes()}> Tj".encode())
+        parts.append(b"ET")
+        stream = b"\n".join(parts)
+        objs[content_num] = ((b"<</Length %d>>\nstream\n" % len(stream))
+                             + stream + b"\nendstream")
+
+    out = bytearray(b"%PDF-1.7\n")
+    offsets = {}
+    for num in sorted(objs):
+        offsets[num] = len(out)
+        out += b"%d 0 obj\n" % num + objs[num] + b"\nendobj\n"
+    start = len(out)
+    last = max(objs)
+    out += b"xref\n0 %d\n" % (last + 1) + b"0000000000 65535 f \n"
+    for num in range(1, last + 1):
+        out += ((b"%010d 00000 n \n" % offsets[num]) if num in offsets
+                else b"0000000000 65535 f \n")
+    out += (b"trailer\n<</Size %d/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n"
+            % (last + 1, start))
+    return bytes(out)

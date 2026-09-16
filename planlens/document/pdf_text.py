@@ -30,6 +30,26 @@ from planlens.document.model import TextBlock, TextLine
 
 _UNMAPPED = "�"
 
+#: Fraction of a page's characters that may come back unmapped (U+FFFD)
+#: before the text layer stops being worth reading at all. Above it,
+#: ``PageSummary.text_reliable`` is False and the page is offered to OCR.
+#:
+#: MEASURED, not chosen, over five real documents (202, 455, 97, 94 and 260
+#: pages, 1,108 pages in all). 52 of those pages carry any unmapped character
+#: whatever, and they fall into two populations that do not come near each
+#: other:
+#:
+#: * **a stray glyph** — 30 pages at 0.0007 to 0.0064: a bullet, a degree
+#:   sign, a logo character in a heading. The prose around it is perfect and
+#:   nothing should be said about the page.
+#: * **a broken encoding** — 22 pages at 0.248, 0.436-0.469 and 0.968-0.994:
+#:   analysis-program printouts and a laboratory checklist whose font carries
+#:   no usable map. At 0.44 every space is U+FFFD; at 0.99 the whole page is.
+#:
+#: The floor sits in the empty 38x span between them: fifteen times the
+#: worst benign page, two and a half times below the mildest broken one.
+MAX_UNMAPPED_FRACTION = 0.10
+
 
 def _text_flags():
     import fitz

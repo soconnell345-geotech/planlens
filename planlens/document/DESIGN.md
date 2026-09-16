@@ -64,8 +64,9 @@ against `ir_to_page_point` on a rotated page.
   comes back as drawing text — verified on a real submittal, where deleting a
   callout removed its words from `get_text()`. Markup text reaches the reader
   only as attributed `Markup` objects.
-- Characters from fonts with no Unicode map (U+FFFD) are counted and warned
-  about; the string should not be trusted on those pages.
+- Characters from fonts with no Unicode map (U+FFFD) are counted, and when
+  there are enough of them the page is marked **`text_reliable = False`** —
+  see "An unreliable text layer" below.
 - Order is content-stream order: reading order for word-processor output,
   drafting order for CAD plots. No reading-order reconstruction yet.
 
@@ -524,6 +525,52 @@ a turned page is one a reviewer still has to look at. /Rotate 90 fails the
 page-size guard before the hash is consulted; /Rotate 180 keeps the size and
 is rejected on the picture alone (measured 130 bits of 256 apart on a public
 sheet).
+
+### An unreliable text layer (2026-09-16)
+
+A page with no text layer announces itself: `needs_ocr`, kind `scanned`, and
+every tool says so. The page that does real damage is the one whose text layer
+is THERE and wrong. An analysis-program printout bound into a report carries a
+font with no usable Unicode map: the extraction succeeds, returns three
+thousand characters, and half of them are U+FFFD. Measured on a 455-page
+report, 22 pages are like this — on 14 of them 98% of the characters are
+undecodable and the transcript is nothing but replacement characters.
+
+Before this, `unmapped_chars` sat in the page's evidence and **nothing read
+it**. The page was not `needs_ocr`, it was not a scan, it did not appear in
+`pages_needing_ocr()`, and its transcript went to the model as prose. A model
+asked what the calculation assumed answered from noise.
+
+`PageSummary.text_reliable` is the page map saying so, with
+`unmapped_fraction` as the number behind it. False means: this page has a text
+layer, and it is not what the page says. Then `needs_ocr` becomes true (the
+words must be read off the picture, exactly as on a scan), so
+`pages_needing_ocr()` offers the page to OCR; `read_document` advice tells the
+model the layer is unreliable and not to quote the text tools on it; and
+`open_document` reports the pages under **`pages_with_unreliable_text`**,
+beside rather than inside `pages_without_text_layer` — two failures whose
+answers differ, and only the second can mislead a reader who does not look.
+
+**The threshold is measured, not chosen.** Across five real documents (1,108
+pages) only 52 carry any unmapped character at all, and they fall into two
+populations with nothing between them:
+
+| | unmapped fraction |
+|---|---|
+| a stray glyph — a bullet, a degree sign, a logo character (30 pages) | 0.0007 to **0.0064** |
+| a broken encoding — program printouts, a laboratory checklist (22 pages) | **0.248**, 0.436-0.469, 0.968-0.994 |
+
+`MAX_UNMAPPED_FRACTION` is **0.10**, in the empty 38x span between them:
+fifteen times the worst benign page, two and a half times below the mildest
+broken one. The mild "N characters could not be decoded" advice still covers
+the benign pages and is REPLACED on an unreliable one, because two statements
+about one problem read as two problems.
+
+Tested on built fixtures only (`planlens.testing.build_unmapped_text_pdf`,
+which draws character codes the font's own map sends to U+FFFD at a
+proportion the caller sets). Deleting a `ToUnicode` entry does not work as a
+fixture: MuPDF answers a missing one by substituting a font and guessing, so
+the page comes back as confident nonsense rather than as U+FFFD.
 
 ### Thumbnails
 

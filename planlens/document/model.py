@@ -322,6 +322,17 @@ class PageSummary:
     scales: List[str] = field(default_factory=list)
     viewports: List["Viewport"] = field(default_factory=list)
     divider_title: Optional[str] = None
+    #: Whether the page's text layer is worth reading. False when too many of
+    #: its characters came back unmapped (see
+    #: :data:`planlens.document.pdf_text.MAX_UNMAPPED_FRACTION`): the page HAS
+    #: a text layer, but the font carries no usable Unicode map and the string
+    #: is not what the page says. Such a page is offered to OCR alongside the
+    #: pages that have no text layer at all, and the advice tells the model to
+    #: look at it.
+    text_reliable: bool = True
+    #: Unmapped characters as a fraction of the page's characters; 0.0 when
+    #: the page has no text. The number behind ``text_reliable``.
+    unmapped_fraction: float = 0.0
     duplicate_of: Optional[int] = None
     #: Which rule found the duplicate: ``"text"`` (same kind, text and path
     #: count as an earlier page) or ``"image"`` (the same picture, for pages
@@ -375,6 +386,12 @@ class PageSummary:
                                if self.duplicate_of is not None else None),
         })
         d["page"] = self.page   # page 0 must survive _compact
+        if not self.text_reliable:
+            # Said as the WARNING rather than as the flag, so it survives
+            # _compact and so a reader cannot mistake its absence for a
+            # claim: a row that says nothing is a row with ordinary text.
+            d["text_unreliable"] = True
+            d["unmapped_fraction"] = _r(self.unmapped_fraction, 2)
         if len(self.layers) > LAYER_NAMES_ON_ROW:
             d["n_layers"] = len(self.layers)
         if self.segment is not None:

@@ -14,6 +14,7 @@ fitz = pytest.importorskip("fitz")
 
 from planlens.testing import (  # noqa: E402
     build_synthetic_review_document, build_synthetic_submittal,
+    build_unmapped_text_pdf,
 )
 from planlens.tools import ReviewToolkit, ToolError  # noqa: E402
 
@@ -52,6 +53,33 @@ def _open(kit):
 
 # -- open_document ------------------------------------------------------------
 
+def test_open_document_names_the_pages_whose_text_cannot_be_trusted():
+    """Two failures, two fields, because the answer to them differs.
+
+    A page with no text layer has nothing to read. A page whose font carries
+    no Unicode map has something to read that is not what the page says — and
+    that one reads as ordinary text to every tool that does not count. The
+    host sees them apart.
+    """
+    broken = build_unmapped_text_pdf(0.5, n_pages=2)
+
+    def resolve(key):
+        if key == "calcs.pdf":
+            return broken
+        raise ToolError(f"no upload named '{key}'")
+
+    kit = ReviewToolkit(resolve_source=resolve, max_chars=7500)
+    try:
+        out = call(kit, "open_document", source="calcs.pdf")
+        assert out["pages_with_unreliable_text"] == "0-1"
+        # They are NOT also reported as having no text layer: they have one.
+        assert "pages_without_text_layer" not in out
+        rows = call(kit, "document_page_map", handle=out["handle"])["rows"]
+        assert all(r["text_unreliable"] is True for r in rows)
+    finally:
+        kit.close()
+
+
 def test_open_document_maps_the_whole_document(kit, gt):
     out = call(kit, "open_document", source=UPLOAD)
     assert out["handle"].startswith("doc_")
@@ -66,6 +94,8 @@ def test_open_document_maps_the_whole_document(kit, gt):
     assert out["markups"]["pages"] == "0-1"
     assert out["pages_without_text_layer"] == "4"
     assert out["pages_with_hidden_cad_text"] == "1"
+    # Nothing in this document has a broken font, so the field stays away.
+    assert "pages_with_unreliable_text" not in out
     assert [t["title"] for t in out["toc"]] == [t[1] for t in gt.toc]
     assert out["drawing_sheets"] == [{"page": 1, "label": gt.sheet_label}]
 

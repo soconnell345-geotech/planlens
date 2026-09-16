@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **A page whose text layer is there and WRONG now says so.** An
+  analysis-program printout bound into a report often carries a font with no
+  usable Unicode map: the extraction succeeds, returns thousands of
+  characters, and a large share of them are U+FFFD. The count was already in
+  the page's evidence and nothing read it — the page was not `needs_ocr`, it
+  was not a scan, and its transcript went to a model as prose. Measured on a
+  455-page report, 22 pages are like this, 14 of them 98% undecodable. New
+  `PageSummary.text_reliable` and `unmapped_fraction`: when the layer is
+  unreliable the page becomes `needs_ocr` (its words must be read off the
+  picture, exactly as on a scan) and so joins `pages_needing_ocr()`,
+  `read_document` advice says the layer is unreliable and not to quote the
+  text tools on it, the page-map row carries `text_unreliable`, and
+  `open_document` reports the pages under `pages_with_unreliable_text` —
+  beside `pages_without_text_layer`, not inside it, because a page with
+  nothing to read and a page with the wrong thing to read need different
+  answers. The threshold `MAX_UNMAPPED_FRACTION` is 0.10, measured over five
+  real documents: 30 pages carrying a stray undecodable glyph sit at 0.0007 to
+  0.0064 and 22 pages with a broken encoding at 0.248 and above, and the floor
+  sits in the empty span between them. New
+  `planlens.testing.build_unmapped_text_pdf` builds such a page for tests. See
+  `planlens/document/DESIGN.md`, "An unreliable text layer".
 - **Fixed: a scanned appendix could be claimed as 69 duplicates of its first
   page.** The picture hash behind `duplicate_rule == "image"` read a 9x8 grid,
   and a laboratory appendix — one printed template, a diagonal DRAFT

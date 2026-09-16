@@ -112,7 +112,14 @@ def pages_to_azure_range(pages: Iterable[int]) -> str:
 
 
 def pages_needing_ocr(doc) -> List[int]:
-    """Pages the page map flags as image-only with no text layer."""
+    """Pages whose words cannot be read from the text layer.
+
+    Two kinds, and both are worth paying for: a page that is image-only with
+    no text layer at all, and a page whose text layer is there but UNRELIABLE
+    — a font with no Unicode map, so the string is not what the page says
+    (``PageSummary.text_reliable``). The second reads as ordinary text to
+    every tool that does not check, which is the more dangerous of the two.
+    """
     return [s.page for s in doc.page_map() if s.evidence.get("needs_ocr")]
 
 

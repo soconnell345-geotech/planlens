@@ -415,8 +415,15 @@ class ReviewToolkit:
                             "by_author": authors})
         dups = [s.page for s in summaries if s.duplicate_of is not None]
         add("duplicate_pages", compact_ranges(dups))
+        # Two different failures, kept apart because the answer differs: one
+        # page has nothing to read, the other has something that is not what
+        # the page says. Both are offered to OCR; only the second can mislead
+        # a model that reads it without looking.
         add("pages_without_text_layer", compact_ranges(
-            s.page for s in summaries if s.evidence.get("needs_ocr")))
+            s.page for s in summaries
+            if s.evidence.get("needs_ocr") and s.text_reliable))
+        add("pages_with_unreliable_text", compact_ranges(
+            s.page for s in summaries if not s.text_reliable))
         add("pages_with_hidden_cad_text", compact_ranges(
             s.page for s in summaries if s.n_cad_text))
         add("coordinates", "PDF points, displayed page frame: top-left "

@@ -14,7 +14,10 @@ located, attributed data:
   calc package, nested reports and appendices, found from the running
   headers, footers and printed numbering the pages themselves carry; repeated
   pages, found from their words or — on scans, which have none — from a hash
-  of the page's own picture; contact
+  of the page's own picture; a flag on every page whose text layer is there
+  but UNRELIABLE (a font with no Unicode map, so the extracted string is not
+  what the page says, which no reader could otherwise tell from prose);
+  contact
   sheets of every page like a viewer's page panel; text
   lines with exact boxes and true reading direction; tables; the review
   record (comments, callouts, clouds, arrows, stamps — author, date, and the

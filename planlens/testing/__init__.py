@@ -22,6 +22,7 @@ inside the builders.
 from planlens.testing.document_fixtures import (
     DocumentGT,
     build_synthetic_review_document,
+    build_unmapped_text_pdf,
 )
 from planlens.testing.submittal_fixtures import (
     SubmittalGT,
@@ -56,6 +57,7 @@ __all__ = [
     "RATIO_TEXT",
     "ScaledSheetGT",
     "build_synthetic_review_document",
+    "build_unmapped_text_pdf",
     "build_synthetic_scaled_sheet_pdf",
     "build_synthetic_uncalibrated_sheet_pdf",
     "SubmittalGT",
