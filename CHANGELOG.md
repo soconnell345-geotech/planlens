@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Duplicate pages on scans.** `duplicate_of` used to read a page's text and
+  path count, which is exactly what a scanned page has none of, so a sheet
+  bound in twice went unnoticed. New `planlens.document.imagehash` hashes the
+  page's picture instead — a 9x8 grayscale render in the displayed
+  orientation, adjacent columns compared, 64 bits, numpy and PyMuPDF only —
+  for the pages whose text cannot decide (`needs_ocr`, `scanned`, `figure`,
+  `drawing_sheet`, or under 50 characters; never a blank page). Page-map rows
+  now carry `duplicate_rule`, `"text"` or `"image"`. The threshold is measured
+  on a real 260-page submittal and the ten public sheets, and the rule is
+  deliberately narrow: it finds a page PLACED twice, not a page scanned twice,
+  it never overrules a page's own words, and it withholds the hash from a page
+  too flat to carry one. See `planlens/document/DESIGN.md`, "Duplicates on
+  scans".
 - **Forgiving search.** `Document.search(fuzzy=True, min_score=...)` matches
   approximately over the same candidates the exact search uses — lines, hidden
   CAD text, markup comments — so a term is still found in text read optically

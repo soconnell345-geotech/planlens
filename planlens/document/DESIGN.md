@@ -23,6 +23,7 @@ document/
   scale.py        the measurement calibration the PDF itself stores
   quantities.py   the numbers the text STATES, with their units
   classify.py     coarse page kinds with evidence
+  imagehash.py    a page's picture in 64 bits, for duplicates on scans
   structure.py    headers/footers, printed page numbers, dividers, duplicates,
                   segments (the constituent documents)
   advice.py       when text is not enough: "! look:" statements
@@ -356,8 +357,9 @@ prose 1.5-6, dividers and drawings 0.1-0.7), `n_images`, `ruling_h/v`,
 8 %), the page number PRINTED on the page (`printed_page`, `printed_of`), a
 `sheet` reference ("1 of 7", "S-101"), `scales` on drawing sheets, a
 `divider_title` (APPENDIX / ATTACHMENT / ITEM / cover ... on a page under 60
-words), `duplicate_of` (same kind, text and path count as an earlier page) and
-the `segment` it belongs to.
+words), `duplicate_of` (same kind, text and path count as an earlier page —
+or, where the text cannot decide, the same picture: see "Duplicates on
+scans", with `duplicate_rule` naming which) and the `segment` it belongs to.
 
 `layers` (2026-09-16) names the optional-content groups the page's line-work
 sits in — a plotted sheet's CAD layer names, the drafter's own words for what
@@ -391,6 +393,81 @@ stamped 1-245 with its Appendices A-E as dividers, the boring logs as one
 `form` run, and four calc sheets recognised as nested documents by their own
 "Page 1 of 4" numbering. `printed_pages` is what lets the agent turn "see
 page 24 of the calcs" into a PDF page, and cite the printed number back.
+
+### Duplicates on scans (2026-09-16)
+
+`duplicate_of` was decided from a page's text and its path count, which is
+precisely the evidence a SCANNED page does not have: two scans of one sheet
+both carry no text and no linework, so neither was ever a duplicate of
+anything. A reviewer with the file open in a viewer can see the repeat at a
+glance. `imagehash.py` gives the same evidence in numbers — the page rendered
+to a 9x8 grayscale grid in the DISPLAYED orientation, each pixel compared with
+its right-hand neighbour: 64 bits, 16 hex characters, numpy and PyMuPDF only
+(no `imagehash`, `Pillow` or `scipy`). MuPDF does the resize, by rendering
+through a matrix straight to the target grid rather than scaling a big image
+here. Annotations are left out of the render: a reviewer's cloud on one copy
+must not hide that it is the same sheet. `duplicate_rule` on the page-map row
+now names which rule fired, `"text"` or `"image"`; the hash itself is never
+printed, because 16 hex characters tell a reader nothing.
+
+**Measured before any threshold was chosen** — a real 260-page submittal and
+the ten public Mecklenburg sheets:
+
+| | distance (of 64 bits) |
+|---|---|
+| a page against ITSELF, re-rendered or re-opened | **0** (10 pages, two opens, 0 differ) |
+| the closest pair of DIFFERENT pages the rule compares | **4** (two figures drawn off one template) |
+| ... the next closest | 11, 15, 15, 17 (drawing sheets of one set) |
+| the ten public sheets against each other | min 7, median 27, max 38 |
+| consecutive boring-log pages (the text rule covers these) | min 1, median 7 |
+| a rescan of ONE page (other dpi, JPEG quality, offset, skew) | 2-8 on a high-contrast sheet; 17-26 on the rest |
+
+Three findings shaped the rule.
+
+- **The claim is "placed twice", not "scanned twice".** A copy re-encoded
+  through another resolution and JPEG quality drifts as far from its original
+  as two different pages of one template sit from each other — the two classes
+  overlap, and a finer grid does not separate them: at 16x16 = 256 bits a true
+  copy of one sheet drifts 20-31 bits while two different boring logs sit 21
+  apart, the same overlap one scale up. So the threshold is set for pages that
+  RENDER the same, which is how a duplicate actually reaches an assembled
+  submittal: an appendix bound in twice, one scan filed under two tabs, a
+  sheet repeated in a set. `DUP_HASH_DISTANCE` is **2** — the midpoint between
+  0 and the closest different pair at 4, two bits of margin each way. It is
+  deliberately tight: a wrongly-claimed duplicate tells a reviewer to skip a
+  page they have not read, while a missed one leaves the map as blind as it
+  was before.
+- **The picture never overrules the words.** Sheets off one border and title
+  block differ by a sheet number and a few labels — most of what a reviewer
+  needs and almost none of the ink. The synthetic submittal's two D-size
+  sheets are *within* the threshold of each other, and the first build
+  collapsed the drawing set into its first sheet. So when both pages carry
+  enough text for the text rule to have hashed them and those hashes differ,
+  no image match is allowed. The picture speaks where the text is SILENT.
+- **A page with no picture gets no hash.** A page of one flat tone compares
+  every pixel with an equal neighbour and hashes to all zeros — and so does
+  the next flat page, which made three different near-blank pages "the same
+  page" at any threshold. `MIN_GRID_SPREAD` (32 of 255) withholds the hash
+  instead. Measured: every page the gate lets through spans at least 67 grey
+  levels, and every near-uniform page at most 19.
+
+**The gate is a cost decision, measured.** Hashing all 260 pages costs 2.3-3.3
+s; the 13 pages that qualify cost 0.45-0.64 s. Over one second is too much to
+spend on pages whose text already decides, so a hash is computed only where it
+cannot: `needs_ocr`, kinds `scanned` / `figure` / `drawing_sheet`, or under 50
+text-layer characters — and never on a `blank` page, because every blank page
+looks like every other. In four paired page-map runs the gated cost sits
+inside the run-to-run spread (median 6.1 s with against 5.8 s without, on runs
+ranging 3.1-7.3 s). The 260-page document contains no duplicates and the rule
+claims none; its 29 segments are unchanged, because segmentation reads
+headers, numbering and page size and has never read `duplicate_of` at all — so
+an image duplicate behaves in `segments()` exactly as a text duplicate does.
+
+A page a viewer shows sideways or upside down is **not** called a duplicate:
+the hash is taken in the displayed orientation like every coordinate here, and
+a turned page is one a reviewer still has to look at. /Rotate 90 fails the
+page-size guard before the hash is consulted; /Rotate 180 keeps the size and
+is rejected on the picture alone (measured 31 bits apart on a public sheet).
 
 ### Thumbnails
 

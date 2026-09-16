@@ -12,7 +12,9 @@ located, attributed data:
   its word density, the page number printed on it, its sheet reference and
   scale notes) and the document's structure — the transmittal, drawing set,
   calc package, nested reports and appendices, found from the running
-  headers, footers and printed numbering the pages themselves carry; contact
+  headers, footers and printed numbering the pages themselves carry; repeated
+  pages, found from their words or — on scans, which have none — from a hash
+  of the page's own picture; contact
   sheets of every page like a viewer's page panel; text
   lines with exact boxes and true reading direction; tables; the review
   record (comments, callouts, clouds, arrows, stamps — author, date, and the

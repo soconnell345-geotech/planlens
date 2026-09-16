@@ -279,7 +279,8 @@ class PageSummary:
     forms and tables), what the page prints about itself (``header``,
     ``footer``, ``printed_page`` / ``printed_of``, ``sheet``, ``scales``),
     whether it is a divider (``divider_title``) or a repeat
-    (``duplicate_of``), and which constituent document it belongs to
+    (``duplicate_of``, with ``duplicate_rule`` naming the evidence: the same
+    text, or the same picture), and which constituent document it belongs to
     (``segment``, from :func:`planlens.document.structure.segments`).
 
     ``scales`` is what the page's TEXT says about its scale (a title-block
@@ -322,6 +323,17 @@ class PageSummary:
     viewports: List["Viewport"] = field(default_factory=list)
     divider_title: Optional[str] = None
     duplicate_of: Optional[int] = None
+    #: Which rule found the duplicate: ``"text"`` (same kind, text and path
+    #: count as an earlier page) or ``"image"`` (the same picture, for pages
+    #: whose text cannot decide — see
+    #: :mod:`planlens.document.imagehash`). A reader weighs the two
+    #: differently, so the map says which one fired.
+    duplicate_rule: Optional[str] = None
+    #: The page's picture hash, when one was computed (see
+    #: :func:`planlens.document.imagehash.wants_image_hash`). Not serialized:
+    #: 16 hex characters mean nothing to a reader, and the rule that uses them
+    #: reports its verdict instead.
+    image_hash: Optional[str] = None
     segment: Optional[int] = None
 
     @property
@@ -356,6 +368,11 @@ class PageSummary:
             "n_markups": self.n_markups,
             "n_cad_text": self.n_cad_text,
             "duplicate_of": self.duplicate_of,
+            # Which rule fired, in one word, and only on the rows that have a
+            # duplicate at all — a reader trusts "same text" and "same
+            # picture" differently.
+            "duplicate_rule": (self.duplicate_rule
+                               if self.duplicate_of is not None else None),
         })
         d["page"] = self.page   # page 0 must survive _compact
         if len(self.layers) > LAYER_NAMES_ON_ROW:

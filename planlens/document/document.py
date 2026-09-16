@@ -31,6 +31,9 @@ from planlens.document.annotations import (
 )
 from planlens.document.classify import classify_page
 from planlens.document.frame import bbox_union
+from planlens.document.imagehash import (
+    DUP_HASH_DISTANCE, hamming, page_dhash, wants_image_hash,
+)
 from planlens.document.model import (
     SOURCE_AZURE_DI, SOURCE_CAD_HIDDEN, SOURCE_OCR, SOURCE_PDF_TEXT, Markup,
     PageContent, PageSummary,
@@ -258,6 +261,10 @@ class Document:
         self._summaries: Dict[int, PageSummary] = {}
         self._pages: Dict[tuple, PageContent] = {}
         self._hashes: Dict[str, int] = {}
+        #: Page -> its text content hash, for the pages that have one.
+        self._content_keys: Dict[int, str] = {}
+        #: Summaries carrying a picture hash, in the order they were read.
+        self._image_hashes: List[PageSummary] = []
         self._segments: Optional[List[Dict[str, Any]]] = None
 
     # -- lifecycle ---------------------------------------------------------
@@ -385,12 +392,58 @@ class Document:
         )
         if kind != "blank" and (n_words >= 15 or n_paths >= 30):
             key = content_hash(kind, lines, n_paths)
+            self._content_keys[index] = key
             first = self._hashes.setdefault(key, index)
             if first != index:
-                s.duplicate_of = first
+                s.duplicate_of, s.duplicate_rule = first, "text"
+        if wants_image_hash(kind, n_chars, bool(evidence.get("needs_ocr"))):
+            # The text rule is blind on a page whose text is a footer or
+            # nothing at all. Cost is why this is gated rather than run on
+            # every page: measured on a real 260-page submittal, hashing every
+            # page costs 2.3-3.3 s against 0.45-0.64 s for the 13 that qualify.
+            s.image_hash = page_dhash(page)
+            if s.image_hash is not None:
+                first = self._image_duplicate(s)
+                self._image_hashes.append(s)
+                if first is not None and s.duplicate_of is None:
+                    s.duplicate_of, s.duplicate_rule = first, "image"
         self._summaries[index] = s
         self._segments = None
         return s
+
+    def _image_duplicate(self, s: PageSummary) -> Optional[int]:
+        """The earliest page whose PICTURE matches this one's, or None.
+
+        A match needs the same kind and the same displayed size as well as a
+        hash within :data:`~planlens.document.imagehash.DUP_HASH_DISTANCE`.
+        Both guards do real work: the hash squeezes every page into the same
+        8x8 grid, so a letter page and a D-size sheet are compared on equal
+        terms unless the size says not to, and two kinds of page that happen
+        to share a silhouette are not the same page.
+
+        **The picture never overrules the words.** If both pages carry enough
+        text for the text rule to have hashed them, and those hashes differ,
+        the pages are not duplicates however alike they look. This is what
+        stops a drawing set being collapsed into its first sheet: sheets off
+        one border and title block differ by a sheet number and a few labels,
+        which is most of what a reviewer needs and almost none of the ink.
+        The picture speaks where the text is SILENT, not where it disagrees.
+        """
+        best: Optional[int] = None
+        size = (round(s.width, 1), round(s.height, 1))
+        mine = self._content_keys.get(s.page)
+        for other in self._image_hashes:
+            if other.page >= s.page or other.kind != s.kind:
+                continue
+            if (round(other.width, 1), round(other.height, 1)) != size:
+                continue
+            theirs = self._content_keys.get(other.page)
+            if mine is not None and theirs is not None and mine != theirs:
+                continue
+            if hamming(other.image_hash, s.image_hash) <= DUP_HASH_DISTANCE:
+                if best is None or other.page < best:
+                    best = other.page
+        return best
 
     def page_map(self, pages: PageSpec = None) -> List[PageSummary]:
         """One :class:`PageSummary` per page — kind, size, heading, counts.

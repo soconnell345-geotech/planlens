@@ -45,7 +45,9 @@ TOOL_SPECS = [
             "word count, the page number PRINTED on the page (printed_page / "
             "printed_of — cite these to the reader), sheet reference, scale "
             "notes on drawing sheets, divider title, markup and "
-            "hidden-CAD-text counts, duplicate_of. with_evidence adds the "
+            "hidden-CAD-text counts, duplicate_of (with duplicate_rule: "
+            "'text' if the page repeats an earlier page's words, 'image' if "
+            "it repeats its picture). with_evidence adds the "
             "measurements, header and footer text. Use it to find the pages "
             "that matter before reading. Continues via next_pages."),
         "parameters": {
