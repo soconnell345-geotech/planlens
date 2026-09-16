@@ -105,7 +105,31 @@ def render_markup(m: Markup, with_locations: bool = True) -> str:
         parts.append(f"reply-linked to {m.in_reply_to}")
     if m.replies:
         parts.append(f"linked replies {','.join(m.replies)}")
+    if m.measure is not None:
+        parts.append(render_measure(m.measure))
     return " | ".join(parts)
+
+
+def render_measure(mm) -> str:
+    """A measurement markup's calibration, stated value and derived value.
+
+    Both values are shown. Agreement is the evidence that the stored factors
+    were read correctly, and a disagreement is a fact the reviewer needs, not
+    something to resolve silently by preferring one of them.
+    """
+    bits = [f"measured at {mm.scale.label}"]
+    if mm.stated is not None:
+        bits.append(f"states {mm.stated}")
+    elif mm.stated_text:
+        bits.append(f'says "{mm.stated_text}"')
+    if mm.derived is not None:
+        bits.append(f"path measures {mm.derived}")
+    if mm.derived_area is not None:
+        bits.append(f"area {mm.derived_area}")
+    warnings = list(mm.warnings) + list(mm.scale.warnings)
+    if warnings:
+        bits.append("! " + "; ".join(warnings))
+    return " ".join(bits)
 
 
 def page_header(s: PageSummary) -> str:

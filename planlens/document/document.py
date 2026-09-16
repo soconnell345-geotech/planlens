@@ -32,6 +32,7 @@ from planlens.document.model import (
     TextBlock, TextLine,
 )
 from planlens.document.pdf_text import extract_text
+from planlens.document.scale import page_viewports
 from planlens.document.structure import (
     BAND_MAX_CHARS, band_texts, content_hash, divider_title, printed_numbers,
     segments,
@@ -257,6 +258,7 @@ class Document:
         if index in self._summaries:
             return self._summaries[index]
         page = self._doc[index]
+        doc_for_scale = self._doc
         lines, blocks, _tables, stats, _w, src_name = self._page_text(index)
         markups, cad = self._page_annots(index)
         cad, _ = drop_cad_text_already_in_layer(cad, lines)
@@ -290,6 +292,12 @@ class Document:
                     seen.add(prov)
                     scales.append(prov)
             scales = scales[:4]
+        # The calibration the FILE stores, not a reading of a printed note.
+        # Measured on the real 260-page submittal: 0.02 s for every page, so it
+        # belongs on the cheap page map rather than behind a full page read.
+        viewports, vp_warnings = page_viewports(doc_for_scale, page, index)
+        if vp_warnings:
+            evidence["viewport_warnings"] = vp_warnings[:3]
         s = PageSummary(
             page=index, width=width, height=height,
             rotation=int(page.rotation), label=self.label(index), kind=kind,
@@ -307,6 +315,7 @@ class Document:
             printed_of=numbers.get("printed_of"),
             sheet=numbers.get("sheet"),
             scales=scales,
+            viewports=viewports,
             divider_title=divider_title(
                 heading, n_words, [ln.text for ln in lines[:3]]),
         )

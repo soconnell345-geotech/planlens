@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- **`planlens.document.scale`** — the measurement calibration a PDF already
+  stores is now read, so a scale need not be inferred from a title block. A
+  page's `/VP` viewports (ISO 32000-1 §12.9) and the `/Measure` dictionary on
+  each dimension markup give the ratio (`1 in = 20 ft`), the real-world units
+  per PDF point, the distance and area units, and the region each governs —
+  in the displayed frame like every other coordinate. Georeferenced (`/GEO`)
+  measures are detected and reported, not parsed.
+- `PageSummary.viewports` and a one-line `scale` on every page-map row
+  (`1 in = 20 ft [viewport]`), kept separate from `scales`, which is what the
+  page's text says. `Markup.measure` reports a dimension's scale, the value its
+  comment STATES and the length its vertex path DERIVES, so the two can be seen
+  to agree; the path is measured unrotated, so a page rotation cannot change a
+  length.
+- `scale.to_quantity` bridges to `planlens.ir.measure`: a calibrated viewport
+  yields a `Quantity` in feet or metres at confidence 1.0 whose basis names
+  `pdf_viewport` or `measurement_markup`; without one the value stays in points
+  with `scale_known=False`.
+- A viewport being present is not a scale. The 1:1 default a real sheet was
+  found to store reads as `1:1 (uncalibrated default)` and is not calibrated,
+  and a drawing sheet with no stored scale now says so in its `! look:` advice.
+- New fixtures `build_synthetic_scaled_sheet_pdf` /
+  `build_synthetic_uncalibrated_sheet_pdf` in `planlens.testing`.
+
 ## 0.3.0 — 2026-09-14
 
 The whole-document release: planlens now reads any PDF (or image) the way a

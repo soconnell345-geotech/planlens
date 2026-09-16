@@ -34,6 +34,13 @@ from planlens.testing.construct_fixtures import (
     build_synthetic_drawing_set_pdf,
     build_synthetic_title_block_pdf,
 )
+from planlens.testing.scale_fixtures import (
+    FEET_PER_POINT,
+    RATIO_TEXT,
+    ScaledSheetGT,
+    build_synthetic_scaled_sheet_pdf,
+    build_synthetic_uncalibrated_sheet_pdf,
+)
 from planlens.testing.leader_fixtures import (
     ARROW_HALF_WIDTH,
     ARROW_LENGTH,
@@ -45,7 +52,12 @@ from planlens.testing.leader_fixtures import (
 
 __all__ = [
     "DocumentGT",
+    "FEET_PER_POINT",
+    "RATIO_TEXT",
+    "ScaledSheetGT",
     "build_synthetic_review_document",
+    "build_synthetic_scaled_sheet_pdf",
+    "build_synthetic_uncalibrated_sheet_pdf",
     "SubmittalGT",
     "build_synthetic_submittal",
     "ARROW_HALF_WIDTH",

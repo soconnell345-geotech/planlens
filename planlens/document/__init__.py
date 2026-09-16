@@ -14,6 +14,9 @@ PDF into data an LLM can navigate and cite:
   author, date and the exact spot each one points at (:meth:`Document.markups`);
 - **hidden CAD text** — the real characters AutoCAD stores behind stroked SHX
   lettering;
+- the **scale the PDF itself stores** — a page's ``/VP`` viewports and the
+  ``/Measure`` on a dimension markup, so points become feet on the drafter's
+  own calibration rather than a guess (:mod:`planlens.document.scale`);
 - **search** across all of it (:meth:`Document.search`);
 - an optional **Azure Document Intelligence** text source for scanned pages,
   paragraph roles and header-marked tables — the caller runs the paid
@@ -56,6 +59,17 @@ from planlens.document.model import (
     TextBlock,
     TextLine,
 )
+from planlens.document.scale import (
+    SOURCE_MEASUREMENT_MARKUP,
+    SOURCE_VIEWPORT,
+    MarkupMeasure,
+    Viewport,
+    page_viewports,
+    parse_ratio,
+    scale_factor,
+    to_quantity,
+    viewport_at,
+)
 
 __all__ = [
     "page_advice",
@@ -71,7 +85,16 @@ __all__ = [
     "TextBlock",
     "Table",
     "Markup",
+    "MarkupMeasure",
+    "Viewport",
+    "page_viewports",
+    "parse_ratio",
+    "scale_factor",
+    "to_quantity",
+    "viewport_at",
     "PAGE_KINDS",
+    "SOURCE_VIEWPORT",
+    "SOURCE_MEASUREMENT_MARKUP",
     "SOURCE_PDF_TEXT",
     "SOURCE_CAD_HIDDEN",
     "SOURCE_OCR",

@@ -13,7 +13,10 @@ a token budget.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
+
+if TYPE_CHECKING:  # imported for typing only — scale.py must not import this
+    from planlens.document.scale import MarkupMeasure, Viewport
 
 BBox = Tuple[float, float, float, float]
 Point = Tuple[float, float]
@@ -200,6 +203,12 @@ class Markup:
     Bluebeam also uses it to tie a cloud to its comment box; ``replies`` is
     its inverse. ``appearance_text`` is text the markup DRAWS that its comment
     field does not hold — the wording of a stamp, for instance.
+
+    ``measure`` is set only on a measurement markup — a dimension carrying its
+    own ``/Measure`` calibration (see :mod:`planlens.document.scale`). It holds
+    the scale, the value the markup STATES in its comment, and the length its
+    own vertex path DERIVES through that scale, so a reader can see the two
+    agree instead of taking one on trust.
     """
     id: str
     page: int
@@ -218,6 +227,7 @@ class Markup:
     color: Optional[str] = None
     in_reply_to: Optional[str] = None
     replies: List[str] = field(default_factory=list)
+    measure: Optional["MarkupMeasure"] = None
     source: str = "pdf_annotation"
     #: PDF object number of the annotation (not serialized): lets a caller
     #: reload it with ``page.load_annot(xref)``.
@@ -242,6 +252,7 @@ class Markup:
             "color": self.color,
             "in_reply_to": self.in_reply_to,
             "replies": self.replies,
+            "measure": self.measure.to_dict() if self.measure else None,
         })
 
 
@@ -265,6 +276,12 @@ class PageSummary:
     whether it is a divider (``divider_title``) or a repeat
     (``duplicate_of``), and which constituent document it belongs to
     (``segment``, from :func:`planlens.document.structure.segments`).
+
+    ``scales`` is what the page's TEXT says about its scale (a title-block
+    note); ``viewports`` is what the PDF itself STORES — the calibration a
+    drafter saved into the file (:mod:`planlens.document.scale`). The second
+    is the drafter's own statement, the first is a reading of a printed label,
+    and they are deliberately kept apart.
     """
     page: int
     width: float
@@ -289,9 +306,22 @@ class PageSummary:
     printed_of: Optional[int] = None
     sheet: Optional[str] = None
     scales: List[str] = field(default_factory=list)
+    viewports: List["Viewport"] = field(default_factory=list)
     divider_title: Optional[str] = None
     duplicate_of: Optional[int] = None
     segment: Optional[int] = None
+
+    @property
+    def stored_scale(self) -> Optional[str]:
+        """The calibration stored in the FILE, one short line, or None.
+
+        ``"1 in = 20 ft [viewport]"``. The source is part of it because a
+        stored scale and a scale note read off the title block are different
+        kinds of evidence and a reader must be able to tell them apart.
+        """
+        if not self.viewports:
+            return None
+        return "; ".join(f"{v.label} [{v.source}]" for v in self.viewports)
 
     def to_dict(self, detail: bool = True) -> Dict[str, Any]:
         d = _compact({
@@ -308,6 +338,7 @@ class PageSummary:
             "printed_of": self.printed_of,
             "sheet": self.sheet,
             "scales": self.scales,
+            "scale": self.stored_scale,
             "n_markups": self.n_markups,
             "n_cad_text": self.n_cad_text,
             "duplicate_of": self.duplicate_of,

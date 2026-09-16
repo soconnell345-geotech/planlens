@@ -20,6 +20,20 @@ located, attributed data:
   SHX lettering; search across all of it. An optional Azure Document
   Intelligence result can supply text for scanned pages — planlens reads the
   result, it never calls or requires the paid service.
+
+  It also reads the measurement calibration a PDF already stores, so a scale
+  need not be guessed off a title block. When someone has calibrated a sheet
+  in Bluebeam or measured with Acrobat's tools, the file carries that as
+  structured data: a page's `/VP` viewports, and the `/Measure` dictionary on
+  each dimension markup. `planlens.document.scale` reads both — the ratio
+  (`1 in = 20 ft`), the real-world units per PDF point, and the region each
+  governs, in the same displayed frame as everything else — and turns them
+  into a resolved scale for `planlens.ir.measure`, so a page-point length
+  becomes feet or metres on the drafter's own statement rather than an
+  inference. A dimension markup reports both what its comment STATES and what
+  its vertex path DERIVES, so the two can be seen to agree. A viewport that
+  exists but is the untouched 1:1 default is reported as exactly that, and a
+  drawing sheet storing no scale says so.
 - **`planlens.tools`** — the above as LLM tools, framework-neutral: JSON-Schema
   specs in Anthropic or OpenAI style and a dispatcher whose every result is
   valid JSON inside the size limit the host sets, paging losslessly through

@@ -47,6 +47,10 @@ def page_advice(summary: PageSummary,
                    "order, not a reading of the sheet — view the sheet (or a "
                    "region of it), and use drawing-geometry tools for "
                    "measurements")
+        if not any(v.is_calibrated for v in summary.viewports):
+            out.append("this sheet stores no calibrated scale in the PDF, so "
+                       "nothing can be measured off it in feet or metres "
+                       "until the scale note or title block is read")
     elif kind == "form":
         out.append("ruled form or table page: text lines are cell contents in "
                    "drafting order and the extracted table may not follow the "

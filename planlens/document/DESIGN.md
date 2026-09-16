@@ -20,6 +20,7 @@ document/
   pdf_text.py     the PDF text layer (default text source)
   annotations.py  review markups + hidden CAD text
   tables.py       find_tables wrapper
+  scale.py        the measurement calibration the PDF itself stores
   classify.py     coarse page kinds with evidence
   structure.py    headers/footers, printed page numbers, dividers, duplicates,
                   segments (the constituent documents)
@@ -88,6 +89,94 @@ Strings also present in the text layer at an overlapping box are dropped.
 Measured: 320 on a real submittal's drawing sheets; 66 on one of the ten
 Mecklenburg validation sheets, none on the other nine — so it complements OCR,
 it does not replace it.
+
+## Scale (2026-09-16)
+
+`planlens.ir.measure` refuses to turn page points into feet without a resolved
+scale, and reading a scale off a title block or a graphic bar is inference. But
+when someone calibrates a sheet in Bluebeam ("Store Scale in Page") or measures
+with Acrobat's tools, the calibration is **written into the file** as structured
+data (ISO 32000-1 §12.9): the page dictionary's `/VP` array of Viewport
+dictionaries, and a `/Measure` dictionary on each measurement markup. That is
+the drafter's own statement, and `scale.py` reads it.
+
+**What is read.** From `/VP`: each viewport's `/BBox`, `/Name`, and `/Measure`.
+`/Subtype /RL` (rectilinear) gives `/R`, the ratio string, and `/X` / `/Y`,
+number formats whose `/C` is the conversion factor and `/U` the unit, plus `/D`
+and `/A` for distance and area units. `/Subtype /GEO` is detected and reported
+as `kind="geo"` without parsing the geodesy — it is survey control, not a
+drawing scale. From a markup: its `/Measure`, its `/IT` (`/LineDimension`,
+`/PolyLineDimension`, `/PolygonDimension`, and whatever else a producer writes,
+recorded unchanged), and the value its `/Contents` states.
+
+**The frame.** `/BBox` is in unrotated user space and is converted with
+`frame.to_display_bbox` like everything else, so a viewport box renders as-is.
+Verified on a real `/Rotate 270` sheet: the stored box fits the unrotated
+mediabox (612x792) and overflows the displayed rect (792x612). A markup's
+derived length is computed on the **unrotated** vertices, because `/X` and `/Y`
+are per-axis and a rotation swaps the axes; a length must not change with how
+the page is displayed, and the tests assert it across /Rotate 0/90/180/270.
+
+**What `/C` means, and how that was established.** `/C` multiplies, and its
+basis is one PDF user-space unit (one point): `x_per_point = C`, in units of
+`/U`. The real anchor is the one rectilinear viewport the corpus contains,
+which stores `/X [<</C .01389/U( )>>]`. A point is by definition 1/72 inch of
+paper, `0.01389 x 72 = 1.00008`, and the unit label is blank — so the file is
+stating the untouched 1:1 identity, in inches, per point. Had `/C` meant
+"user-space units per `/U` unit" the number would have been 72. No real
+CALIBRATED (non-identity) rectilinear page has been run through this code, so
+`page_viewports` cross-checks `/R` against `/X` on every file it reads and warns
+above a 2% disagreement; that is how a misreading would announce itself on the
+first real calibrated sheet, rather than producing a plausible wrong number.
+
+**Measured, before any of this was designed** — a real Bluebeam-marked-up
+submittal (260 pages), a ten-sheet public drawing corpus, and every other PDF in
+the working tree (162 files):
+
+| finding | number |
+|---|---|
+| documents with a populated `/VP` | 2 of 162 |
+| pages with `/VP` populated / empty (`[]`) on the real submittal | 1 / 7 |
+| its one viewport | `/Subtype /GEO` (survey control, no ratio) |
+| public sheets with a viewport | 1 of 10, `/Subtype /RL`, the 1:1 identity |
+| measurement markups anywhere in the corpus | 0 of 426 annotations |
+| whole-page viewport coverage of its page | 0.845 |
+| cost of the `/VP` scan over 260 pages | 0.02 s |
+
+Three of those changed the design. **An empty `/VP []` is normal** — seven
+consecutive drawing sheets carry one — so it returns no viewports and no
+warning. **A viewport is not a scale**: `is_calibrated` is False for a
+georeferenced measure, for unreadable factors, and for the 1:1 default, so the
+`! look:` advice still tells the model to read the title block. And the scan is
+cheap enough that `viewports` sits on `PageSummary` (the page map) rather than
+behind a full page read: 0.02 s for all 260 pages on its own, and adding it to
+the page map moved the total by less than the run-to-run spread of the map
+itself (10.3 s against a 11.8 s baseline on the same document, the difference
+being noise). `advice.py` uses it there.
+
+**No real Bluebeam-calibrated page has been run through this module.** The
+calibrated path — a populated `/R`, a non-identity `/X`, a dimension markup with
+its own `/Measure` — is built to the specification and exercised by
+`planlens.testing.scale_fixtures`, which writes the viewport and the markup with
+`xref_set_key` in raw PDF syntax at /Rotate 0 and /Rotate 90. When a real
+calibrated submittal appears, re-run the probe against it first.
+
+**Reading the raw syntax.** PyMuPDF's `xref_get_key` cannot index into an array,
+so `/VP` arrives as a raw PDF string either way. `scale.py` lexes and parses the
+small subset of object syntax these structures use and follows indirect
+references through `xref_object(xref, compressed=False)` — `/Measure` is
+indirect in one real file and inline in the other. It is deliberately tolerant:
+anything unreadable becomes a warning and a missing field, never an exception.
+
+**Out to the reader.** `PageSummary.stored_scale` is one line
+(`1 in = 20 ft [viewport]`) and reaches the page map as `scale`, kept separate
+from `scales`, which is what the page's own text says. A dimension markup
+renders with its scale, the value it states, the length its path derives and any
+disagreement between them — both, because agreement is the evidence the factors
+were read right. `scale.to_quantity` is the bridge to `planlens.ir.measure`:
+with a calibrated viewport it returns a `Quantity` in feet or metres at
+confidence 1.0 whose `basis` names `pdf_viewport` or `measurement_markup` and
+the ratio; without one it returns points with `scale_known=False`.
 
 ## Tables
 

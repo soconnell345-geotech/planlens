@@ -9,6 +9,13 @@ ARE the review record: the comment, who wrote it, when, and — for callouts and
 arrows — the exact spot on the sheet it points at. They come back as
 :class:`Markup` objects.
 
+A markup placed with a MEASURING tool carries more: its own ``/Measure``
+calibration and an ``/IT`` such as ``/PolyLineDimension``. Those become
+``Markup.measure`` (see :mod:`planlens.document.scale`), holding the scale, the
+value the markup's comment states, and the length its vertex path derives
+through that scale. The path is measured on the UNROTATED points, because
+``/Measure``'s factors are per-axis and a page rotation swaps the axes.
+
 **Hidden CAD text.** When AutoCAD plots lettering in an SHX font it draws the
 letters as vector strokes, so the PDF has no text layer for them — and it adds an
 invisible Square annotation titled ``"AutoCAD SHX Text"`` over each string,
@@ -28,6 +35,7 @@ from typing import Dict, List, Optional, Tuple
 
 from planlens.document.frame import bbox_iou, to_display_bbox, to_display_point
 from planlens.document.model import SOURCE_CAD_HIDDEN, Markup, TextLine
+from planlens.document.scale import read_markup_measure
 
 #: The ``/T`` (title/author) AutoCAD writes on its hidden SHX-text annotations.
 CAD_HIDDEN_TEXT_TITLE = "AutoCAD SHX Text"
@@ -133,11 +141,11 @@ def extract_annotations(page, page_index: int
         xref = annot.xref
         has_callout = doc.xref_get_key(xref, "CL")[0] == "array"
         verts = None
+        flat = []
         if kind in ("Line", "Polygon", "PolyLine", "Ink") or (
                 kind == "FreeText" and has_callout):
             raw = annot.vertices
             if raw:
-                flat = []
                 for v in raw:
                     # Ink returns one list per stroke; everything else points.
                     if v and isinstance(v[0], (list, tuple)):
@@ -145,6 +153,15 @@ def extract_annotations(page, page_index: int
                     else:
                         flat.append(v)
                 verts = [to_display_point(page, p[0], p[1]) for p in flat]
+
+        # A dimension markup carries its own calibration. The vertex path is
+        # measured from the UNROTATED points (``flat``), before the conversion
+        # above: /Measure's /X and /Y are per-axis and a page rotation swaps
+        # the axes, and a length must not depend on how the page is displayed.
+        intent = _name_key(doc, xref, "IT")
+        measure = read_markup_measure(
+            doc, xref, bbox, page_index, vertices_unrotated=flat,
+            contents=info.get("content"), intent=intent)
 
         colors = annot.colors or {}
         mk = Markup(
@@ -155,12 +172,13 @@ def extract_annotations(page, page_index: int
             text=_clean(info.get("content")),
             author=author,
             subject=info.get("subject") or None,
-            intent=_name_key(doc, xref, "IT"),
+            intent=intent,
             created=pdf_date_to_iso(info.get("creationDate")),
             modified=pdf_date_to_iso(info.get("modDate")),
             vertices=verts,
             points_at=_points_at(annot, kind, has_callout, verts),
             color=_hex_rgb(colors.get("stroke")) or _hex_rgb(colors.get("fill")),
+            measure=measure,
             xref=xref,
         )
         markups.append(mk)
