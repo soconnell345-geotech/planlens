@@ -93,10 +93,32 @@ def _image_coverage(page) -> float:
     return min(1.0, covered / area)
 
 
-def _ruling_lines(page) -> Tuple[int, int]:
+def _drawing_facts(page) -> Tuple[int, int, int, List[str]]:
+    """``(n_paths, ruling_h, ruling_v, layers)`` from ONE pass over the page.
+
+    The page map used to call ``get_cdrawings()`` twice — once to count paths,
+    once to count rules — so the layer names each path already carries cost
+    nothing to collect here: they come out of the same call, and folding the
+    second call away pays for it several times over.
+
+    ``layers`` are the distinct optional-content groups (a PDF's layers) the
+    page's line-work sits in, in first-seen order. PyMuPDF reports the empty
+    string for a path in no group, which is not a layer name and is dropped.
+    """
+    layers: Dict[str, None] = {}
+    drawings = page.get_cdrawings()
+    h, v = _ruling_lines(drawings)
+    for d in drawings:
+        name = d.get("layer")
+        if name:
+            layers.setdefault(str(name), None)
+    return len(drawings), h, v, list(layers)
+
+
+def _ruling_lines(drawings) -> Tuple[int, int]:
     """Counts of long horizontal and vertical drawn lines (rules)."""
     h = v = 0
-    for d in page.get_cdrawings():
+    for d in drawings:
         for it in d.get("items", ()):
             if it[0] == "l":
                 (x0, y0), (x1, y1) = it[1], it[2]
@@ -262,8 +284,7 @@ class Document:
         lines, blocks, _tables, stats, _w, src_name = self._page_text(index)
         markups, cad = self._page_annots(index)
         cad, _ = drop_cad_text_already_in_layer(cad, lines)
-        n_paths = len(page.get_cdrawings())
-        ruling_h, ruling_v = _ruling_lines(page)
+        n_paths, ruling_h, ruling_v, layers = _drawing_facts(page)
         coverage = _image_coverage(page)
         n_chars = int(stats.get("n_text_chars", 0))
         n_cad_chars = sum(len(c.text) for c in cad)
@@ -305,7 +326,7 @@ class Document:
             n_text_chars=n_chars, n_markups=len(markups), n_cad_text=len(cad),
             n_words=n_words, text_density=n_words / area_in2,
             n_images=len(page.get_image_info()) if coverage else 0,
-            ruling_h=ruling_h, ruling_v=ruling_v,
+            ruling_h=ruling_h, ruling_v=ruling_v, layers=layers,
             rotated_text_fraction=(
                 sum(1 for ln in lines if ln.rotation) / len(lines)
                 if lines else 0.0),

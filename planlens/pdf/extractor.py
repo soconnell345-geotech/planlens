@@ -4,6 +4,9 @@ Programmatic vector extraction from PDF files via PyMuPDF.
 Uses page.get_drawings() to extract vector paths, groups them by stroke color,
 and assigns geometric roles via user-supplied role_mapping.
 
+Each path also carries its OPTIONAL-CONTENT GROUP (a PDF's layer) and how it
+is PAINTED — see :func:`extract_colored_paths` and :func:`layer_state`.
+
 Requires: PyMuPDF >= 1.23 (optional dependency)
 """
 
@@ -36,6 +39,54 @@ def _open_document(filepath=None, content=None):
     if filepath is not None:
         return fitz.open(filepath)
     raise ValueError("Provide either filepath or content")
+
+
+def layer_state(doc) -> Dict[str, bool]:
+    """Every optional-content group in the document: name -> default ON.
+
+    An OCG is a PDF's layer. AutoCAD's PDF export writes one per CAD layer
+    (measured on the validation corpus: sheet 10.31A carries ``0``, ``BORDER``,
+    ``TEXT``, ``REV``, ``PROPOSED``), so this is how a plotted sheet can still
+    say "existing" vs "proposed" after the CAD file is gone.
+
+    ``False`` means the group is HIDDEN when the document is opened — and
+    MuPDF hides it too, so nothing on it reaches ``get_drawings()`` unless
+    :func:`enable_all_layers` turns it on first.
+
+    The dictionary can be EMPTY on a document whose paths nevertheless carry
+    layer names — measured on a real submittal outside the validation corpus,
+    which declares no groups at all while its sheets' paths carry dozens of
+    distinct names each. A path's name comes from the marked content it sits
+    in, which need not be registered in ``/OCProperties``, so this summary is
+    a supplement to the names the paths carry — never the authority on which
+    layers a page uses.
+    """
+    out: Dict[str, bool] = {}
+    for info in (doc.get_ocgs() or {}).values():
+        name = info.get("name")
+        if name:
+            out[str(name)] = bool(info.get("on"))
+    return out
+
+
+def enable_all_layers(doc) -> List[str]:
+    """Turn every hidden optional-content group ON; return the names turned on.
+
+    ``action=0`` is "set this layer ON" in PyMuPDF's ``layer_ui_configs``
+    vocabulary (verified against a two-OCG synthetic: with the group off,
+    ``get_drawings()`` omits its paths entirely; after this call the same
+    paths arrive carrying the group's name).
+    """
+    turned: List[str] = []
+    for cfg in doc.layer_ui_configs() or ():
+        if cfg.get("on"):
+            continue
+        try:
+            doc.set_layer_ui_config(cfg["number"], action=0)
+        except Exception:  # pragma: no cover - defensive
+            continue
+        turned.append(str(cfg.get("text") or cfg["number"]))
+    return turned
 
 
 def _snap_rotation(deg: float, tol: float = 0.5) -> float:
@@ -76,8 +127,26 @@ def _color_to_hex(color) -> str:
     return "#000000"
 
 
+def _rgb_triple(color) -> Optional[Tuple[float, float, float]]:
+    """A PyMuPDF colour as an ``(r, g, b)`` float triple in 0-1, or None.
+
+    A one-component colour is grayscale and expands to a grey triple; the
+    triple is what the IR carries, so a caller never has to know how many
+    components the source colour space had.
+    """
+    if not color:
+        return None
+    vals = [float(c) for c in color]
+    if len(vals) == 1:
+        return (vals[0], vals[0], vals[0])
+    if len(vals) >= 3:
+        return (vals[0], vals[1], vals[2])
+    return None
+
+
 def discover_pdf_content(
     filepath=None, content=None, page: int = 0,
+    include_hidden_layers: bool = False,
 ) -> Dict[str, Any]:
     """Inventory a PDF page: vector paths by color, text blocks, dimensions.
 
@@ -89,6 +158,10 @@ def discover_pdf_content(
         PDF file content as bytes.
     page : int
         Page number (0-indexed).
+    include_hidden_layers : bool
+        Read content on optional-content groups that are OFF by default
+        (see :func:`enable_all_layers`). Off by default, so what is reported
+        is what the document SHOWS when opened.
 
     Returns
     -------
@@ -98,6 +171,8 @@ def discover_pdf_content(
         'colors' : dict — {hex_color: count}
         'text_blocks' : list of dict — {text, x, y, size, rotation}
         'has_images' : bool — whether page contains raster images
+        'ocgs' : dict — {layer name: default ON}, DOCUMENT-level
+          (:func:`layer_state`); empty when the document declares none
 
     Text blocks are spans. ``x``/``y`` is the span's baseline origin in
     PyMuPDF's UNROTATED page space (top-left origin, y down), as it always was;
@@ -113,6 +188,9 @@ def discover_pdf_content(
         doc.close()
         raise ValueError(f"Page {page} out of range (document has {n_pages} pages)")
 
+    ocgs = layer_state(doc)
+    if include_hidden_layers:
+        enable_all_layers(doc)
     pg = doc[page]
     rect = pg.rect
 
@@ -162,6 +240,7 @@ def discover_pdf_content(
         "colors": colors,
         "text_blocks": [tb for tb in text_blocks if tb["text"]],
         "has_images": has_images,
+        "ocgs": ocgs,
     }
 
 
@@ -309,23 +388,45 @@ def extract_vector_geometry(
 def extract_colored_paths(
     filepath=None, content=None, page: int = 0,
     scale: float = 1.0, origin: str = "bottom_left",
+    include_hidden_layers: bool = False,
 ) -> List[Dict[str, Any]]:
     """Return the page's vector paths as coloured regions for label association.
 
     Companion to ``discover_pdf_content`` (which gives text blocks) and
     ``planlens.pdf.labels.propose_role_mapping``: returns one entry per drawing path
-    as ``{"color": hex, "points": [(x, y), ...]}`` (same coordinate convention as
-    ``extract_vector_geometry``). No role_mapping is required.
+    as ``{"color": hex, "points": [(x, y), ...], "layer": str|None,
+    "filled": bool, "fill_color": (r, g, b)|None}`` (same coordinate convention
+    as ``extract_vector_geometry``). No role_mapping is required.
+
+    ``layer`` is the path's optional-content group — a PDF's layer — or None
+    when it belongs to none. PyMuPDF reports the EMPTY STRING for the latter;
+    it is normalized to None here, because "" is not a layer name and a caller
+    filtering by layer must be able to ask for "no layer" without matching a
+    real group. A group genuinely NAMED ``"0"`` (AutoCAD's default layer,
+    present on corpus sheet 10.31A) is a real name and is kept verbatim —
+    unlike DXF, where ``"0"`` inside a block is an inheritance sentinel.
+
+    ``filled`` is True when the path is PAINTED with a fill (PyMuPDF ``type``
+    "f" or "fs"), and ``fill_color`` is that fill's RGB as the PDF stores it
+    (floats 0-1), or None. A filled path is CLOSED by PDF semantics whatever
+    its ``closePath`` flag says — measured across the ten-sheet corpus, that
+    flag is False on all 6,669 filled paths — so ``filled`` is the reliable
+    "this is an area, not a line" signal.
+
+    ``include_hidden_layers`` also reads groups that are OFF by default
+    (see :func:`enable_all_layers`).
 
     Returns
     -------
     list of dict
-        [{"color": hex, "points": [(x, y), ...]}, ...] — one per vector path.
+        One per vector path, keys as above.
     """
     doc = _open_document(filepath, content)
     if page >= len(doc):
         doc.close()
         raise ValueError(f"Page {page} out of range")
+    if include_hidden_layers:
+        enable_all_layers(doc)
     pg = doc[page]
     page_height = pg.rect.height
     regions = []
@@ -338,7 +439,14 @@ def extract_colored_paths(
         for x, y in pts:
             yy = page_height - y if origin == "bottom_left" else y
             out_pts.append((round(x * scale, 4), round(yy * scale, 4)))
-        regions.append({"color": color_hex, "points": out_pts})
+        filled = d.get("type") in ("f", "fs")
+        regions.append({
+            "color": color_hex,
+            "points": out_pts,
+            "layer": d.get("layer") or None,
+            "filled": filled,
+            "fill_color": _rgb_triple(d.get("fill")) if filled else None,
+        })
     doc.close()
     return regions
 

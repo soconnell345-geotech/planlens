@@ -3,7 +3,9 @@ PDF vector/text extraction and scale parsing — plus the geotechnical
 cross-section leg.
 
 Two things live here. The generic part — :func:`discover_pdf_content`,
-:func:`extract_colored_paths`, the scale parser and the cleanup helpers — is
+:func:`extract_colored_paths` (per path: points, colour, the optional-content
+group it sits in, and how it is painted), :func:`layer_state` /
+:func:`enable_all_layers`, the scale parser and the cleanup helpers — is
 the PDF ingest leg of :mod:`planlens.ir` and :mod:`planlens.document`. The
 rest (:func:`extract_vector_geometry` with role mappings,
 :mod:`planlens.pdf.vision` with its soil-layer prompts, labels, cross-check)
@@ -24,7 +26,8 @@ Requires: PyMuPDF >= 1.23 (optional dependency)
 
 from planlens.pdf.results import PdfParseResult
 from planlens.pdf.extractor import (
-    discover_pdf_content, extract_vector_geometry, extract_colored_paths,
+    discover_pdf_content, enable_all_layers, extract_vector_geometry,
+    extract_colored_paths, layer_state,
 )
 from planlens.pdf.vision import extract_geometry_vision, render_page_with_grid
 from planlens.pdf.scale import (
@@ -44,6 +47,8 @@ __all__ = [
     'discover_pdf_content',
     'extract_vector_geometry',
     'extract_colored_paths',
+    'layer_state',
+    'enable_all_layers',
     'extract_geometry_vision',
     'render_page_with_grid',
     'calibrate_scale',

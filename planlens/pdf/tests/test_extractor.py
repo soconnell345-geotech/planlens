@@ -6,9 +6,11 @@ fitz = pytest.importorskip("fitz")
 
 from planlens.pdf.extractor import (
     discover_pdf_content,
+    extract_colored_paths,
     extract_vector_geometry,
     _color_to_hex,
     _extract_path_points,
+    _rgb_triple,
 )
 from planlens.pdf.results import PdfParseResult
 
@@ -264,3 +266,45 @@ class TestExtractVectorGeometry:
         path = _make_cross_section_pdf(tmp_path)
         result = extract_vector_geometry(filepath=path)
         assert any("Clay" in a["text"] for a in result.text_annotations)
+
+
+# ---------------------------------------------------------------------------
+# Layers (optional-content groups) and fill
+# ---------------------------------------------------------------------------
+
+class TestLayersAndFill:
+    def _pdf(self, tmp_path):
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=200)
+        page.draw_line(fitz.Point(10, 10), fitz.Point(90, 10), color=(0, 0, 0),
+                       oc=doc.add_ocg("EXISTING", on=True))
+        sh = page.new_shape()
+        sh.draw_rect(fitz.Rect(20, 40, 60, 80))
+        sh.finish(color=(0, 0, 0), fill=(1.0, 0.0, 0.0))
+        sh.commit()
+        path = tmp_path / "layered.pdf"
+        doc.save(str(path))
+        doc.close()
+        return str(path)
+
+    def test_paths_report_their_group_and_paint(self, tmp_path):
+        paths = extract_colored_paths(filepath=self._pdf(tmp_path))
+        by_layer = {p["layer"]: p for p in paths}
+        assert set(by_layer) == {"EXISTING", None}
+        assert by_layer["EXISTING"]["filled"] is False
+        assert by_layer["EXISTING"]["fill_color"] is None
+        # The unlayered rectangle is painted; "" is never reported as a layer.
+        assert by_layer[None]["filled"] is True
+        assert by_layer[None]["fill_color"] == pytest.approx((1.0, 0.0, 0.0))
+
+    def test_discover_reports_the_document_layer_state(self, tmp_path):
+        info = discover_pdf_content(filepath=self._pdf(tmp_path))
+        assert info["ocgs"] == {"EXISTING": True}
+
+    def test_layer_state_is_empty_without_groups(self, tmp_path):
+        path = _make_simple_pdf(tmp_path, lines=[((0, 0, 10, 10), (0, 0, 0))])
+        assert discover_pdf_content(filepath=path)["ocgs"] == {}
+
+    def test_grayscale_fill_expands_to_a_triple(self):
+        assert _rgb_triple((0.5,)) == (0.5, 0.5, 0.5)
+        assert _rgb_triple(None) is None

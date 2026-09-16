@@ -264,6 +264,11 @@ class Markup:
 PAGE_KINDS = ("text", "drawing_sheet", "form", "figure", "scanned", "blank",
               "mixed")
 
+#: How many layer names a page-map row may carry. A real submittal sheet can
+#: use dozens, and one page must not crowd out the rest of the map; the total
+#: is reported alongside whenever the list is cut.
+LAYER_NAMES_ON_ROW = 12
+
 
 @dataclass
 class PageSummary:
@@ -282,6 +287,13 @@ class PageSummary:
     drafter saved into the file (:mod:`planlens.document.scale`). The second
     is the drafter's own statement, the first is a reading of a printed label,
     and they are deliberately kept apart.
+
+    ``layers`` names the optional-content groups the page's line-work sits in
+    — a plotted CAD sheet's layer names, which survive into the PDF. They are
+    worth the row because they are the drafter's OWN words for what the
+    geometry is ("EXISTING" vs "PROPOSED", a hatch layer, a title block), and
+    a reader can then ask this package's geometry queries for one of them by
+    name.
     """
     page: int
     width: float
@@ -299,6 +311,7 @@ class PageSummary:
     n_images: int = 0
     ruling_h: int = 0
     ruling_v: int = 0
+    layers: List[str] = field(default_factory=list)
     rotated_text_fraction: float = 0.0
     header: Optional[str] = None
     footer: Optional[str] = None
@@ -339,11 +352,14 @@ class PageSummary:
             "sheet": self.sheet,
             "scales": self.scales,
             "scale": self.stored_scale,
+            "layers": self.layers[:LAYER_NAMES_ON_ROW],
             "n_markups": self.n_markups,
             "n_cad_text": self.n_cad_text,
             "duplicate_of": self.duplicate_of,
         })
         d["page"] = self.page   # page 0 must survive _compact
+        if len(self.layers) > LAYER_NAMES_ON_ROW:
+            d["n_layers"] = len(self.layers)
         if self.segment is not None:
             d["segment"] = self.segment
         if detail:

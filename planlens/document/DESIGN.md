@@ -210,6 +210,18 @@ prose 1.5-6, dividers and drawings 0.1-0.7), `n_images`, `ruling_h/v`,
 words), `duplicate_of` (same kind, text and path count as an earlier page) and
 the `segment` it belongs to.
 
+`layers` (2026-09-16) names the optional-content groups the page's line-work
+sits in — a plotted sheet's CAD layer names, the drafter's own words for what
+the geometry is. They cost nothing: the map already read every path twice, to
+count them and to count rules, and those two passes are now one, which made
+the whole 260-page map measurably FASTER than before the names were collected
+— four paired runs on one machine, a median of 5.4 s after against 8.7 s
+before, on a run-to-run spread of 2.5-4 s. A real
+submittal sheet can use dozens, so a row carries the first
+`LAYER_NAMES_ON_ROW` names and, when it cuts the list, the total as
+`n_layers`. `planlens.ir` reads the same names onto each entity, so a reader
+who sees a layer on the map can ask the geometry queries for it by name.
+
 ### Structure (`structure.py`)
 
 A stapled submittal is several documents, and nobody wrote a contents page

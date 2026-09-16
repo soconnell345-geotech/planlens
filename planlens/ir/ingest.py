@@ -731,15 +731,38 @@ def from_pdf_vector(filepath: str = None, content: bytes = None,
                     calibration: Optional[Dict[str, Any]] = None,
                     origin: str = "bottom_left",
                     name: str = "PDF vector import",
-                    include_cad_hidden_text: bool = False) -> DrawingIR:
+                    include_cad_hidden_text: bool = False,
+                    include_hidden_layers: bool = False) -> DrawingIR:
     """Build a DrawingIR from a PDF page's vector line-work + text.
 
-    Reuses ``pdf_import.extract_colored_paths`` (per-path point lists + color)
-    and ``pdf_import.discover_pdf_content`` (page size + text). When ``scale``
-    (meters per PDF point) or a two-point ``calibration`` ({p1, p2, distance_m})
-    is supplied, coordinates are promoted to model meters; otherwise the IR
-    stays in page points and scale CANDIDATES are attached to metadata (via the
-    ``pdf_import`` scale module) as proposals, never applied.
+    Reuses ``pdf_import.extract_colored_paths`` (per-path point lists + color +
+    layer + fill) and ``pdf_import.discover_pdf_content`` (page size + text).
+    When ``scale`` (meters per PDF point) or a two-point ``calibration``
+    ({p1, p2, distance_m}) is supplied, coordinates are promoted to model
+    meters; otherwise the IR stays in page points and scale CANDIDATES are
+    attached to metadata (via the ``pdf_import`` scale module) as proposals,
+    never applied.
+
+    LAYERS. Every entity built from a vector path carries ``layer`` = the
+    optional-content group that path sits in, or None. Slicing a PDF-sourced
+    IR by layer therefore works exactly as on the DXF leg
+    (``queries.entities_on_layer``, ``counts_by_layer``). Metadata publishes
+    ``n_layers`` with the SAME meaning the DXF leg gives it — every distinct
+    layer name seen during ingest — plus an ``ocgs`` summary (name -> default
+    ON) whenever the document declares optional-content groups, so a caller
+    can see which layers a viewer HIDES. Only paths carry a layer: PDF text
+    spans record no group, so every TextItem's layer is None.
+
+    Content on a group that is OFF by default is NOT ingested — MuPDF hides
+    it exactly as a viewer does — and a warning names those groups rather
+    than letting the omission go unsaid. ``include_hidden_layers=True`` turns
+    every group on first, so hidden geometry and text are read too; it is off
+    by default because the IR should say what the sheet SHOWS.
+
+    FILL. An entity built from a painted path carries ``filled=True`` and the
+    fill's ``fill_color``. What an entity IS does not change — a filled
+    triangle is the same closed 3-vertex Polyline it has always been — only
+    what it can now say about itself.
 
     Text items carry their reading direction in the IR frame, and exclude text
     drawn by annotations (reviewer comments, stamps), which is not drawing
@@ -755,13 +778,16 @@ def from_pdf_vector(filepath: str = None, content: bytes = None,
         propose_scale,
     )
 
-    info = discover_pdf_content(filepath=filepath, content=content, page=page)
+    info = discover_pdf_content(filepath=filepath, content=content, page=page,
+                                include_hidden_layers=include_hidden_layers)
     width_pt = info["page_size"]["width"]
     height_pt = info["page_size"]["height"]
     text_blocks = info.get("text_blocks", [])
+    ocgs = info.get("ocgs") or {}
     # Page-point path coordinates (flipped per origin, scale=1.0).
     regions = extract_colored_paths(filepath=filepath, content=content,
-                                    page=page, scale=1.0, origin=origin)
+                                    page=page, scale=1.0, origin=origin,
+                                    include_hidden_layers=include_hidden_layers)
 
     # Resolve scale factor (meters per point) if any.
     sf = None
@@ -798,19 +824,24 @@ def from_pdf_vector(filepath: str = None, content: bytes = None,
         source="pdf_vector", metadata=metadata,
     )
 
+    layers = set()
     for reg in regions:
         pts = [apply_scale(x, y) for x, y in reg.get("points", [])]
-        color = reg.get("color")
         if len(pts) < 2:
             continue
+        layer = reg.get("layer")
+        if layer is not None:
+            layers.add(layer)
+        common = dict(layer=layer, color=reg.get("color"),
+                      filled=bool(reg.get("filled")),
+                      fill_color=reg.get("fill_color"),
+                      source="pdf_vector", confidence=1.0)
         if len(pts) == 2:
-            ir.add(Line(start=pts[0], end=pts[1], color=color,
-                        source="pdf_vector", confidence=1.0))
+            ir.add(Line(start=pts[0], end=pts[1], **common))
         else:
             closed = _closed(pts)
             verts = pts[:-1] if closed else pts
-            ir.add(Polyline(vertices=verts, closed=closed, color=color,
-                            source="pdf_vector", confidence=1.0))
+            ir.add(Polyline(vertices=verts, closed=closed, **common))
 
     for tb in text_blocks:
         txt = (tb.get("text") or "").strip()
@@ -826,6 +857,18 @@ def from_pdf_vector(filepath: str = None, content: bytes = None,
         ir.metadata["n_cad_hidden_text"] = _add_cad_hidden_text(
             ir, filepath, content, page, text_blocks, text_xy, smul)
 
+    # Same tally the DXF leg publishes: distinct layer names SEEN during
+    # ingest. Always present, so "this sheet has no layers" is stated (0)
+    # rather than inferred from a missing key.
+    ir.metadata["n_layers"] = len(layers)
+    if ocgs:
+        ir.metadata["ocgs"] = dict(ocgs)
+        hidden = sorted(n for n, on in ocgs.items() if not on)
+        if hidden and not include_hidden_layers:
+            ir.warnings.append(
+                "Layer(s) hidden by default are NOT in this IR (a viewer hides "
+                "them too): " + ", ".join(f"'{h}'" for h in hidden)
+                + ". Re-ingest with include_hidden_layers=True to read them.")
     ir.metadata.setdefault("page_number", page)
     if not ir.entities:
         ir.warnings.append(

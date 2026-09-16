@@ -44,6 +44,10 @@ def _ref(e: Entity) -> Dict[str, Any]:
         d["layer"] = e.layer
     if e.color is not None:
         d["color"] = e.color
+    if e.filled:
+        # Only when true: a painted shape is the exception (a boring symbol,
+        # a solid arrowhead, a hatch), and these refs travel in a budget.
+        d["filled"] = True
     if e.bbox is not None:
         d["bbox"] = [_r(v) for v in e.bbox]
     if isinstance(e, Line):
@@ -1887,6 +1891,13 @@ def find_leaders(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                    if arrow_backward else {}),
                 **({"blunt_terminator": True} if arrow_blunt else {}),
                 **({"arrow_detached": True} if arrow_detached else {}),
+                # EVIDENCE ONLY — a solid arrowhead is drawn filled, but the
+                # score does not know that: the tuning is frozen against the
+                # corpus it was measured on, and fill is new evidence, not a
+                # new rule. A cluster candidate is not one entity, so it has
+                # no fill of its own to report.
+                **({"arrowhead_filled": True}
+                   if getattr(cand, "filled", False) else {}),
                 **({} if texts else {"text_unavailable": True}),
             },
             "proposal_only": True,
@@ -2659,6 +2670,8 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
             continue
 
         a_xy, b_xy = apexes[0], apexes[1]
+        filled_terms = [b["cand"].id for _, _, b in per_end
+                        if getattr(b["cand"], "filled", False)]
         proposals.append({
             "end_a_xy": [_r(a_xy[0]), _r(a_xy[1])],
             "end_b_xy": [_r(b_xy[0]), _r(b_xy[1])],
@@ -2703,6 +2716,11 @@ def find_dimensions(ir: DrawingIR, max_arrowhead_size: Optional[float] = None,
                     [b["cand"].id for _, _, b in per_end
                      if b["state"] == "oriented"]}
                    if "oriented" in states2 else {}),
+                # EVIDENCE ONLY, like the leader finder's twin: the ids of
+                # this dimension's terminators that are PAINTED. Nothing
+                # scores on it — the tuning stays frozen.
+                **({"filled_terminator_ids": filled_terms}
+                   if filled_terms else {}),
                 **({} if texts else {"text_unavailable": True}),
             },
             "proposal_only": True,
@@ -3086,6 +3104,11 @@ def find_bubble_callouts(ir: DrawingIR, max_radius: Optional[float] = None,
                 "roundness_score": _r(roundness, 3),
                 "text_centering_score": _r(text_score, 3),
                 "size_score": _r(size_score, 3),
+                # EVIDENCE ONLY. A PAINTED ring is usually not a callout
+                # bubble at all — it is a symbol drawn solid, a boring dot
+                # being the everyday one — but that is a call for the reader
+                # to make, so the fact is reported and the score untouched.
+                **({"filled": True} if e.filled else {}),
             },
             "proposal_only": True,
         })
@@ -3271,7 +3294,11 @@ def find_revision_clouds(ir: DrawingIR, min_arcs: int = 3,
             "text_id": text_hit.id,
             "confidence": confidence,
             "evidence": {"marker_size": _r(size, 2),
-                         "text_distance": _r(best_d, 2)},
+                         "text_distance": _r(best_d, 2),
+                         # EVIDENCE ONLY (see the bubble finder): a revision
+                         # delta is drawn either way, so fill is reported,
+                         # never scored.
+                         **({"filled": True} if cand.filled else {})},
             "proposal_only": True,
         })
 

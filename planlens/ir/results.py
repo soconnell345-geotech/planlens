@@ -12,9 +12,16 @@ Entity model
 All entities share a common envelope (:class:`Entity`):
 
 - ``id``          — stable within a page ("e0", "e1", ...).
-- ``layer``       — CAD layer / logical group (DXF), else None.
+- ``layer``       — CAD layer / logical group: a DXF layer, or a vector PDF's
+  optional-content group; None when the source gives none.
 - ``color``       — hex "#rrggbb" or an "ACI<n>" token when only a DXF color
   index is known.
+- ``filled``      — the shape is PAINTED, not just outlined (a boring symbol,
+  a solid arrowhead, a hatched area). False unless the source says so.
+- ``fill_color``  — that fill's ``(r, g, b)`` in 0-1, or None. Raw device
+  values rather than ``color``'s hex, because a fill is read straight off the
+  path's paint operator and quantizing it would lose greys the drafter used
+  to separate materials.
 - ``style``       — linetype / line-weight / a note like "approx_from_spline".
 - ``source``      — "dxf" | "pdf_vector" | "raster_trace" (provenance).
 - ``confidence``  — 1.0 for deterministic sources (DXF, PDF vector); < 1.0 for
@@ -48,6 +55,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 Point = Tuple[float, float]
 BBox = Tuple[float, float, float, float]
+RGB = Tuple[float, float, float]
 
 
 def _r(v: float, n: int = 4) -> float:
@@ -96,6 +104,12 @@ class Entity:
 
     Subclasses add geometry fields and set the ``KIND`` discriminator. ``bbox``
     is computed from the geometry in ``__post_init__`` when left as None.
+
+    ``filled`` / ``fill_color`` describe PAINT, not geometry, which is why they
+    sit on the envelope beside ``color`` rather than on one shape class: the
+    same fact can reach the IR as a closed :class:`Polyline` (a solid arrowhead
+    or a boring dot on a plotted PDF), a :class:`Circle`, or a :class:`Region`
+    (a DXF hatch). Only an area-bearing entity can meaningfully carry them.
     """
     KIND: ClassVar[str] = "entity"
 
@@ -106,6 +120,8 @@ class Entity:
     source: str = "dxf"
     confidence: float = 1.0
     bbox: Optional[BBox] = None
+    filled: bool = False
+    fill_color: Optional[RGB] = None
 
     def __post_init__(self):
         if self.bbox is None:
@@ -142,6 +158,13 @@ class Entity:
             d["style"] = self.style
         if self.bbox is not None:
             d["bbox"] = [_r(v) for v in self.bbox]
+        # Paint is the exception, not the rule: most entities are line-work,
+        # and these payloads are read by a model on a token budget, so an
+        # unfilled entity says nothing at all about fill.
+        if self.filled:
+            d["filled"] = True
+        if self.fill_color is not None:
+            d["fill_color"] = [_r(c, 3) for c in self.fill_color]
         return d
 
     def to_dict(self) -> Dict[str, Any]:
@@ -447,6 +470,7 @@ def entity_from_dict(d: Dict[str, Any]) -> Entity:
     if cls is None:
         raise ValueError(f"Unknown entity type '{kind}'. "
                          f"Known: {sorted(_ENTITY_CLASSES)}")
+    fill_color = d.get("fill_color")
     common = dict(
         id=d.get("id", ""),
         layer=d.get("layer"),
@@ -455,6 +479,8 @@ def entity_from_dict(d: Dict[str, Any]) -> Entity:
         source=d.get("source", "dxf"),
         confidence=d.get("confidence", 1.0),
         bbox=tuple(d["bbox"]) if d.get("bbox") is not None else None,
+        filled=bool(d.get("filled", False)),
+        fill_color=tuple(fill_color) if fill_color is not None else None,
     )
     if kind == "line":
         return Line(start=tuple(d["start"]), end=tuple(d["end"]), **common)

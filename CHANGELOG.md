@@ -24,6 +24,31 @@
   and a drawing sheet with no stored scale now says so in its `! look:` advice.
 - New fixtures `build_synthetic_scaled_sheet_pdf` /
   `build_synthetic_uncalibrated_sheet_pdf` in `planlens.testing`.
+- **Layers and fill survive the trip from CAD to PDF.** Every entity
+  `from_pdf_vector` builds from a vector path now carries `layer` — the
+  optional-content group AutoCAD writes per CAD layer — so a PDF-sourced IR
+  slices by layer exactly as a DXF one does (`entities_on_layer`,
+  `counts_by_layer`). Metadata publishes `n_layers` with the DXF leg's
+  meaning plus an `ocgs` summary (name → default ON). A path in no group
+  reports `None`, never `""` and never `"0"`; a group genuinely named `"0"`
+  is kept verbatim, since PDF has no inheritance sentinel.
+- Content on a layer the document HIDES is not ingested — MuPDF hides it as a
+  viewer does — so the IR warns, naming the group, and
+  `from_pdf_vector(include_hidden_layers=True)` reads it.
+- Entities gain `filled` and `fill_color`: a painted shape (a boring symbol, a
+  solid arrowhead, a hatch) can now say so. Measured on the ten-sheet corpus,
+  the `closePath` flag is False on all 6,669 filled paths, so `filled` is the
+  dependable "this is an area, not a line" signal. What an entity IS is
+  unchanged — a filled triangle is still a closed 3-vertex `Polyline` — and
+  the construct finders carry fill as EVIDENCE only (`arrowhead_filled`,
+  `filled_terminator_ids`, `filled`); no threshold or score moved, and every
+  published corpus figure is identical.
+- `PageSummary.layers` puts the same layer names on every page-map row, capped
+  at `LAYER_NAMES_ON_ROW` with the total alongside when cut. The page map now
+  reads a page's paths once instead of twice, so the 260-page map got faster.
+- `planlens.pdf`: `extract_colored_paths` returns `layer` / `filled` /
+  `fill_color` per path, `discover_pdf_content` returns `ocgs`, and
+  `layer_state` / `enable_all_layers` are public.
 
 ## 0.3.0 — 2026-09-14
 

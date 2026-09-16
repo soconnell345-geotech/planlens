@@ -75,11 +75,15 @@ semantics.
 
 1. **Primitive layer** (`planlens.ir`): a unified intermediate
    representation — Line / Polyline / Arc / Circle / Text with
-   coordinates, layer, provenance, and confidence — ingested from DXF
-   (`ezdxf`, confidence 1.0), vector PDF (`planlens.pdf`, confidence
+   coordinates, layer, fill, provenance, and confidence — ingested from
+   DXF (`ezdxf`, confidence 1.0), vector PDF (`planlens.pdf`, confidence
    1.0), or raster images (OpenCV, confidence < 1.0, `raster` extra).
-   Slice queries (bbox / angle / text / layer / nearest / endpoint) let
-   a caller request exactly the geometry it needs.
+   A plotted PDF keeps the drafter's own layer names (its
+   optional-content groups) and says which shapes are painted rather
+   than outlined, so "existing vs proposed" and "this symbol is solid"
+   survive the trip from CAD to paper. Slice queries (bbox / angle /
+   text / layer / nearest / endpoint) let a caller request exactly the
+   geometry it needs.
 2. **Composition layer** (`planlens.ir.queries`): named annotation
    constructs assembled from primitives as confidence-scored
    **proposals**, never asserted facts — leaders, dimensions, title

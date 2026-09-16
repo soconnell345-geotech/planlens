@@ -269,3 +269,46 @@ def test_ir_frame_round_trip_on_rotated_page(gt):
         via_render = ir_to_page_point(xi, yi, page)
         assert abs(via_render[0] - xd) < 1e-6 and abs(via_render[1] - yd) < 1e-6
     src.close()
+
+
+# -- layers on the page map ----------------------------------------------------
+
+def _layered_sheet(tmp_path, n_extra: int = 0):
+    """A sheet whose line-work sits on named optional-content groups."""
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=300)
+    for i, name in enumerate(["EXISTING", "PROPOSED"] + [f"L{n}" for n in
+                                                         range(n_extra)]):
+        page.draw_line(fitz.Point(20, 20 + 5 * i), fitz.Point(120, 20 + 5 * i),
+                       color=(0, 0, 0), oc=doc.add_ocg(name, on=True))
+    page.draw_rect(fitz.Rect(10, 10, 390, 290), color=(0, 0, 0))
+    path = tmp_path / "layered.pdf"
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_page_map_names_the_drawing_layers(tmp_path):
+    with open_document(_layered_sheet(tmp_path)) as d:
+        summary = d.page_map()[0]
+        assert summary.layers == ["EXISTING", "PROPOSED"]
+        assert summary.to_dict(detail=False)["layers"] == ["EXISTING",
+                                                           "PROPOSED"]
+
+
+def test_page_map_omits_layers_when_the_page_uses_none(doc, gt):
+    summary = doc.page_map([gt.sheet_page])[0]
+    assert summary.layers == []
+    assert "layers" not in summary.to_dict()
+
+
+def test_page_map_row_caps_a_long_layer_list(tmp_path):
+    # A real submittal sheet uses dozens of groups; one page must not crowd
+    # the map, so the row carries the first few and says how many there are.
+    from planlens.document.model import LAYER_NAMES_ON_ROW
+    with open_document(_layered_sheet(tmp_path, n_extra=20)) as d:
+        summary = d.page_map()[0]
+        row = summary.to_dict(detail=False)
+        assert len(summary.layers) == 22
+        assert len(row["layers"]) == LAYER_NAMES_ON_ROW
+        assert row["n_layers"] == 22

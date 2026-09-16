@@ -60,8 +60,10 @@ Every entity carries a common envelope:
 | field        | meaning |
 |--------------|---------|
 | `id`         | stable within the page (`e0`, `e1`, …) |
-| `layer`      | CAD layer / logical group (DXF only), else `None` |
+| `layer`      | CAD layer / logical group: a DXF layer, or a vector PDF's optional-content group; `None` when the source gives none (raster always) |
 | `color`      | hex `#rrggbb`, or `ACI<n>` when only a DXF color index is known |
+| `filled`     | the shape is PAINTED, not just outlined — `False` unless the source says so |
+| `fill_color` | that fill's `(r, g, b)` in 0-1, or `None` |
 | `style`      | linetype / a note like `approx_from_spline`, `hough`, `contour` |
 | `source`     | `dxf` \| `pdf_vector` \| `raster_trace` (provenance) |
 | `confidence` | `1.0` for deterministic sources; `< 1.0` for raster detections |
@@ -145,11 +147,91 @@ by default because the corpus figures were measured without that channel. With a
 `planlens.pdf.calibrate_scale`), coordinates are promoted to model meters;
 otherwise the IR stays in page points and **scale candidates** parsed from the
 page text (`planlens.pdf.propose_scale`) are attached to `metadata` as *proposals,
-never applied*. PDF has no layers. Bezier curves are SAMPLED (8 subdivisions
+never applied*. Paths carry their LAYER and their FILL (see the next
+section). Bezier curves are SAMPLED (8 subdivisions
 per cubic, `planlens.pdf.extractor._sample_cubic_bezier`, Phase 2) — a drawn
 circle arrives as a ~32-vertex circle-like ring and a cloud scallop keeps its
 bump; before Phase 2 curves collapsed to their chord, which made curve-aware
 construct detection impossible.
+
+### Layers and fill from PDF
+
+A plotted PDF is not the layerless thing this module long assumed. AutoCAD's
+export writes one OPTIONAL-CONTENT GROUP per CAD layer, and every path says
+which one it sits in; it also says whether it is painted or merely outlined.
+Both are evidence a reviewer reads directly — "existing" vs "proposed" is
+often nothing but the layer name, and a filled circle is how a boring is
+drawn — so both now reach the IR: every entity built from a vector path
+carries `layer` (the group's name, else `None`), `filled`, and `fill_color`.
+This is evidence for a caller, **not** a finder change; no threshold, score
+or rule moved.
+
+What the ten-sheet Mecklenburg corpus actually carries (measured 2026-09-16
+with the consuming repo's `module_work/drawing_ground_truth/
+probe_layers_fill.py`, PyMuPDF 1.27.2, 41,061 paths in total):
+
+| measured | corpus |
+|---|---|
+| sheets declaring optional-content groups | 1 of 10 (`10.31A`: `0`, `BORDER`, `TEXT`, `REV`, `PROPOSED`, all default ON) |
+| paths carrying a layer | 3,208 (7.8% of the corpus; 100% of that one sheet, 0% of the other nine) |
+| that sheet's paths per layer | `0` 2,106, `BORDER` 611, `TEXT` 419, `REV` 64, `PROPOSED` 8 |
+| path paint: fill-only / stroke-only / both | 7,096 `f` / 33,821 `s` / 144 `fs` |
+| filled paths (>= 3 points) | 6,669 — 3 circle-like rings, 6,278 few-vertex polygons at arrowhead scale |
+| filled paths whose `closePath` flag is True | **0 of 6,669** |
+| `get_drawings()` on the biggest sheet | 0.07 s (10,095 paths) |
+
+Four facts that decided the design:
+
+- **"No layer" is the empty string, not `None`.** PyMuPDF reports `""` for a
+  path in no group, so a naive read makes 100% of every sheet "layered". It
+  is normalized to `None` at the extractor, because `""` is not a layer name
+  and a caller asking for the unlayered geometry must not have to know which
+  spelling of nothing the library used. A group genuinely NAMED `"0"` (that
+  corpus sheet has one — AutoCAD's default layer) is a real name and is kept
+  verbatim; this is the OPPOSITE of the DXF leg, where `"0"` inside a block is
+  the inheritance sentinel described above. The PDF leg never writes `"0"` to
+  mean "no layer".
+- **A filled path is closed whatever the flag says.** The fill operator closes
+  every open subpath, and on this corpus the `closePath` flag is False on all
+  6,669 filled paths. So `filled` — not `closed` — is the dependable "this is
+  an area" signal, which is the same lesson `find_leaders` learned from the
+  other direction (a naively drawn shaft comes back `closed=True`).
+- **Hidden layers are hidden.** MuPDF honours the document's own default
+  state, so nothing on a group that is OFF reaches `get_drawings()` — verified
+  against a two-group synthetic. The IR therefore shows what the sheet SHOWS,
+  publishes the `ocgs` summary (name → default ON) so a caller can SEE that a
+  hidden group exists, and WARNS naming it, because an omission nobody
+  mentions is indistinguishable from an empty layer.
+  `from_pdf_vector(include_hidden_layers=True)` turns every group on first and
+  reads them — the same opt-in shape as `include_cad_hidden_text`.
+- **The OCG dictionary is a supplement, not the authority.** A real submittal
+  outside this corpus declares **zero** OCGs while its sheets' paths carry
+  dozens of distinct layer names each (that document is confidential; the
+  shape of the finding is not). A path's name comes from the marked content
+  it sits in, which need not be registered in `/OCProperties`, and nested
+  optional content arrives as the names joined by `|`. So the `n_layers` tally
+  is taken from the PATHS themselves — the same meaning the DXF leg gives it,
+  every distinct layer name seen during ingest — and `ocgs` is published only
+  when the document declares some.
+
+Only paths carry a layer: a PDF text span records no group membership, so
+every `TextItem` on this leg has `layer=None` rather than a guess at the
+nearest path's group.
+
+`filled` and `fill_color` sit on the ENVELOPE beside `color`, not on one shape
+class, because the same fact reaches the IR as a closed `Polyline` (a plotted
+arrowhead or boring dot), a `Circle`, or a `Region` (a DXF hatch). `to_dict`
+emits `filled` only when true and `fill_color` only when present — an unfilled
+entity says nothing about fill — and `fill_color` stays raw device RGB
+(floats 0-1) rather than `color`'s hex, because a fill is read straight off
+the paint operator and quantizing it would lose the greys a drafter uses to
+separate materials. **What an entity IS did not change**: a filled triangle is
+the same closed 3-vertex Polyline it always was (pinned by a test that ingests
+the same scene painted and unpainted and compares types, counts and vertices).
+The construct finders carry the new fact as EVIDENCE only —
+`arrowhead_filled`, `filled_terminator_ids`, and `filled` on bubble-callout
+and revision-delta proposals — and every corpus figure in this document is
+unchanged by it (`doc_claims_check.py`, before and after: identical).
 
 ### `from_raster` (OpenCV) — confidence < 1.0
 Delegates to `drawing_ir.raster.trace_raster` (keeps `cv2` optional). See below.
