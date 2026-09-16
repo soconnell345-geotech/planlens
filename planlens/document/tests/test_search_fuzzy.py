@@ -182,12 +182,15 @@ def test_availability_is_reported(doc):
     assert fuzzy_search_available() is True
 
 
-def test_without_rapidfuzz_the_error_names_the_extra(doc, monkeypatch):
+def test_without_rapidfuzz_the_error_names_the_package(doc, monkeypatch):
+    # rapidfuzz is a core dependency as of 0.4.0, so this state means an
+    # install someone trimmed by hand — the message must name the package to
+    # put back, not an extra that no longer carries it.
     monkeypatch.setitem(__import__("sys").modules, "rapidfuzz", None)
     with pytest.raises(ImportError) as exc:
         doc.search(GOOD, fuzzy=True)
-    assert 'pip install "planlens[text]"' in str(exc.value)
-    assert "rapidfuzz" in str(exc.value)
+    assert "pip install rapidfuzz" in str(exc.value)
+    assert "planlens[text]" not in str(exc.value)
     # Exact search must still work with the package missing.
     assert doc.search(GOOD)["n_hits"] == 1
 

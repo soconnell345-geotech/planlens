@@ -183,18 +183,19 @@ DEFAULT_FUZZY_MIN_SCORE = 80
 
 
 def _load_rapidfuzz():
-    """The optional ``rapidfuzz`` package, or a clear instruction.
+    """The ``rapidfuzz`` package, or a clear instruction.
 
     Import-guarded here rather than at module import because approximate
     matching is one option on one method: a caller who never asks for it must
-    not have to install a package to open a PDF.
+    not pay an import to open a PDF. ``rapidfuzz`` is a core dependency as of
+    0.4.0, so reaching the error means an install that was trimmed by hand.
     """
     try:
         from rapidfuzz import fuzz
     except ImportError as exc:  # pragma: no cover - exercised by monkeypatch
         raise ImportError(
-            'fuzzy search needs the optional package rapidfuzz: '
-            'pip install "planlens[text]"') from exc
+            'fuzzy search needs the package rapidfuzz: '
+            'pip install rapidfuzz') from exc
     return fuzz
 
 

@@ -390,7 +390,7 @@ def test_fuzzy_without_rapidfuzz_is_an_instruction_not_a_crash(kit,
     monkeypatch.setitem(sys.modules, "rapidfuzz", None)
     out = call(kit, "search_document", handle=handle, pattern="borings",
                fuzzy=True)
-    assert 'planlens[text]' in out["error"]
+    assert "pip install rapidfuzz" in out["error"]
     assert "without fuzzy" in out["hint"]
 
 

@@ -495,13 +495,15 @@ which is exactly the small-`n` upward bias the caveat describes.
 
 ## LLM surfaces
 
-Two, as of planlens 0.3.0:
+Two, as of planlens 0.4.0:
 
 - **`planlens.tools.ReviewToolkit`** (in this package, framework-neutral) —
-  the whole-document tools over `planlens.document`: `open_document`,
+  ten whole-document tools over `planlens.document`: `open_document`,
   `document_structure`, `document_page_map`, `read_document`,
-  `search_document`, `document_markups`, `render_page_thumbnails`,
-  `render_page`, `render_region`. See `planlens/document/DESIGN.md`.
+  `search_document`, `find_quantities`, `document_markups`,
+  `render_page_thumbnails`, `render_page`, `render_region`. The same ten serve
+  over MCP (`planlens.mcp_server`), generated from the same specs. See
+  `planlens/document/DESIGN.md`.
 - **The geotech app's drawing adapter** — the drawing-geometry tools below
   still live in `GeotechStaffEngineer/funhouse_agent/adapters/drawing_ir_adapter.py`;
   moving them into `planlens.tools` is the next step on the open list.

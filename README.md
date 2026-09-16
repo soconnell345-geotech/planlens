@@ -20,7 +20,7 @@ located, attributed data:
   record (comments, callouts, clouds, arrows, stamps — author, date, and the
   exact spot each points at); the hidden text AutoCAD stores behind stroked
   SHX lettering; search across all of it. Search also matches
-  approximately (`search(..., fuzzy=True)`, the optional `text` extra), so a
+  approximately (`search(..., fuzzy=True)`), so a
   term still turns up in text that was read optically or recovered from
   stroked lettering and has a letter wrong. And it pulls out the numbers the
   document STATES — "approximately 40-foot centers", "2,500 psf", "EL. 1684",
@@ -433,14 +433,18 @@ by a fixture so it cannot move silently):
 ## Install
 
 ```
-pip install planlens            # DXF + vector-PDF ingest
-pip install "planlens[raster]"  # + raster/scanned-sheet tracing
-pip install "planlens[ocr]"     # + optical text for stroked/scanned sheets
-pip install "planlens[text]"    # + forgiving (fuzzy) search over that text
+pip install planlens         # everything below except OCR and MCP
+pip install "planlens[ocr]"  # + optical text for stroked/scanned sheets
+pip install "planlens[mcp]"  # + the Model Context Protocol server
 ```
 
-The `[text]` extra is `rapidfuzz` alone — a small C++ extension, no models
-and no runtime downloads — and it buys `Document.search(fuzzy=True)`.
+The plain install carries the whole reading path: DXF and vector-PDF
+ingest, raster/scanned-sheet tracing (`opencv-python-headless`) and
+forgiving search, `Document.search(fuzzy=True)` (`rapidfuzz` — a small
+C++ extension, no models, no runtime downloads). Those two were the
+`[raster]` and `[text]` extras before 0.4.0 and are now core; both
+names survive as empty extras, so `pip install "planlens[raster]"`
+still resolves and installs the same thing as `pip install planlens`.
 
 The `[ocr]` extra installs RapidOCR + onnxruntime with PP-OCR models
 inside the wheel (no runtime downloads; all-permissive licenses:
@@ -449,20 +453,20 @@ Apache-2.0/MIT/BSD).
 **OpenCV variants — pick per environment.** Every published rapidocr
 distribution (`rapidocr-onnxruntime` 1.x and the unified `rapidocr`
 2/3.x alike) hard-requires the full GUI `opencv-python` (~112 MB),
-while the `[raster]` extra uses `opencv-python-headless`; pip cannot
+while planlens itself depends on `opencv-python-headless`; pip cannot
 express "either variant", and installing both leaves two distributions
 owning the `cv2` namespace (works, but uninstalling either can break
-the other). Decision:
+the other). That is why OCR is still an extra. Decision:
 
-- **Desktop / notebook**: `pip install "planlens[raster,ocr]"` as
-  above — the GUI build wins the namespace and everything works.
+- **Desktop / notebook**: `pip install "planlens[ocr]"` as above — the
+  GUI build wins the namespace and everything works.
 - **Server / headless deploy** (Databricks, TinyApps — no GUI libs):
   skip the `[ocr]` extra and install the engine without its metadata
   deps; the OCR leg needs only the cv2 APIs headless provides
   (verified end-to-end in a clean headless-only venv, 2026-09-05):
 
   ```
-  pip install "planlens[raster]"
+  pip install planlens
   pip install --no-deps "rapidocr-onnxruntime==1.2.3"
   pip install "onnxruntime>=1.7" pyclipper shapely pillow pyyaml six
   ```

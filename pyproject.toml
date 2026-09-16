@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "planlens"
-version = "0.3.0"
-description = "Review-ready data from AEC documents for LLMs: page maps, located text, tables, review markups and hidden CAD text from any PDF, plus deterministic drawing geometry and confidence-scored annotation constructs (leaders, dimensions, title blocks, callouts) from PDF and DXF sheets, with framework-neutral LLM tools"
+version = "0.4.0"
+description = "Review-ready data from AEC documents for LLMs: page maps, located text, tables, review markups, hidden CAD text, the quantities the text states and the measurement scale the PDF itself stores, searched exactly or forgivingly, plus deterministic drawing geometry carrying CAD layers and fill with confidence-scored annotation constructs (leaders, dimensions, title blocks, callouts) from PDF and DXF sheets, as framework-neutral LLM tools or over the Model Context Protocol"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -29,37 +29,50 @@ dependencies = [
     "numpy>=2.0",
     "ezdxf>=1.4",
     "PyMuPDF>=1.23",
+    # Raster/scanned-sheet ingest (OpenCV Hough/contour tracing). Core since
+    # 0.4.0: it was the `raster` extra, and an install without it read a
+    # scanned sheet as an empty drawing.
+    #
+    # NO UPPER BOUND, and OpenCV 5 has already walked through the gap: a
+    # Databricks install on 2026-09-11 resolved 5.0.0.93 and nobody decided
+    # that -- it was found by reading an install log. VERIFIED SAFE: the full
+    # suite (792 passed / 1 skipped) was run against OpenCV 5.0.0, and the cv2
+    # surface used here is small and long-stable (imdecode, cvtColor, Canny,
+    # HoughLinesP, HoughCircles, findContours, approxPolyDP, threshold,
+    # medianBlur, rotate); findContours is already unpacked
+    # version-agnostically in ir/raster.py. If you tighten this to ">=4.8,<6"
+    # so the NEXT major is a decision rather than a discovery, that is a
+    # deliberate release, not a drive-by. Triage guide: the app repo's
+    # docs/DATABRICKS_INSTALL.md section 7.
+    #
+    # The HEADLESS build is deliberate, and the reason `ocr` stays an extra:
+    # every rapidocr distribution hard-requires the full GUI opencv-python,
+    # which owns the same `cv2` namespace. See the `ocr` note below and the
+    # README's "Install" section for the headless --no-deps recipe.
+    "opencv-python-headless>=4.8",
+    # Approximate (fuzzy) search over the same candidates the exact search
+    # uses. Core since 0.4.0: pure C++ extension, no models, no runtime
+    # downloads, ~1 MB. >=3.9 rather than the newest, because 3.9 is the last
+    # line that still resolves on Python 3.10, which this package supports.
+    "rapidfuzz>=3.9",
 ]
 
 [project.optional-dependencies]
-# Raster/scanned-sheet ingest (OpenCV Hough/contour tracing).
-#
-# NO UPPER BOUND, and OpenCV 5 has already walked through the gap: a Databricks
-# install on 2026-09-11 resolved 5.0.0.93 and nobody decided that -- it was
-# found by reading an install log. VERIFIED SAFE: the full suite (792 passed /
-# 1 skipped) was run against OpenCV 5.0.0, and the cv2 surface used here is
-# small and long-stable (imdecode, cvtColor, Canny, HoughLinesP, HoughCircles,
-# findContours, approxPolyDP, threshold, medianBlur, rotate); findContours is
-# already unpacked version-agnostically in ir/raster.py. If you tighten this to
-# ">=4.8,<6" so the NEXT major is a decision rather than a discovery, that is a
-# deliberate release, not a drive-by. Triage guide: the app repo's
-# docs/DATABRICKS_INSTALL.md section 7.
-raster = ["opencv-python-headless>=4.8"]
+# folded into core in 0.4.0; kept so `planlens[raster]` keeps resolving
+raster = []
+# folded into core in 0.4.0; kept so `planlens[text]` keeps resolving
+text = []
 # OCR leg (planlens.ocr): RapidOCR, Apache-2.0, ~60 MB incl. onnxruntime;
 # PP-OCR models ship in the wheel — no runtime downloads, no system
 # binaries, no GPL. Needed for text on SHX-plotted and scanned sheets.
 # NOTE: every rapidocr distribution hard-requires the full (GUI)
-# opencv-python, which conflicts-in-namespace with [raster]'s headless
-# build — pip cannot express "either variant". This extra is the
-# batteries-included DESKTOP path; server/headless deploys (Databricks,
-# TinyApps) should use the verified --no-deps recipe in README
-# "Install" instead, which runs the whole OCR leg on headless alone.
+# opencv-python, which conflicts-in-namespace with the headless build
+# core depends on — pip cannot express "either variant". This extra is
+# the batteries-included DESKTOP path; server/headless deploys
+# (Databricks, TinyApps) should use the verified --no-deps recipe in
+# README "Install" instead, which runs the whole OCR leg on headless
+# alone.
 ocr = ["rapidocr-onnxruntime>=1.2,<1.3"]  # <1.3: the OCR corner-role-shift correction reads engine internals (text_cls); re-verify the role table before raising
-# Text that has letter errors in it: approximate (fuzzy) search over the same
-# candidates the exact search uses. Pure C++ extension, no models, no runtime
-# downloads, ~1 MB. >=3.9 rather than the newest, because 3.9 is the last line
-# that still resolves on Python 3.10, which this package supports.
-text = ["rapidfuzz>=3.9"]
 # Serve the tools over the Model Context Protocol (planlens.mcp_server), so any
 # MCP host can discover and call them without planlens-specific glue. The
 # official SDK, pure Python; nothing is downloaded at runtime and no other

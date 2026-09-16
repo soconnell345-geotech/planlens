@@ -108,9 +108,11 @@ joined, each unblocked line, each hidden CAD string, each markup's comment,
 author and subject — compared with `rapidfuzz`'s partial ratio instead of a
 regular expression. Every hit carries its `score` (0-100) and its `source`
 (text layer, hidden CAD text, OCR, Azure, markup), and hits come back best
-score first, then by page. `rapidfuzz` is the optional `text` extra; without it
-the call raises with the install command in the message, and
-`fuzzy_search_available()` lets a caller ask before offering the advice. Exact
+score first, then by page. `rapidfuzz` is a core dependency (it was the `text`
+extra until 0.4.0), imported at the moment fuzzy matching is asked for rather
+than at module import; on an install trimmed by hand the call raises with the
+install command in the message, and `fuzzy_search_available()` lets a caller
+ask before offering the advice. Exact
 mode is untouched: no `score`, no reordering, and it still stops at the first
 `max_hits`. Fuzzy mode cannot — ordering by score means there is no such thing
 as the first `max_hits` — so it costs a full pass over the requested pages.

@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-09-16
+
+The take-the-document-at-its-word release: the scale, the CAD layers, the fill
+and the numbers a file already carries are now read rather than inferred or
+lost, search forgives a letter read wrong, a page bound in twice is caught even
+on a scan, and the same tools serve any MCP host.
 
 - **An MCP server.** New `planlens.mcp_server` (`python -m
   planlens.mcp_server`, or the `planlens-mcp` console script) serves the
@@ -54,9 +59,10 @@
   or recovered from stroked lettering with a letter wrong. Every hit carries a
   `score` (0-100) and the `source` that read it, best score first; exact search
   is unchanged. `search_document` gains `fuzzy` / `min_score`, and an exact
-  search that finds nothing now says to try `fuzzy: true`. Needs the new
-  optional extra `planlens[text]` (`rapidfuzz`); without it the call names the
-  extra to install, and `fuzzy_search_available()` answers before it is asked.
+  search that finds nothing now says to try `fuzzy: true`. Runs on `rapidfuzz`,
+  a core dependency (see the packaging note below), imported only when fuzzy
+  matching is asked for; `fuzzy_search_available()` answers before it is asked,
+  so a caller never advises a retry that would raise.
 - **The numbers the document SAYS.** New `planlens.document.quantities` and
   `Document.quantities(pages, kinds, units)`: every value-with-unit in the
   text, hidden CAD strings and reviewers' comments — `7'-6"`, `40-foot`,
@@ -131,6 +137,19 @@
 - `planlens.pdf`: `extract_colored_paths` returns `layer` / `filled` /
   `fill_color` per path, `discover_pdf_content` returns `ocgs`, and
   `layer_state` / `enable_all_layers` are public.
+- **Packaging: `raster` and `text` are folded into core.** `pip install
+  planlens` now brings `opencv-python-headless` and `rapidfuzz` with it, so
+  raster/scanned-sheet tracing and forgiving search work out of the box —
+  an install without them read a scanned sheet as an empty drawing and refused
+  a search the tools advertise, which is a trap, not a saving. Both extras are
+  KEPT as empty aliases, so `planlens[raster]` and `planlens[text]` still
+  resolve and install the same thing as plain `planlens`. Nothing about the
+  import cost changed: `import planlens` loads neither, and both are imported
+  at the moment they are used. `ocr` stays optional (every rapidocr
+  distribution hard-requires the GUI OpenCV build, which owns the same `cv2`
+  namespace) and so does `mcp`.
+- `ReviewToolkit` now serves TEN tools: `find_quantities` joined the nine of
+  0.3.0, on the framework-neutral specs and over MCP alike.
 
 ## 0.3.0 — 2026-09-14
 

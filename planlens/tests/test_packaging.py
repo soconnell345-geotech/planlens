@@ -105,8 +105,18 @@ class TestShippedPackages:
         assert callable(_draw_shaft) and callable(_pt) and callable(_to_ir)
 
 
-class TestOptionalDependencies:
-    """`pip install planlens` must not grow when a new leg is added."""
+class TestDependencies:
+    """What a plain `pip install planlens` pulls in, and what it does not.
+
+    0.4.0 folded the `raster` and `text` extras into core: an install without
+    OpenCV read a scanned sheet as an empty drawing, and one without rapidfuzz
+    refused the fuzzy search the tools advertise. Both names stay as EMPTY
+    extras so `planlens[raster]` / `planlens[text]` keep resolving. What must
+    NOT follow is eager importing — a core dependency is still paid for at the
+    moment it is used.
+    """
+
+    CORE = {"numpy", "ezdxf", "pymupdf", "opencv-python-headless", "rapidfuzz"}
 
     @staticmethod
     def _project() -> dict:
@@ -119,6 +129,15 @@ class TestOptionalDependencies:
         return {re.split(r"[\[<>=!~; ]", r, maxsplit=1)[0].strip().lower()
                 for r in requirements}
 
+    def test_core_dependencies_are_exactly_the_documented_five(self):
+        assert self._names(self._project()["dependencies"]) == self.CORE
+
+    def test_the_folded_extras_stay_as_empty_aliases(self):
+        extras = self._project()["optional-dependencies"]
+        # Kept so an existing `pip install "planlens[raster]"` still resolves.
+        assert extras["raster"] == []
+        assert extras["text"] == []
+
     def test_the_mcp_sdk_is_an_extra_not_a_dependency(self):
         project = self._project()
         assert "mcp" not in self._names(project["dependencies"])
@@ -126,7 +145,32 @@ class TestOptionalDependencies:
         # unbounded pin would install a version this server cannot run on.
         assert project["optional-dependencies"]["mcp"] == ["mcp>=2,<3"]
 
-    def test_importing_planlens_does_not_need_the_extras(self):
+    def test_the_ocr_engine_stays_optional(self):
+        # It hard-requires the GUI OpenCV build, which owns the same `cv2`
+        # namespace as the headless build core installs.
+        project = self._project()
+        assert "rapidocr-onnxruntime" not in self._names(
+            project["dependencies"])
+        assert project["optional-dependencies"]["ocr"]
+
+    def test_importing_planlens_loads_no_heavy_dependency(self):
+        # `import planlens` must cost nothing but the version string: cv2
+        # alone is tens of MB of shared libraries. Run out-of-process because
+        # the test session has already imported plenty.
+        import subprocess
+        import sys
+        probe = (
+            "import sys; import planlens;"
+            "heavy = [m for m in sys.modules"
+            " if m.split('.')[0] in {'cv2', 'rapidfuzz', 'mcp', 'fitz',"
+            " 'pymupdf', 'ezdxf', 'rapidocr_onnxruntime'}];"
+            "print(','.join(sorted(heavy)))"
+        )
+        out = subprocess.run([sys.executable, "-c", probe], check=True,
+                             capture_output=True, text=True).stdout.strip()
+        assert out == "", f"import planlens pulled in: {out}"
+
+    def test_the_server_module_is_reachable_without_the_mcp_sdk(self):
         # The server module is reachable by name and imported by nobody: the
         # import guard inside it is the only thing that ever mentions `mcp`.
         src = (REPO_ROOT / "planlens" / "__init__.py").read_text(
