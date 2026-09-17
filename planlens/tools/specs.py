@@ -232,13 +232,31 @@ TOOL_SPECS = [
             "calculation printout, one for the narrative, one per report "
             "bound inside this one. Use it to find every log or every lab "
             "sheet in a long report, and to read one of them at a time. "
-            "items_only=true returns the items without the per-page rows."),
+            "items_only=true returns the items without the per-page rows. "
+            "outline=true adds what the report says about ITSELF: its table "
+            "of contents, its lists of figures, tables and appendices (each "
+            "entry with the page number as printed, and the PDF page it was "
+            "matched to, or nothing when it could not be matched), every "
+            "divider page with its text, each figure page's caption, and the "
+            "narrative's section headings in order. ledger=true returns one "
+            "compact line per page instead of the rows - page, kind, role, "
+            "confidence, the rule that fired, heading, running header, "
+            "printed page, segment, text characters, whether the text is "
+            "reliable and whether it came from Azure - which is the cheapest "
+            "way to take a long report in before opening anything."),
         "parameters": {
             "type": "object",
             "properties": {
                 "handle": HANDLE_SCHEMA,
                 "items_only": {"type": "boolean",
                                "description": "Return only the work items."},
+                "outline": {"type": "boolean",
+                            "description": "Add the report's contents, "
+                                           "lists, dividers, captions and "
+                                           "section headings."},
+                "ledger": {"type": "boolean",
+                           "description": "One line per page instead of the "
+                                          "per-page rows."},
                 "offset": {"type": "integer", "minimum": 0},
             },
             "required": ["handle"],

@@ -18,8 +18,9 @@ Tools
 ``document_structure`` the constituent documents: segments with their
                        running headers/footers and printed page numbers
 ``document_roles``     what each page IS — narrative, boring log, lab sheet,
-                       calculation printout, appended report — and the work
-                       items those pages make
+                       calculation printout, appended report — the work items
+                       those pages make, and on request the report's own
+                       outline or one ledger line per page
 ``render_page``        a page as a PNG image, for the model to look at
 ``render_region``      a zoomed region (with optional numbered marks) as a PNG
 ``render_page_thumbnails``  contact sheets of every page, like a viewer's
@@ -733,12 +734,31 @@ class ReviewToolkit:
         return out
 
     def _tool_document_roles(self, handle: str, items_only: bool = False,
+                             outline: bool = False, ledger: bool = False,
                              offset: int = 0) -> Dict[str, Any]:
-        from planlens.document.roles import roles_and_items
+        from planlens.document.roles import (
+            SOURCE_AZURE_DI, assign, build_items, facts_from_document,
+            ledger_from, outline_from,
+        )
 
         entry = self._entry(handle)
         with entry.lock:
-            roles, items = roles_and_items(entry.doc)
+            facts = facts_from_document(entry.doc)
+            roles = assign(facts)
+            items = build_items(facts, roles)
+            outline_dict = None
+            ledger_lines = None
+            if outline:
+                def lines_of(index: int):
+                    return [ln.text
+                            for ln in entry.doc.page(index, tables=False).lines
+                            if (ln.text or "").strip()]
+
+                outline_dict = outline_from(facts, roles, lines_of).to_dict()
+            if ledger:
+                di = [s.page for s in entry.doc.page_map()
+                      if s.evidence.get("text_source") == SOURCE_AZURE_DI]
+                ledger_lines = ledger_from(facts, roles, di)
         counts: Dict[str, int] = {}
         for r in roles:
             counts[r.role] = counts.get(r.role, 0) + 1
@@ -755,6 +775,37 @@ class ReviewToolkit:
                      "roles read from the pages' own titles, their appendix "
                      "tabs and their shape, with the evidence on each row")}
         out["n_items"] = len(item_rows)
+
+        if outline_dict is not None:
+            # The outline is the report's own account of itself and is what a
+            # reviewer reads first, so it is fitted before anything else and
+            # its entries are paged rather than dropped.
+            out["outline"] = {k: v for k, v in outline_dict.items()
+                              if k in ("n_entries", "n_entries_placed")}
+            room = self._budget(200) - json_len(out)
+            for part in ("entries", "dividers", "captions", "headings"):
+                rows, nxt = fit_items(outline_dict[part], max(room // 4, 400))
+                out["outline"][part] = rows
+                if nxt is not None:
+                    out["outline"][f"{part}_truncated_after"] = nxt
+
+        if ledger_lines is not None:
+            out["ledger_note"] = ("one line per page: page, kind, role, "
+                                  "confidence, [the rule that fired], "
+                                  "heading, running header, printed page, "
+                                  "segment, text characters, whether the "
+                                  "text layer is reliable, whether Azure "
+                                  "Document Intelligence supplied it, and "
+                                  "the work item")
+            out["ledger"] = []
+            room = self._budget(200) - json_len(out)
+            rows, nxt = fit_items(ledger_lines, max(room, 500), start=offset)
+            out["ledger"] = rows
+            if nxt is not None:
+                out["next_offset"] = nxt
+                out["hint"] = "call again with offset for the rest of the pages"
+            return out
+
         if items_only:
             out["items"] = []
             budget = self._budget(150) - json_len(out)

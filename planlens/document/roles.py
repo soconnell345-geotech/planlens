@@ -55,7 +55,9 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from planlens.document.model import PageSummary
+from planlens.document.model import (
+    SOURCE_AZURE_DI, PageSummary, _compact,
+)
 
 #: The role vocabulary. Fixed: a reader that cannot name a page's role must
 #: say ``other`` rather than invent a word.
@@ -105,6 +107,14 @@ BAND_FRACTION = 0.18
 #: How far after an exploration's name the word "log" may sit and still
 #: be part of that name ("TEST PIT 4 LOG", "BORING B-12 LOG SHEET").
 LOG_WORD_CHARS = 14
+
+#: Confidence a page gets when its ROLE came from its appendix tab rather
+#: than from anything the page itself says. Deliberately well below a page
+#: that names itself: a tab is right about most of its appendix and wrong
+#: about the summary table, the legend and the stray calculation bound into
+#: it, and a reviewer reading these rows needs to see which labels are the
+#: tab talking and which are the page talking.
+INHERITED_CONFIDENCE = 0.6
 
 #: Fewest words a page of the report's prose carries. Below it the page
 #: is a heading sheet, a table or a picture with a caption.
@@ -1331,17 +1341,19 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
 
         if doc is not None and doc.appended:
             out.append(PageRole(i, "appended_report", 0.85, {
+                "tag": "nested-report",
                 "rule": "inside a report bound into this one",
                 "document_pages": f"{doc.first}-{doc.last}"}))
             continue
 
         if f.kind == "blank":
             out.append(PageRole(i, "other", 0.6,
-                                {"rule": "blank page"}))
+                                {"tag": "blank", "rule": "blank page"}))
             continue
 
         if i in dividers:
             out.append(PageRole(i, "divider", 0.85, {
+                "tag": "tab",
                 "rule": "tab or cover page naming what follows",
                 "title": dividers[i][:80]}))
             continue
@@ -1351,15 +1363,15 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
         if front:
             if _is_toc(f):
                 out.append(PageRole(i, "toc", 0.85,
-                                    {"rule": "table of contents heading"}))
+                                    {"tag": "toc", "rule": "table of contents heading"}))
                 continue
             if _is_report_cover(f):
                 out.append(PageRole(i, "cover", 0.8,
-                                    {"rule": "report title page"}))
+                                    {"tag": "cover", "rule": "report title page"}))
                 continue
             if _is_letter(f):
                 out.append(PageRole(i, "letter", 0.8,
-                                    {"rule": "cover letter wording"}))
+                                    {"tag": "letter", "rule": "cover letter wording"}))
                 continue
 
         if i in narrative:
@@ -1367,7 +1379,9 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
             # laboratory testing and the infiltration rates, and every one of
             # those words would otherwise take the page away from the prose
             # it is.
-            out.append(PageRole(i, "narrative", 0.85, {"rule": narrative[i]}))
+            out.append(PageRole(i, "narrative", 0.85,
+                                {"tag": "narrative-block",
+                                 "rule": narrative[i]}))
             continue
 
         declared = list(sec.roles) if sec else []
@@ -1392,12 +1406,14 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
         if cue is not None and cue.strength == "strong" and (
                 cue.in_title or not single_tab or cue.role in declared):
             out.append(PageRole(i, cue.role, cue.confidence,
-                                {"rule": "the page names itself",
+                                {"tag": "page-title",
+                                 "rule": "the page names itself",
                                  "why": cue.why}))
             continue
 
         if cue is not None and declared and cue.role in declared:
             out.append(PageRole(i, cue.role, cue.confidence, {
+                "tag": "page-title+tab",
                 "rule": "the page names itself, and its appendix expects it",
                 "why": cue.why,
                 "appendix": (sec.title or "")[:60] if sec else None}))
@@ -1408,6 +1424,7 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
             # A D-size sheet bound into an appendix of logs is a drawing —
             # a cross-section or a plan — not a log page.
             out.append(PageRole(i, "figure", 0.5, {
+                "tag": "sheet-in-tab",
                 "rule": "large-format sheet inside an appendix of "
                         f"{declared[0]} pages"}))
             continue
@@ -1419,6 +1436,7 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
             # reports write their data volume as numbered prose sections
             # about the explorations rather than as forms.
             out.append(PageRole(i, "other", 0.5, {
+                "tag": "prose-in-tab",
                 "rule": f"prose page inside an appendix of "
                         f"{declared[0]} pages"}))
             continue
@@ -1426,8 +1444,12 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
         if declared and not exploration:
             single = len(declared) == 1
             if single or cue is None:
-                out.append(PageRole(i, declared[0], 0.75 if single else 0.6, {
-                    "rule": "its appendix says what it holds",
+                out.append(PageRole(i, declared[0],
+                                    INHERITED_CONFIDENCE if single
+                                    else INHERITED_CONFIDENCE - 0.1, {
+                    "tag": "tab-declares",
+                    "rule": "INHERITED from its appendix tab; the page says "
+                            "nothing about itself",
                     "appendix": (sec.title or "")[:60] if sec else None,
                     "declared": declared}))
                 continue
@@ -1439,7 +1461,7 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
             continue
 
         role, conf, why = _by_kind(f)
-        out.append(PageRole(i, role, conf, {"rule": why}))
+        out.append(PageRole(i, role, conf, {"tag": "page-shape", "rule": why}))
 
     return _smooth_runs(facts, out, dividers)
 
@@ -1464,6 +1486,7 @@ def _smooth_runs(facts: Sequence[PageFacts], roles: List[PageRole],
         cont = bool(_RE_PAGE_OF.search(f.top + f.bottom))
         if n_fields >= 5 or (cont and n_fields >= 3):
             out[i] = PageRole(f.page, prev.role, 0.7, {
+                "tag": "run-continuation",
                 "rule": "continuation sheet of the log on the page before",
                 "why": f"{n_fields} log form fields"
                        + (", printed 'page N of M'" if cont else "")})
@@ -1620,3 +1643,424 @@ def roles_and_items(doc) -> Tuple[List[PageRole], List[Item]]:
     roles = assign(facts)
     items = build_items(facts, roles)
     return roles, items
+
+
+# ---------------------------------------------------------------------------
+# What the report says about itself
+# ---------------------------------------------------------------------------
+#
+# A model reviewing a report needs the report's own account of its contents
+# before it reads any of them: the table of contents, the list of figures,
+# the appendix tabs, the figure captions, the section headings. All of it is
+# printed ON the pages; none of it is inferred. An entry this cannot place on
+# a page carries ``page = None``, never a guess.
+
+#: What a contents list calls itself, in the languages the corpus is in.
+CONTENTS_HEADINGS = (
+    "table of contents", "contents", "table des matieres", "sommaire",
+    "indice", "indice general", "tabla de contenido", "conteudo",
+    "inhaltsverzeichnis",
+)
+FIGURE_LIST_HEADINGS = (
+    "list of figures", "figures", "table of figures", "liste des figures",
+    "lista de figuras", "indice de figuras", "plates", "list of plates",
+)
+TABLE_LIST_HEADINGS = (
+    "list of tables", "tables", "liste des tableaux", "lista de tablas",
+    "indice de tablas",
+)
+APPENDIX_LIST_HEADINGS = (
+    "list of appendices", "list of appendixes", "appendices", "appendixes",
+    "annexes", "anexos", "apendices", "attachments", "list of attachments",
+    "liste des annexes",
+)
+
+_RE_CONTENTS_HEADING = _phrases(CONTENTS_HEADINGS)
+_RE_FIGURE_LIST = _phrases(FIGURE_LIST_HEADINGS)
+_RE_TABLE_LIST = _phrases(TABLE_LIST_HEADINGS)
+_RE_APPENDIX_LIST = _phrases(APPENDIX_LIST_HEADINGS)
+
+#: "Figure 3", "Table A-2", "Appendix B", "Annexe 4", "Plate 7" — the label a
+#: listed item and its own page both print.
+_RE_ITEM_LABEL = re.compile(
+    r"^\s*(?P<word>figure|fig|plate|table|tableau|tabla|appendix|appendice|"
+    r"apendice|annex|annexe|anexo|attachment|exhibit|part)\.?\s*"
+    r"(?P<number>[A-Z]{0,2}-?\d{1,3}[A-Za-z]?|[A-Z])\b[\s:.–—-]*"
+    r"(?P<rest>.*)$", re.I)
+
+#: A dotted leader, or three or more spaces, then what must be a page number.
+_RE_LEADER = re.compile(
+    r"^(?P<title>.*?)[\s.·•…_-]{3,}"
+    r"(?P<page>[ivxlcdm]{1,7}|[A-Z]{0,2}-?\d{1,4})\s*$", re.I)
+
+#: A title and a page number separated by nothing but space.
+_RE_TRAILING_PAGE = re.compile(
+    r"^(?P<title>\S.*?\S)\s{2,}(?P<page>[ivxlcdm]{1,7}|[A-Z]{0,2}-?\d{1,4})\s*$",
+    re.I)
+
+#: A numbered section heading: "3.2 Subsurface Conditions", "4.0 FINDINGS".
+_RE_SECTION_NUMBER = re.compile(r"^\s*(\d{1,2}(?:\.\d{1,2}){0,3})\s+(\S.*)$")
+
+#: Shortest and longest a listed title may be, so a stray number or a
+#: paragraph of prose is not read as an entry.
+OUTLINE_MIN_TITLE = 3
+OUTLINE_MAX_TITLE = 120
+
+
+@dataclass(frozen=True)
+class OutlineEntry:
+    """One line of a contents list, as the list printed it.
+
+    ``printed_page`` is the page number AS WRITTEN ("12", "A-3", "iv"),
+    because that is what a reader cites; ``page`` is the 0-based PDF page the
+    entry was matched to, and is ``None`` when it could not be matched to one
+    without guessing.
+    """
+
+    kind: str                       # contents | figure | table | appendix
+    title: str
+    number: Optional[str] = None
+    printed_page: Optional[str] = None
+    page: Optional[int] = None
+    listed_on: Optional[int] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return _compact({
+            "kind": self.kind, "number": self.number, "title": self.title,
+            "printed_page": self.printed_page, "page": self.page,
+            "listed_on": self.listed_on,
+        })
+
+
+@dataclass(frozen=True)
+class OutlineMark:
+    """Something a page prints about itself: a tab, a caption, a heading."""
+
+    kind: str                       # divider | caption | heading
+    page: int
+    text: str
+    number: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = _compact({"kind": self.kind, "number": self.number,
+                      "text": self.text})
+        d["page"] = self.page
+        return d
+
+
+@dataclass(frozen=True)
+class Outline:
+    """The report's own account of its contents."""
+
+    entries: List[OutlineEntry] = field(default_factory=list)
+    dividers: List[OutlineMark] = field(default_factory=list)
+    captions: List[OutlineMark] = field(default_factory=list)
+    headings: List[OutlineMark] = field(default_factory=list)
+
+    def of_kind(self, kind: str) -> List[OutlineEntry]:
+        return [e for e in self.entries if e.kind == kind]
+
+    @property
+    def contents(self) -> List[OutlineEntry]:
+        return self.of_kind("contents")
+
+    @property
+    def figures(self) -> List[OutlineEntry]:
+        return self.of_kind("figure")
+
+    @property
+    def tables(self) -> List[OutlineEntry]:
+        return self.of_kind("table")
+
+    @property
+    def appendices(self) -> List[OutlineEntry]:
+        return self.of_kind("appendix")
+
+    def to_dict(self) -> Dict[str, Any]:
+        placed = sum(1 for e in self.entries if e.page is not None)
+        return {
+            "n_entries": len(self.entries),
+            "n_entries_placed": placed,
+            "entries": [e.to_dict() for e in self.entries],
+            "dividers": [m.to_dict() for m in self.dividers],
+            "captions": [m.to_dict() for m in self.captions],
+            "headings": [m.to_dict() for m in self.headings],
+        }
+
+
+def _looks_like_page_number(text: str) -> bool:
+    t = text.strip().strip(".")
+    if not t:
+        return False
+    if re.fullmatch(r"[A-Za-z]{0,2}-?\d{1,4}", t):
+        return True
+    return bool(re.fullmatch(r"[ivxlcdmIVXLCDM]{1,7}", t))
+
+
+def _list_kind(heading: str) -> Optional[str]:
+    """Which list a heading opens, or None."""
+    text = _norm(heading)
+    if _RE_FIGURE_LIST.search(text):
+        return "figure"
+    if _RE_TABLE_LIST.search(text):
+        return "table"
+    if _RE_APPENDIX_LIST.search(text):
+        return "appendix"
+    if _RE_CONTENTS_HEADING.search(text):
+        return "contents"
+    return None
+
+
+def _entry_from_line(line: str, default_kind: str):
+    """``(kind, number, title, printed_page)`` for one listed line, or None."""
+    raw = " ".join(line.split())
+    if not raw:
+        return None
+    printed = None
+    body = raw
+    for rx in (_RE_LEADER, _RE_TRAILING_PAGE):
+        m = rx.match(raw)
+        if m and _looks_like_page_number(m.group("page")):
+            body = m.group("title").strip(" .·…_-")
+            printed = m.group("page").strip()
+            break
+    kind, number = default_kind, None
+    m = _RE_ITEM_LABEL.match(body)
+    if m:
+        word = m.group("word").lower()
+        number = m.group("number")
+        rest = m.group("rest").strip(" :.–—-")
+        if word in ("figure", "fig", "plate"):
+            kind = "figure"
+        elif word in ("table", "tableau", "tabla"):
+            kind = "table"
+        else:
+            kind = "appendix"
+        body = rest or (m.group("word").title() + " " + str(number))
+    if not (OUTLINE_MIN_TITLE <= len(body) <= OUTLINE_MAX_TITLE):
+        return None
+    if not any(ch.isalpha() for ch in body):
+        return None
+    return kind, number, body, printed
+
+
+def _read_list_pages(facts, lines_of) -> List[OutlineEntry]:
+    """Every entry printed on the document's contents and list pages.
+
+    A line whose text ends in a page number, on a page that calls itself a
+    contents list. The current list heading decides an entry's kind when the
+    entry does not name itself ("Figure 3" says what it is; "2.0 Site
+    Conditions" takes it from the heading above it).
+    """
+    out: List[OutlineEntry] = []
+    for f in facts:
+        heading_kind = _list_kind(f.title) or _list_kind(f.top)
+        if heading_kind is None and not _is_toc(f):
+            continue
+        current = heading_kind or "contents"
+        pending = None
+        for raw in lines_of(f.page):
+            flat = " ".join(raw.split())
+            found = _list_kind(flat)
+            if found is not None and len(flat) <= 40:
+                current = found
+                pending = None
+                continue
+            entry = _entry_from_line(raw, current)
+            if entry is None:
+                # "Figure 1:" on its own line, its title on the next — the
+                # layout every tab page in the corpus uses.
+                m = _RE_ITEM_LABEL.match(flat)
+                if m and not m.group("rest").strip():
+                    word = m.group("word").lower()
+                    kind = ("figure" if word in ("figure", "fig", "plate")
+                            else "table" if word in ("table", "tableau",
+                                                     "tabla")
+                            else "appendix")
+                    pending = (kind, m.group("number"))
+                continue
+            kind, number, title, printed = entry
+            if pending is not None and number is None:
+                kind, number = pending
+                pending = None
+            out.append(OutlineEntry(kind=kind, number=number, title=title,
+                                    printed_page=printed, listed_on=f.page))
+    return out
+
+
+def _caption(f: PageFacts, lines_of) -> Optional[OutlineMark]:
+    """The "Figure 3 - Site Plan" line a figure page prints, or None."""
+    for raw in lines_of(f.page):
+        text = " ".join(raw.split())
+        if not (OUTLINE_MIN_TITLE <= len(text) <= OUTLINE_MAX_TITLE):
+            continue
+        m = _RE_ITEM_LABEL.match(text)
+        if m and m.group("word").lower() in ("figure", "fig", "plate",
+                                             "table"):
+            return OutlineMark(kind="caption", page=f.page, text=text,
+                               number=m.group("number"))
+    return None
+
+
+def _section_heading(f: PageFacts) -> Optional[OutlineMark]:
+    """A narrative page's section heading, when it prints one."""
+    text = " ".join((f.heading or "").split())
+    if not (OUTLINE_MIN_TITLE <= len(text) <= OUTLINE_MAX_TITLE):
+        return None
+    m = _RE_SECTION_NUMBER.match(text)
+    if m:
+        return OutlineMark(kind="heading", page=f.page,
+                           text=" ".join(m.group(2).split()),
+                           number=m.group(1))
+    # An unnumbered heading counts only when it is set apart: short, and not
+    # the first sentence of a paragraph.
+    if len(text) <= 60 and not text.endswith((".", ",", ";")):
+        words = text.split()
+        if len(words) <= 9 and (text.isupper() or sum(
+                w[:1].isupper() for w in words) >= max(1, len(words) - 2)):
+            return OutlineMark(kind="heading", page=f.page, text=text)
+    return None
+
+
+def _match_entries(entries, dividers, captions, headings):
+    """Place each entry on the page that carries it, or leave it unplaced.
+
+    A match must be unique and must agree on the item's number when both
+    sides print one. Nothing is placed by position or by proximity.
+    """
+    def key(text: str) -> str:
+        return _norm(text).strip()
+
+    pools = {"appendix": dividers, "figure": captions + dividers,
+             "table": captions, "contents": headings}
+    out: List[OutlineEntry] = []
+    for e in entries:
+        pool = pools.get(e.kind, [])
+        want = key(e.title)
+        hits = []
+        for mark in pool:
+            got = key(mark.text)
+            if e.number and mark.number and (
+                    e.number.lower() != mark.number.lower()):
+                continue
+            if not want or len(want) < 6:
+                if e.number and mark.number and (
+                        e.number.lower() == mark.number.lower()):
+                    hits.append(mark)
+                continue
+            if want in got or got in want:
+                hits.append(mark)
+        pages = {m.page for m in hits}
+        out.append(OutlineEntry(
+            kind=e.kind, title=e.title, number=e.number,
+            printed_page=e.printed_page,
+            page=(hits[0].page if len(pages) == 1 else None),
+            listed_on=e.listed_on))
+    return out
+
+
+def outline_from(facts, roles, lines_of) -> Outline:
+    """The outline, from facts, their roles and a page -> text lines lookup."""
+    role_of = {r.page: r for r in roles}
+    dividers: List[OutlineMark] = []
+    captions: List[OutlineMark] = []
+    headings: List[OutlineMark] = []
+    for f in facts:
+        r = role_of.get(f.page)
+        if r is None:
+            continue
+        if r.role == "divider":
+            text = " ".join((r.evidence.get("title")
+                             or f.declaration).split())[:200]
+            m = _RE_APPENDIX_TOKEN.search(f.declaration)
+            dividers.append(OutlineMark(
+                kind="divider", page=f.page, text=text,
+                number=(m.group(1).upper() if m else None)))
+        elif r.role in ("figure", "plan", "profile"):
+            cap = _caption(f, lines_of)
+            if cap is not None:
+                captions.append(cap)
+        elif r.role == "narrative":
+            head = _section_heading(f)
+            if head is not None:
+                headings.append(head)
+    entries = _read_list_pages(facts, lines_of)
+    return Outline(entries=_match_entries(entries, dividers, captions,
+                                          headings),
+                   dividers=dividers, captions=captions, headings=headings)
+
+
+def document_outline(doc) -> Outline:
+    """What the report says about itself: contents, lists, tabs, captions.
+
+    Deterministic and literal. Every entry is a line somebody printed; an
+    entry this could not place on a page carries ``page = None``.
+    """
+    facts = facts_from_document(doc)
+    roles = assign(facts)
+
+    def lines_of(index: int) -> List[str]:
+        return [ln.text for ln in doc.page(index, tables=False).lines
+                if (ln.text or "").strip()]
+
+    return outline_from(facts, roles, lines_of)
+
+
+# ---------------------------------------------------------------------------
+# One line per page, for a model to read
+# ---------------------------------------------------------------------------
+
+def _clip(text: Optional[str], n: int) -> str:
+    out = " ".join((text or "").split())
+    return out[:n]
+
+
+def ledger_from(facts, roles, di_pages=()) -> List[str]:
+    """One compact line per page. See :func:`page_ledger`."""
+    di = set(di_pages)
+    role_of = {r.page: r for r in roles}
+    out: List[str] = []
+    for f in facts:
+        r = role_of.get(f.page)
+        role = r.role if r else "other"
+        conf = r.confidence if r else 0.0
+        tag = (r.evidence.get("tag") if r else None) or "-"
+        parts = [
+            "p%03d" % f.page,
+            "%-13s" % f.kind,
+            "%-15s" % role,
+            "%.2f" % conf,
+            "[%s]" % tag,
+            '"%s"' % _clip(f.heading, 60),
+        ]
+        if f.header:
+            parts.append('hdr="%s"' % _clip(f.header, 40))
+        if f.printed_page is not None:
+            parts.append("pp=%s" % f.printed_page
+                         + ("/%s" % f.printed_of if f.printed_of else ""))
+        if f.segment is not None:
+            parts.append("seg=%s" % f.segment)
+        parts.append("chars=%d" % f.n_text_chars)
+        parts.append("text_ok=" + ("Y" if f.text_reliable else "N"))
+        parts.append("di=" + ("Y" if f.page in di else "N"))
+        if r is not None and r.item_id:
+            parts.append(r.item_id)
+        out.append(" ".join(parts))
+    return out
+
+
+def page_ledger(doc, roles=None) -> List[str]:
+    """One line per page, for a model that will review the whole document.
+
+    ``p035 form boring_log 0.90 [page-title] "BORING LOG NO. B-1" hdr="..."
+    pp=1 seg=12 chars=1306 text_ok=Y di=N item_7``. Everything a reader needs
+    to decide which pages to open, in the order the pages come, at about a
+    line each. Pass the roles when they have already been computed.
+    """
+    facts = facts_from_document(doc)
+    if roles is None:
+        roles = assign(facts)
+        build_items(facts, roles)
+    di = [s.page for s in doc.page_map()
+          if s.evidence.get("text_source") == SOURCE_AZURE_DI]
+    return ledger_from(facts, roles, di)

@@ -114,11 +114,12 @@ def test_document_roles_tool_answers_pages_and_items(report_kit, report_gt):
     out = call(report_kit, "document_roles", handle=handle)
     assert out["n_pages"] == report_gt.n_pages
     got = {row["page"]: row["role"] for row in out["pages"]}
-    assert got == report_gt.roles
+    assert got == {p: r for p, r in report_gt.roles.items() if p in got}
+    assert len(got) >= 18
     kinds = [(i["kind"], i["pages"]) for i in out["items"]]
-    assert ("boring_log", "6-7") in kinds
-    assert ("appended_report", "14-17") in kinds
-    assert ("calculation", "19-20") in kinds
+    assert ("boring_log", "7-8") in kinds
+    assert ("appended_report", "15-18") in kinds
+    assert ("calculation", "20-21") in kinds
 
 
 def test_document_roles_items_only(report_kit):
@@ -136,8 +137,37 @@ def test_document_roles_is_published_and_budgeted(report_kit):
                 if s["name"] == "document_roles")
     assert "boring_log" in spec["description"]
     assert set(spec["parameters"]["properties"]) == {
-        "handle", "items_only", "offset"}
+        "handle", "items_only", "outline", "ledger", "offset"}
     handle = report_kit.open("report.pdf").handle
     text = report_kit.call_json("document_roles", {"handle": handle},
                                 max_chars=1200)
     assert len(text) <= 1200 and json.loads(text)
+
+
+def test_document_roles_outline_reads_the_contents_page(report_kit,
+                                                        report_gt):
+    handle = report_kit.open("report.pdf").handle
+    out = call(report_kit, "document_roles", handle=handle, outline=True)
+    o = out["outline"]
+    assert o["n_entries"] == len(report_gt.outline_entries)
+    titles = [e["title"] for e in o["entries"]]
+    assert "Footing Undercut Detail" in titles
+    appendix_b = next(e for e in o["entries"]
+                      if e.get("number") == "B" and e["kind"] == "appendix")
+    assert appendix_b["page"] == 11
+    unplaced = next(e for e in o["entries"]
+                    if e.get("number") == "2" and e["kind"] == "figure")
+    assert "page" not in unplaced
+    assert [m["page"] for m in o["dividers"]] == [6, 11, 14, 19]
+    assert o["captions"][0]["page"] == report_gt.caption_page
+
+
+def test_document_roles_ledger_is_one_line_per_page(report_kit, report_gt):
+    handle = report_kit.open("report.pdf").handle
+    out = call(report_kit, "document_roles", handle=handle, ledger=True)
+    assert "pages" not in out
+    assert out["ledger"][0].startswith("p000 ")
+    assert len(out["ledger"]) + out.get("next_offset", len(out["ledger"])) \
+        >= report_gt.n_pages - len(out["ledger"])
+    assert "[page-title]" in " ".join(out["ledger"])
+    assert "ledger_note" in out

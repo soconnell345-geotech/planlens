@@ -729,19 +729,35 @@ Scored against 4,147 hand-labelled pages of 14 real geotechnical reports
 (2026-09-16), 38 to 729 pages each, English, French, Spanish and Portuguese,
 text-layer and scanned, some read through Azure Document Intelligence. The
 corpus is private and is not in this repository; the measurement script and
-its numbers live with the corpus. Overall page accuracy 0.90. The five roles
-a downstream reader depends on:
+its numbers live with the corpus.
 
-| role | precision | recall | hand-labelled pages |
+The reports are split into nine the rules were developed on and five held
+back — an optical-character-over-scan report, a pure scan read through Azure,
+a short second volume, a 729-page report from another firm and a report in a
+non-US format. **Read the held-out column, and read the caveat under it.**
+
+| role | dev P / R | held-out P / R | hand-labelled |
 |---|---|---|---|
-| `boring_log` | 0.97 | 0.94 | 273 |
-| `test_pit_log` | 0.96 | 0.92 | 251 |
-| `lab_test` | 0.94 | 0.95 | 992 |
-| `narrative` | 0.94 | 0.93 | 433 |
-| `calculation` | 1.00 | 0.97 | 1,009 |
+| `boring_log` | 0.96 / 0.92 | 0.99 / 1.00 | 273 |
+| `test_pit_log` | 0.95 / 0.93 | 1.00 / 0.90 | 251 |
+| `lab_test` | 0.97 / 0.98 | 0.81 / 0.98 | 992 |
+| `narrative` | 0.97 / 0.96 | 0.85 / 0.83 | 433 |
+| `calculation` | 1.00 / 0.99 | 0.99 / 0.94 | 1,009 |
+| page accuracy | 0.92 | 0.89 | 4,147 |
 
-`appended_report` scores 0.99 / 1.00 over 494 pages and is reported, not
-gated, along with the other twelve.
+`appended_report` scores 1.00 / 1.00 on the held-out set over 472 pages and
+is reported, not gated, along with the other twelve.
+
+**The caveat: the split was imposed after the rules were written, and the
+rules had already been tuned against all fourteen reports.** So the held-out
+column is a weaker statement than it looks, and the two roles that fail there
+— `lab_test` precision 0.81 and `narrative` 0.85 / 0.83 — are failing on
+pages the rules had already seen. The confusions that cost them are
+`other -> lab_test` and `calculation -> lab_test` (a tab of laboratory
+results claiming the summary tables and the odd calculation bound behind it),
+and `figure -> narrative` with `narrative -> other`. Both are the same
+failure class: a page that says nothing about itself taking its appendix
+tab's word for what it is.
 
 ### What is NOT measured, and what it will get wrong
 
@@ -765,6 +781,57 @@ gated, along with the other twelve.
   log on one page and as a photograph on the next.
 - Roles are NOT read from PDF structure tags, bookmarks or Azure paragraph
   roles, none of which the corpus carries usefully.
+
+### What the report says about itself (2026-09-16)
+
+`document_outline(doc)` returns the report's own account of its contents, and
+`page_ledger(doc, roles)` returns one line per page. Both exist because a
+model-based review pass is going to sit on top of these rules, and it should
+read what the report PRINTS about itself before it reads any of the report.
+
+The outline carries:
+
+- **contents entries** from the table of contents, each with its title, the
+  page number as the report WROTE it ("12", "A-3", "iv") and the PDF page the
+  title was matched to;
+- **the lists of figures, tables and appendices** as entries with their
+  number, title and printed page;
+- **every divider page** with its own text and its appendix letter;
+- **the caption** of each figure-kind page, when the page prints one ("Figure
+  3 - Site Plan");
+- **the narrative's section headings** in order, with the page.
+
+Read from the pages, never inferred. A line becomes an entry when it carries
+a title and, where the list gives one, a trailing page number behind a dotted
+leader or a run of spaces; the current list heading decides an entry's kind
+where the entry does not name itself. An entry is placed on a page only when
+exactly one divider, caption or heading matches it, and when both sides print
+a number the numbers must agree. **An entry that cannot be placed carries
+`page = None`** — a reader can then go and look, which is a better answer
+than a page index that is probably wrong. The synthetic fixture lists a
+figure the document does not contain, precisely so that the unplaced case is
+pinned by a test.
+
+The ledger is one line of about 150 characters per page:
+
+```
+p007 mixed  boring_log  0.90 [page-title] "LOG OF BORING" hdr="..." pp=1/3
+     seg=4 chars=550 text_ok=Y di=N item_4
+```
+
+page, kind, role, confidence, **the rule that fired**, heading, running
+header, printed page number, segment, text characters, whether the text layer
+is reliable, whether Azure Document Intelligence supplied the text, and the
+work item. A 729-page report is about 100 kB of it, which is the cheapest
+way to take a long document in before opening anything.
+
+The rule tag matters as much as the role. `[page-title]` means the page named
+itself; `[tab-declares]` means the page said nothing and took its role from
+the appendix tab above it, and carries a deliberately lower confidence
+(`INHERITED_CONFIDENCE`) for that reason. A tab is right about most of its
+appendix and wrong about the summary table, the legend and the stray
+calculation bound into it, so a reviewer wants to see which rows are the tab
+talking and which are the page talking.
 
 ## Not built yet
 

@@ -39,7 +39,12 @@ located, attributed data:
   items a reader takes in one at a time: one per boring or test pit with its
   continuation sheets folded in, one per laboratory sheet, one per printout.
   Rules over what the pages themselves print: what an appendix tab states it
-  holds, what a page's own largest type calls it, and the page's shape.
+  holds, what a page's own largest type calls it, and the page's shape. And
+  it hands over the report's own account of itself — the table of contents,
+  the lists of figures, tables and appendices with the page numbers as
+  printed, every divider, each figure's caption, the section headings — plus
+  one compact line per page, so a model can take a 700-page report in before
+  it opens anything.
 
   It also reads the measurement calibration a PDF already stores, so a scale
   need not be guessed off a title block. When someone has calibrated a sheet
@@ -177,8 +182,13 @@ rather than silently deflating the answer.
   roles a reader depends on, precision/recall 0.97 / 0.94 `boring_log`,
   0.96 / 0.92 `test_pit_log`, 0.94 / 0.95 `lab_test`, 0.94 / 0.93
   `narrative`, 1.00 / 0.97 `calculation`, and 0.99 / 1.00 `appended_report`.
-  What it gets wrong is written down with it in
-  `planlens/document/DESIGN.md`: `dcp_log` recall is 0.24 on scanned forms,
+  Nine of those reports were developed against and five held back; on the
+  held-out five, `boring_log` and `test_pit_log` hold up (0.99/1.00 and
+  1.00/0.90) while `lab_test` precision falls to 0.81 and `narrative` to
+  0.85/0.83 — and the split was imposed after the rules were written, so even
+  that is a weaker statement than it looks. What it gets wrong is written down
+  with it in
+  `planlens/document/DESIGN.md`: `dcp_log` recall is 0.56 on scanned forms,
   `other` is a residual rather than a class, `figure` and `plan` are weak
   because a figure page carries the least text on it of any page, and a page
   with no text at all cannot be placed by its title. The corpus is private

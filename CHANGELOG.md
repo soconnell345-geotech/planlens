@@ -27,6 +27,22 @@
   placed by its title. New `planlens.testing.build_synthetic_report` builds a
   21-page report carrying every one of those page kinds, with the answers.
   See `planlens/document/DESIGN.md`, "Page roles and work items".
+- **What the report says about itself**, for a model that is going to review
+  it. `document_outline(doc)` reads the table of contents, the lists of
+  figures, tables and appendices (each entry with its number, its title and
+  the page number AS PRINTED), every divider page with its text, each figure
+  page's caption and the narrative's section headings in order, and matches
+  each entry to the page that carries it — or leaves it at `page = None`,
+  because a page index that is probably wrong is worse than an honest gap.
+  `page_ledger(doc, roles)` gives one line per page — page, kind, role,
+  confidence, the rule that fired, heading, running header, printed page,
+  segment, text characters, text reliability, whether Azure supplied the text
+  and the work item — so a 729-page report can be taken in at about 100 kB
+  before anything is opened. Both ride on the `document_roles` tool as
+  `outline=true` and `ledger=true`. A role a page did NOT name itself, and
+  took from its appendix tab, now carries a lower confidence
+  (`INHERITED_CONFIDENCE`) and says so in its evidence, because that is
+  exactly the row a reviewer should check.
 
 - **A page whose text layer is there and WRONG now says so.** An
   analysis-program printout bound into a report often carries a font with no
