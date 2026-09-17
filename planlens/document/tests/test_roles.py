@@ -375,3 +375,121 @@ def test_ledger_from_is_callable_on_stated_results():
     line = ledger_from(facts, roles, di_pages=[0])[0]
     assert line.startswith("p000 ")
     assert "[narrative-block]" in line and "di=Y" in line
+
+
+# -- round 5: a page that names itself, and a tab that names several --------
+
+def _facts(**kw):
+    from planlens.document.roles import PageFacts, _norm
+    text = kw.pop("text", "")
+    title = kw.pop("title_text", "")
+    kw.setdefault("page", 3)   # page 0 divides nothing
+    f = PageFacts(**kw)
+    f.flat = _norm(text)
+    f.title = _norm(title)
+    f.top = _norm(title)
+    f.top_lines = [_norm(title).strip()] if title else []
+    return f
+
+
+def test_a_list_word_names_a_tab_only_when_the_page_leads_with_it():
+    from planlens.document.roles import _is_divider
+
+    tab = _facts(n_words=6, title_text="FIGURES", text="Figures Figure 1 Site Plan")
+    assert _is_divider(tab)
+    prose = _facts(n_words=40, title_text="",
+                   text="provided in tables section 7 distributions of "
+                        "material properties are provided for reference")
+    assert _is_divider(prose) is None
+
+
+def test_two_appendix_letters_on_one_page_is_a_contents_list():
+    from planlens.document.roles import _is_divider
+
+    tab = _facts(n_words=8, title_text="APPENDIX A",
+                 text="Appendix A Boring Logs")
+    assert _is_divider(tab)
+    contents = _facts(n_words=30, title_text="",
+                      text="Figures Appendix A Soil Laboratory Test Data "
+                           "Appendix B Subsurface Exploration")
+    assert _is_divider(contents) is None
+
+
+def test_a_cue_found_in_the_bands_needs_weight_to_beat_a_tab():
+    from planlens.document.roles import _Cue, DECISIVE_WEIGHT
+
+    mention = _Cue("boring_log", "strong", "w", in_title=False, weight=2)
+    assert not mention.decisive
+    form = _Cue("boring_log", "strong", "w", in_title=False,
+                weight=DECISIVE_WEIGHT)
+    assert form.decisive
+    named = _Cue("profile", "named", "w", in_title=True, weight=1)
+    assert named.decisive
+
+
+def test_a_tab_that_names_several_things_chooses_on_the_page():
+    from planlens.document.roles import _choose_declared
+
+    log_page = _facts(n_words=200, ruling_h=20, ruling_v=20, kind="form",
+                      text="depth elevation sample blows recovery uscs")
+    assert _choose_declared(log_page, ["test_pit_log", "photos"])[0] == \
+        "test_pit_log"
+    picture = _facts(n_words=10, n_images=3, kind="figure",
+                     text="TP-1 upon completion")
+    assert _choose_declared(picture, ["photos", "figure"])[0] == "photos"
+    nothing = _facts(n_words=90, kind="mixed", text="a page of no evidence")
+    assert _choose_declared(nothing, ["lab_test", "boring_log"])[0] is None
+
+
+def test_an_unplaceable_page_says_other_and_lists_the_candidates():
+    """Never a confident wrong role."""
+    from planlens.document.roles import PageFacts, assign, _norm
+
+    facts = [PageFacts(page=i) for i in range(4)]
+    facts[0].kind, facts[0].n_words = "text", 300
+    facts[0].flat = _norm("the front page of the report")
+    facts[1].n_words = 8
+    facts[1].title = facts[1].top = _norm("APPENDIX A BORING LOGS AND "
+                                          "LABORATORY TEST RESULTS")
+    facts[1].top_lines = [facts[1].title.strip()]
+    facts[1].flat = facts[1].title
+    for f in facts[2:]:
+        f.kind, f.n_words, f.flat = "mixed", 90, _norm("a page of no evidence")
+    roles = assign(facts)
+    assert roles[1].role == "divider"
+    unplaced = roles[2]
+    assert unplaced.role == "other"
+    assert unplaced.evidence["tag"] == "tab-ambiguous"
+    assert set(unplaced.evidence["candidates"]) >= {"boring_log", "lab_test"}
+    assert unplaced.confidence < 0.5
+
+
+def test_a_document_with_no_tabs_says_so_in_its_outline(report):
+    from planlens.document.roles import Outline
+
+    assert Outline().no_dividers is False
+    with open_document(report.pdf, name="synthetic report") as doc:
+        assert document_outline(doc).no_dividers is False
+    assert Outline(no_dividers=True).to_dict()["no_dividers"] is True
+
+
+def test_an_aerial_photo_under_a_plan_is_not_a_page_of_photographs():
+    from planlens.document.roles import _page_cue
+
+    plan = _facts(n_words=60, n_images=2, kind="figure",
+                  title_text="1845 Map of Alexandria on 2007 Aerial Photo",
+                  text="1845 Map of Alexandria on 2007 Aerial Photo")
+    cue = _page_cue(plan)
+    assert cue is not None and cue.role != "photos"
+
+
+def test_a_method_named_on_a_page_of_working_is_not_a_test_sheet():
+    from planlens.document.roles import _page_cue, WORKING_PAGE_WORDS
+
+    working = _facts(n_words=WORKING_PAGE_WORDS + 40, kind="text",
+                     title_text="One Dimensional Consolidation Settlement",
+                     text="one dimensional consolidation settlement of the "
+                          "mat foundation is computed below")
+    cue = _page_cue(working)
+    assert cue is not None and cue.role == "lab_test"
+    assert cue.strength == "weak" and not cue.decisive

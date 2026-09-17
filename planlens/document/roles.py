@@ -116,6 +116,28 @@ LOG_WORD_CHARS = 14
 #: tab talking and which are the page talking.
 INHERITED_CONFIDENCE = 0.6
 
+#: Above this many words a page is carrying argument, not results.
+WORKING_PAGE_WORDS = 120
+
+#: How far into what a page calls itself its own figure number may sit.
+#: A page LEADS with its caption; a calculation that refers to figure 3
+#: somewhere in its working does not.
+CAPTION_LEAD_CHARS = 40
+
+#: How many pieces of evidence a cue found only in a page's running bands
+#: needs before it overrules the page's appendix tab. Measured either way on
+#: the corpus: a laboratory sheet naming the pit it sampled carries one or
+#: two, a log form carries eight and up.
+DECISIVE_WEIGHT = 8
+
+#: Fewest words a page that prints its own page number needs to be prose:
+#: a numbered page in the narrative's own series is already half the case.
+NARRATIVE_NUMBERED_WORDS = 25
+
+#: Words per square inch below which a text page is a heading sheet or a
+#: table rather than prose.
+NARRATIVE_DENSITY = 1.5
+
 #: Fewest words a page of the report's prose carries. Below it the page
 #: is a heading sheet, a table or a picture with a caption.
 NARRATIVE_MIN_WORDS = 60
@@ -131,6 +153,12 @@ RUNNING_HEADER_PAGES = 3
 #: How far into a tab page's text its "FIGURES" heading may sit and still
 #: be the tab's own name rather than an item in a list beneath it.
 FIGURES_TAB_CHARS = 40
+
+#: How far into a tab page's text a LIST word may sit. A tab that holds
+#: the figures LEADS with FIGURES; a sentence that says "provided in
+#: tables" is a sentence, and reading it as a tab hands the rest of the
+#: report to the figures.
+LIST_TAB_CHARS = 2
 
 #: How far into a tab page's own text its tab word may sit. A divider says
 #: what it is at the top of what it prints, not in a note at the bottom.
@@ -495,9 +523,16 @@ COVER_FOR = (
 #: starts a new appendix in the middle of the calc package.
 DIVIDER_WORDS = (
     "appendix", "appendices", "annex", "annexe", "annexes", "attachment",
-    "exhibit", "enclosure", "figures", "tables", "plates", "photographs",
-    "calculations", "drawings", "specifications", "apendice", "anexo",
-    "apendix",
+    "exhibit", "enclosure", "apendice", "anexo", "apendix",
+)
+
+#: Words that name a tab only when the page LEADS with them. A narrative
+#: sentence says "provided in tables" and a specification page is headed
+#: "Earthwork and Grading Guide Specifications"; neither divides anything,
+#: and a tab that holds the figures says FIGURES at the top and nowhere else.
+DIVIDER_LIST_WORDS = (
+    "figures", "tables", "plates", "photographs", "calculations",
+    "drawings", "specifications", "exhibits",
 )
 
 #: A plan page.
@@ -507,6 +542,11 @@ PLAN_TITLES = (
     "site plan", "plot plan", "location plan", "site location map",
     "vicinity map", "site and vicinity", "boring location map",
     "exploration location", "plan de situation", "plano de localizacion",
+    # A map page is a plan of the site by another name, and the base image
+    # under it is not a photograph of anything.
+    "geologic map", "geological map", "topographic map", "historic map",
+    "aerial photo", "aerial photograph", "aerial image", "map of",
+    "carte geologique", "mapa geologico",
 )
 
 #: A subsurface-profile page.
@@ -523,19 +563,34 @@ _RE_TEST_PIT = _phrases(TEST_PIT_TITLES)
 _RE_CPT = _phrases(CPT_TITLES)
 _RE_DCP = _phrases(DCP_TITLES)
 _RE_LOG_FIELD = _phrases(LOG_FORM_FIELDS)
+#: The one column every exploration log has and no laboratory sheet lays out
+#: down its page: depth, in the languages the logs are written in.
+_RE_DEPTH_FIELD = _phrases(("depth", "profondeur", "profundidad",
+                            "profundidade", "tiefe", "prof"))
 _RE_LAB = _phrases(LAB_TITLES)
 _RE_FIELD_TEST = _phrases(FIELD_TEST_TITLES)
 _RE_OTHER_TEST = _phrases(OTHER_TEST_TITLES)
 _RE_LEGEND = _phrases(LEGEND_TITLES)
+#: "FIGURE 3", "PLATE A-2" at the head of what a page calls itself: the page
+#: is that figure, whatever the tab above it says the appendix holds.
+_RE_CAPTION = re.compile(
+    r"(?<![a-z0-9])(?:figure|fig|plate|exhibit|planche|figura)\.?\s*"
+    r"(?:no\.?\s*)?[a-z]{0,2}-?\d{1,3}[a-z]?(?![a-z0-9])", re.I)
 _RE_LOG_WORD = _phrases(("log", "logs", "record", "records"))
 _RE_CALC_PROGRAM = _phrases(CALC_PROGRAMS)
 _RE_CALC = _phrases(CALC_TITLES)
 _RE_PHOTO = _phrases(PHOTO_TITLES)
+#: An aerial photograph is the base image a plan is drawn on, not a page of
+#: photographs; the words are struck out before the caption is read.
+_RE_AERIAL = re.compile(
+    r"\b(?:aerial|satellite|orthophoto\w*|photogrammetr\w*)\s*"
+    r"(?:photo\w*|image\w*|map)?", re.I)
 _RE_TOC = _phrases(TOC_TITLES)
 _RE_LETTER = _phrases(LETTER_TITLES)
 _RE_COVER_TITLE = _phrases(COVER_TITLES)
 _RE_COVER_FOR = _phrases(COVER_FOR)
 _RE_DIVIDER = _phrases(DIVIDER_WORDS)
+_RE_DIVIDER_LIST = _phrases(DIVIDER_LIST_WORDS)
 _RE_FIGURES_TAB = _phrases(("figures", "tables", "plates", "exhibits"))
 _RE_PLAN = _phrases(PLAN_TITLES)
 _RE_PROFILE = _phrases(PROFILE_TITLES)
@@ -781,8 +836,20 @@ class _Cue:
     why: str
     #: Whether the phrase was found in the page's own largest type, rather
     #: than somewhere in its top or bottom band. A tab's declaration is
-    #: overruled only by a page that TITLES itself something else.
+    #: overruled by a page that TITLES itself something else, or by one
+    #: whose evidence is too heavy to be a mention (see ``weight``).
     in_title: bool = False
+    #: How many separate pieces of evidence the cue rests on -- log form
+    #: field labels, laboratory test names, photograph captions. A lab sheet
+    #: that prints the trial pit its sample came from carries one or two; a
+    #: log form carries a dozen, whatever its title block was read as.
+    weight: int = 1
+
+    @property
+    def decisive(self) -> bool:
+        """Enough to overrule a tab that names one thing."""
+        return self.in_title or (self.strength == "strong"
+                                 and self.weight >= DECISIVE_WEIGHT)
 
     @property
     def confidence(self) -> float:
@@ -834,8 +901,13 @@ def _count(rx: "re.Pattern[str]", text: str) -> int:
 def _page_cue(f: PageFacts) -> Optional[_Cue]:
     """What the page's own title and shape say it is, or None."""
     title_area = f.title_and_bands
+    # A page carrying argument rather than results or drawing: prose or a
+    # printout, unruled, with more words than a result sheet or a plotted
+    # sheet ever has. Such a page is not named by a phrase in its bands.
+    working = (f.n_words >= WORKING_PAGE_WORDS and not f.is_ruled
+               and f.kind in ("text", "mixed"))
     n_fields = _count(_RE_LOG_FIELD, f.flat)
-    photo_hits = _count(_RE_PHOTO, f.own_title)
+    photo_hits = _count(_RE_PHOTO, _RE_AERIAL.sub(" ", f.own_title))
     image_heavy = f.n_images >= 1 and f.n_words < 220
 
     # Photographs first: a test-pit photo page carries the pit's name in its
@@ -845,12 +917,16 @@ def _page_cue(f: PageFacts) -> Optional[_Cue]:
         return _Cue("photos", "strong" if (photo_hits >= 2 or plate)
                     else "named",
                     f"photograph caption ({photo_hits})",
-                    bool(_RE_PHOTO.search(f.title)))
+                    bool(_RE_PHOTO.search(f.title)), photo_hits)
 
-    graphic = f.n_words < 400 and (f.kind in ("figure", "drawing_sheet",
-                                              "form", "scanned", "mixed")
-                                   or f.n_images >= 1)
-    if graphic and f.n_words >= 8:
+    # A caption names its page whatever kind the page was MEASURED as -- a
+    # plan comes back as a form, a figure, a scan or a mixed page depending
+    # on how it was plotted -- but a page of prose is not named by a phrase
+    # inside its paragraphs.
+    graphic = 8 <= f.n_words < 400 and (
+        f.kind in ("figure", "drawing_sheet", "form", "scanned", "mixed")
+        or f.n_images >= 1 or f.n_words < 150)
+    if graphic:
         # Before the logs: a location plan and a cross-section both name the
         # explorations they plot, and a legend beside them names every kind.
         # A page with no words of its own names nothing: what would be read
@@ -859,11 +935,18 @@ def _page_cue(f: PageFacts) -> Optional[_Cue]:
         m = _RE_PROFILE.search(f.own_title)
         if m:
             return _Cue("profile", "strong" if drawn else "named",
-                        f"profile title {m.group(0)!r}", True)
+                        f"profile title {m.group(0)!r}",
+                        bool(_RE_PROFILE.search(f.title)) or not working)
         m = _RE_PLAN.search(f.own_title)
         if m:
             return _Cue("plan", "strong" if drawn else "named",
-                        f"plan title {m.group(0)!r}", True)
+                        f"plan title {m.group(0)!r}",
+                        bool(_RE_PLAN.search(f.title)) or not working)
+        cap = _RE_CAPTION.search(f.own_title)
+        if cap and cap.start() < CAPTION_LEAD_CHARS:
+            return _Cue("figure", "named",
+                        f"figure caption {cap.group(0).strip()!r}",
+                        bool(_RE_CAPTION.search(f.title)) or not working)
 
     m = _RE_LEGEND.search(f.title)
     if m and f.n_words < 400:
@@ -904,21 +987,32 @@ def _page_cue(f: PageFacts) -> Optional[_Cue]:
             return _Cue("lab_test", "named",
                         f"laboratory test title {m.group(0)!r} beside a "
                         f"reference to the exploration it sampled",
-                        bool(_RE_LAB.search(f.title)))
+                        bool(_RE_LAB.search(f.title)), lab_hits)
         in_title = bool(_log_family(f.title))
         if log_form:
             return _Cue(role, "strong", f"log title {phrase!r}, "
-                                        f"{n_fields} log form fields", in_title)
+                                        f"{n_fields} log form fields",
+                        in_title, n_fields)
         if n_fields >= 2:
             return _Cue(role, "named", f"log title {phrase!r}, "
-                                       f"{n_fields} log form fields", in_title)
+                                       f"{n_fields} log form fields",
+                        in_title, n_fields)
 
     if lab_hits >= 1:
         m = _RE_LAB.search(title_area)
+        if working:
+            # A page of WORKING that names a test is naming the method it
+            # applies -- a one-dimensional consolidation settlement, a
+            # triaxial strength assumption. A laboratory result sheet is a
+            # form or a short page of values, not a page of argument.
+            return _Cue("lab_test", "weak",
+                        f"laboratory test name {m.group(0)!r} on a page of "
+                        f"working" if m else "laboratory test name",
+                        False, lab_hits)
         return _Cue("lab_test", "strong" if lab_hits >= 2 else "named",
                     f"laboratory test title {m.group(0)!r}"
                     if m else "laboratory test title",
-                    bool(_RE_LAB.search(f.title)))
+                    bool(_RE_LAB.search(f.title)), lab_hits)
 
     m = _RE_FIELD_TEST.search(title_area)
     if m:
@@ -971,8 +1065,13 @@ def _is_divider(f: PageFacts) -> Optional[str]:
         # submittal it is; it is still the cover of a document, not a tab
         # inside one.
         return None
+    if len(_appendix_tokens(f)) >= 2:
+        # Two different appendix letters on one page is a contents list --
+        # the front matter, or the index at the back -- not a tab.
+        return None
     text = f.declaration
     for rx, limit in ((_RE_DIVIDER, DIVIDER_TITLE_CHARS),
+                      (_RE_DIVIDER_LIST, LIST_TAB_CHARS),
                       (_RE_APPENDIX_TOKEN, DIVIDER_TOKEN_CHARS)):
         m = rx.search(text)
         if m is not None and m.start() < limit:
@@ -1038,6 +1137,12 @@ def _declared_roles(f: PageFacts) -> List[str]:
     if not roles and _RE_EXPLORATION.search(text):
         roles = ["exploration"]
     return roles
+
+
+def _appendix_tokens(f: PageFacts) -> set:
+    """Every distinct appendix letter or number the page prints."""
+    return {m.group(1).lower()
+            for m in _RE_APPENDIX_TOKEN.finditer(f.declaration)}
 
 
 def _appendix_token(f: PageFacts) -> Optional[str]:
@@ -1226,32 +1331,75 @@ def _build_documents(facts: Sequence[PageFacts],
     return done
 
 
+#: Page kinds that are a picture whatever else is on them. Only the plotted
+#: sheet: a report read optically comes back with prose pages measured as
+#: figures, and excluding that kind would take the narrative with it. A
+#: figure page inside the narrative is caught by its CAPTION instead.
+NOT_PROSE_KINDS = ("drawing_sheet",)
+
+
+def _narrative_evidence(f: PageFacts, running: Sequence[str]) -> Optional[str]:
+    """Why this page is the report's prose, or None.
+
+    Being in front of the first tab is a position, not evidence. The page
+    must also carry something of the narrative: the running header or footer
+    the narrative segment prints on every page, its printed page numbering,
+    or the density of actual prose.
+    """
+    if f.header and _mask_digits(_norm(f.header).strip()) in running:
+        return "prose carrying the narrative's running header"
+    if f.footer and _mask_digits(_norm(f.footer).strip()) in running:
+        return "prose carrying the narrative's running footer"
+    if f.printed_page is not None:
+        return "prose in the narrative's printed page series"
+    if f.kind == "text" and f.text_density >= NARRATIVE_DENSITY:
+        return "text-kind page at prose density"
+    return None
+
+
 def _narrative_pages(facts: Sequence[PageFacts], docs: Sequence[_Doc],
                      sections: Sequence[_Section],
-                     dividers: Dict[int, str]) -> Dict[int, str]:
+                     dividers: Dict[int, str],
+                     cues: Dict[int, "_Cue"]) -> Dict[int, str]:
     """The narrative run of each non-appended document.
 
     A report's narrative is the prose between its front matter and its first
-    tab: text-dense pages that carry the document's own running header or
-    footer. A text page inside an appendix is not narrative, however much
-    prose it holds.
+    tab, and it has to LOOK like the narrative as well as sit there. A text
+    page inside an appendix is not narrative however much prose it holds; a
+    figure page inside the narrative is a figure; and where the document has
+    no tabs at all the narrative does not run to the end of it -- it stops
+    with the segment that carries the report's own running header.
     """
+    from collections import Counter
     out: Dict[int, str] = {}
+    counts: Counter = Counter()
+    for f in facts:
+        for band in (f.header, f.footer):
+            if band:
+                counts[_mask_digits(_norm(band).strip())] += 1
+    running = [k for k, v in counts.items()
+               if v >= RUNNING_HEADER_PAGES and len(k) >= 4]
+
     for doc in docs:
         if doc.appended:
             continue
-        end = doc.first_divider - 1 if doc.first_divider is not None else doc.last
+        no_tabs = doc.first_divider is None
+        end = doc.last if no_tabs else doc.first_divider - 1
         for i in range(doc.first, min(end, doc.last) + 1):
             f = facts[i]
-            if i in dividers:
-                continue
-            if f.kind in ("drawing_sheet",):
+            if i in dividers or i == doc.first:
+                continue                     # a document opens with its cover
+            if f.kind in NOT_PROSE_KINDS:
                 continue
             if _is_toc(f) or _is_letter(f) or _is_report_cover(f):
                 continue
-            if i == doc.first:
-                continue                     # a document opens with its cover
-            if f.n_words < NARRATIVE_MIN_WORDS:
+            cue = cues.get(i)
+            if cue is not None and cue.in_title and cue.role in (
+                    "figure", "plan", "profile", "photos"):
+                continue                     # a captioned page names itself
+            floor = (NARRATIVE_MIN_WORDS if f.printed_page is None
+                     else NARRATIVE_NUMBERED_WORDS)
+            if f.n_words < floor:
                 continue
             if f.n_words < NARRATIVE_PROSE_WORDS and (
                     _RE_PLAN.search(f.title_and_bands)
@@ -1260,7 +1408,23 @@ def _narrative_pages(facts: Sequence[PageFacts], docs: Sequence[_Doc],
                 # a paragraph of notes beside it. A page of actual prose
                 # names the exploration locations too, and stays prose.
                 continue
-            out[i] = "prose before the report's first appendix tab"
+            why = _narrative_evidence(f, running)
+            if why is None:
+                continue
+            if no_tabs:
+                # Nothing divides this document, so there is no "before the
+                # first tab" to stand in for evidence and the position says
+                # nothing at all. Only a page that is PROSE and carries the
+                # report's own running band or its printed numbering counts;
+                # the rest keep their kind-and-cue labels, and the reader is
+                # told the document prints no tabs.
+                if f.kind not in ("text", "mixed", "scanned"):
+                    continue
+                if why.endswith("prose density"):
+                    continue
+                out[i] = why + " (this document prints no appendix tabs)"
+            else:
+                out[i] = why
     return out
 
 
@@ -1287,11 +1451,46 @@ def _mark_boilerplate(facts: Sequence[PageFacts]) -> None:
         f.running = running
 
 
+def _choose_declared(f: PageFacts, declared: Sequence[str]
+                     ) -> Tuple[Optional[str], str]:
+    """Which of a tab's several roles this page is, from its shape alone.
+
+    A ruled grid with a depth column is one of the logs; a plot or a table of
+    results is laboratory work; a page that is mostly picture is
+    photographs. Where the shape says nothing, so does this -- the caller
+    emits ``other`` with the candidates rather than a confident wrong role.
+    """
+    log_roles = [r for r in declared if r in LOG_ROLES]
+    if log_roles and _has_depth_column(f):
+        if len(log_roles) == 1:
+            return log_roles[0], "ruled grid with a depth column"
+        return None, ""
+    if "photos" in declared and f.n_images >= 1 and f.n_words < 80:
+        if not log_roles or _RE_PHOTO.search(f.own_title):
+            return "photos", "mostly picture, almost no words"
+    if "lab_test" in declared and (f.is_ruled or f.kind == "form"
+                                   or f.n_images >= 1):
+        return "lab_test", "a results form or a plotted result"
+    return None, ""
+
+
+def _has_depth_column(f: PageFacts) -> bool:
+    """Does the page carry a log's depth column?"""
+    if not (f.is_ruled or f.kind == "form"):
+        return False
+    return bool(_RE_DEPTH_FIELD.search(f.flat)) and _count(
+        _RE_LOG_FIELD, f.flat) >= 3
+
+
 def _by_kind(f: PageFacts) -> Tuple[str, float, str]:
     if f.kind == "blank":
         return "other", 0.5, "blank page"
     if f.kind in ("figure", "drawing_sheet"):
         return "figure", 0.4, f"{f.kind} page with no title of its own"
+    if f.kind == "form" and f.n_images >= 1 and f.n_words < 250:
+        # A ruled sheet carrying images and almost no words is a drawing that
+        # happened to be plotted with a border and a title block.
+        return "figure", 0.4, "ruled sheet that is mostly picture"
     return "other", 0.35, f"{f.kind} page with no title of its own"
 
 
@@ -1312,7 +1511,10 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
 
     sections = _build_sections(facts, dividers)
     docs = _build_documents(facts, sections)
-    narrative = _narrative_pages(facts, docs, sections, dividers)
+    cues = {f.page: _page_cue(f) for f in facts}
+    cues = {k: v for k, v in cues.items() if v is not None}
+    narrative = _narrative_pages(facts, docs, sections, dividers, cues)
+    no_dividers = not dividers
 
     doc_of: Dict[int, _Doc] = {}
     for d in docs:
@@ -1337,13 +1539,21 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
         i = f.page
         doc = doc_of.get(i)
         sec = sec_of.get(i)
-        cue = _page_cue(f)
+        cue = cues.get(i)
 
         if doc is not None and doc.appended:
-            out.append(PageRole(i, "appended_report", 0.85, {
+            evidence = {
                 "tag": "nested-report",
                 "rule": "inside a report bound into this one",
-                "document_pages": f"{doc.first}-{doc.last}"}))
+                "document_pages": f"{doc.first}-{doc.last}"}
+            if cue is not None and cue.role not in ("other",):
+                # The page is a page of THAT report, and the role is the
+                # binding, not the page. What the page itself is goes in the
+                # evidence, so the prior investigation's logs and laboratory
+                # sheets can still be made into items later.
+                evidence["inner_role"] = cue.role
+                evidence["inner_why"] = cue.why
+            out.append(PageRole(i, "appended_report", 0.85, evidence))
             continue
 
         if f.kind == "blank":
@@ -1375,10 +1585,12 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
                 continue
 
         if i in narrative:
-            # Before the cues: a narrative page DISCUSSES the test pits, the
-            # laboratory testing and the infiltration rates, and every one of
-            # those words would otherwise take the page away from the prose
-            # it is.
+            # Before the cues. Principle A is about a page overruling its
+            # TAB; the narrative block is not a tab, it is positive evidence
+            # that this page is the report's prose, and a narrative page
+            # DISCUSSES the test pits, the laboratory testing and the
+            # infiltration rates. Letting a cue win here was measured: it
+            # bought two pages out of sample and cost eighteen in it.
             out.append(PageRole(i, "narrative", 0.85,
                                 {"tag": "narrative-block",
                                  "rule": narrative[i]}))
@@ -1403,8 +1615,8 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
         # laboratory sheet naming the trial pit its sample came from, in its
         # header, is still a laboratory sheet.
         single_tab = len(declared) == 1 and not exploration
-        if cue is not None and cue.strength == "strong" and (
-                cue.in_title or not single_tab or cue.role in declared):
+        if cue is not None and (cue.decisive or not single_tab
+                                or cue.role in declared):
             out.append(PageRole(i, cue.role, cue.confidence,
                                 {"tag": "page-title",
                                  "rule": "the page names itself",
@@ -1443,15 +1655,31 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
 
         if declared and not exploration:
             single = len(declared) == 1
-            if single or cue is None:
-                out.append(PageRole(i, declared[0],
-                                    INHERITED_CONFIDENCE if single
-                                    else INHERITED_CONFIDENCE - 0.1, {
+            if single:
+                out.append(PageRole(i, declared[0], INHERITED_CONFIDENCE, {
                     "tag": "tab-declares",
                     "rule": "INHERITED from its appendix tab; the page says "
                             "nothing about itself",
                     "appendix": (sec.title or "")[:60] if sec else None,
                     "declared": declared}))
+                continue
+            if cue is None:
+                chosen, why = _choose_declared(f, declared)
+                if chosen is None:
+                    out.append(PageRole(i, "other", INHERITED_CONFIDENCE - 0.2, {
+                        "tag": "tab-ambiguous",
+                        "rule": "its appendix tab names several things and "
+                                "the page names none of them",
+                        "appendix": (sec.title or "")[:60] if sec else None,
+                        "candidates": declared}))
+                else:
+                    out.append(PageRole(i, chosen, INHERITED_CONFIDENCE - 0.1, {
+                        "tag": "tab-declares",
+                        "rule": "INHERITED from a tab that names several "
+                                "things; chosen on the page's own shape",
+                        "why": why,
+                        "appendix": (sec.title or "")[:60] if sec else None,
+                        "declared": declared}))
                 continue
 
         if cue is not None:
@@ -1466,6 +1694,37 @@ def assign(facts: Sequence[PageFacts]) -> List[PageRole]:
     return _smooth_runs(facts, out, dividers)
 
 
+def _fill_ambiguous_runs(facts: Sequence[PageFacts],
+                         out: List[PageRole]) -> None:
+    """Give a run of unplaceable pages the log its neighbours belong to.
+
+    A tab that names several things leaves a page with no role of its own as
+    other. But a run of such pages closed on both sides by pages of ONE
+    log is part of that log: the document's own ordering is evidence, where
+    the pages have none of their own. Said at low confidence, and the
+    candidates the tab offered are kept.
+    """
+    n = len(out)
+    i = 0
+    while i < n:
+        if out[i].evidence.get("tag") != "tab-ambiguous":
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and out[j + 1].evidence.get("tag") == "tab-ambiguous":
+            j += 1
+        before = out[i - 1].role if i > 0 else None
+        after = out[j + 1].role if j + 1 < n else None
+        if before == after and before in LOG_ROLES:
+            for k in range(i, j + 1):
+                out[k] = PageRole(facts[k].page, before, 0.55, {
+                    "tag": "between-pages-of-one-log",
+                    "rule": "its tab named several things and the page names "
+                            "none; the run sits inside one log",
+                    "candidates": out[k].evidence.get("candidates")})
+        i = j + 1
+
+
 def _smooth_runs(facts: Sequence[PageFacts], roles: List[PageRole],
                  dividers: Dict[int, str]) -> List[PageRole]:
     """Let a log run carry its continuation sheets.
@@ -1475,6 +1734,7 @@ def _smooth_runs(facts: Sequence[PageFacts], roles: List[PageRole],
     log, and has the shape of a log form, belongs to that log.
     """
     out = list(roles)
+    _fill_ambiguous_runs(facts, out)
     for i, f in enumerate(facts):
         r = out[i]
         if r.role not in ("other", "figure") or i in dividers:
@@ -1756,6 +2016,12 @@ class Outline:
     dividers: List[OutlineMark] = field(default_factory=list)
     captions: List[OutlineMark] = field(default_factory=list)
     headings: List[OutlineMark] = field(default_factory=list)
+    #: True when the document prints no appendix tab anywhere. Said out loud
+    #: because everything downstream leans on the tabs: with none, no page
+    #: inherits a role, the narrative is only what carries the report's own
+    #: running band, and the rest of the labels are the pages' own shapes at
+    #: low confidence. A reviewer should look at such a document first.
+    no_dividers: bool = False
 
     def of_kind(self, kind: str) -> List[OutlineEntry]:
         return [e for e in self.entries if e.kind == kind]
@@ -1779,6 +2045,7 @@ class Outline:
     def to_dict(self) -> Dict[str, Any]:
         placed = sum(1 for e in self.entries if e.page is not None)
         return {
+            "no_dividers": self.no_dividers,
             "n_entries": len(self.entries),
             "n_entries_placed": placed,
             "entries": [e.to_dict() for e in self.entries],
@@ -1987,7 +2254,8 @@ def outline_from(facts, roles, lines_of) -> Outline:
     entries = _read_list_pages(facts, lines_of)
     return Outline(entries=_match_entries(entries, dividers, captions,
                                           headings),
-                   dividers=dividers, captions=captions, headings=headings)
+                   dividers=dividers, captions=captions, headings=headings,
+                   no_dividers=not dividers)
 
 
 def document_outline(doc) -> Outline:

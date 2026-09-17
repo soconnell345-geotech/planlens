@@ -693,8 +693,36 @@ firm, a project or a template.
 3. **The page's shape**, as `PageSummary` measures it: ruled form, figure,
    scan, word density, images.
 
-Four rules carry most of the work and each exists because of a measured
-failure:
+Four more rules decide what happens when those three disagree, and each was
+measured before it was kept (2026-09-16, round 5):
+
+- **A page that names itself beats its tab.** A cue found in the page's own
+  largest type always wins; a cue found only in its running bands wins when
+  it rests on enough evidence to be more than a mention
+  (DECISIVE_WEIGHT) -- a log form carries a dozen field labels, a
+  laboratory sheet naming the pit it sampled carries one. The cue tables run
+  on any page that has words, because a plan comes back measured as a form,
+  a figure, a scan or a mixed page depending on how it was plotted.
+- **Sitting in front of the first tab is a position, not evidence.** A page
+  is the report's prose when it also carries the narrative's running band,
+  its printed numbering, or the density of prose. Where a document prints NO
+  tab at all, nothing inherits anything, the narrative is only what carries
+  the report's own running band, and the outline says no_dividers so a
+  reviewer knows to look.
+- **A tab that names several things chooses on the page, or says so.** A
+  ruled grid with a depth column is one of the logs; a results form or a
+  plotted result is laboratory work; a page that is mostly picture is
+  photographs. Where the page's shape says nothing the answer is other
+  with the tab's candidates listed and a confidence under 0.5 -- never a
+  confident wrong role. A RUN of such pages closed on both sides by one log
+  is filled in from the document's own ordering, at 0.55.
+- **A page inside a report bound into this one is a page of THAT report.**
+  Its role stays appended_report -- the role is the binding -- and what
+  the page itself is goes into the evidence as inner_role, so the prior
+  investigation's logs and laboratory sheets can still be made into items.
+
+Four earlier rules carry most of the work and each exists because of a
+measured failure:
 
 - **A tab's declaration is read from its own type, not the whole page.** A
   tab page inherits the PREVIOUS appendix's running footer; read from the

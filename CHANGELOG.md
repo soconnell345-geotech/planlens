@@ -43,6 +43,23 @@
   took from its appendix tab, now carries a lower confidence
   (`INHERITED_CONFIDENCE`) and says so in its evidence, because that is
   exactly the row a reviewer should check.
+- **When the page and its appendix tab disagree, the page wins -- and when
+  neither knows, the answer says so.** Measured against 50 pages of ten
+  reports the rules had never seen, hand-labelled by a reviewer: 0.74 to 0.76
+  strict, 0.80 to 0.84 accepting alternates. A cue in the page's own largest
+  type always beats its tab, and a cue in its running bands beats it once the
+  evidence is more than a mention; the cue tables run on every page that has
+  words, because a plan is measured as a form, a figure, a scan or a mixed
+  page depending on how it was plotted. Prose now needs narrative evidence --
+  the running band, the printed numbering or the density of prose -- rather
+  than merely sitting in front of the first tab, and a document that prints
+  no tab at all is marked `no_dividers` and inherits nothing. A tab naming
+  several things chooses on the page's shape or answers `other` with the
+  candidates listed. A page inside a bound-in report keeps
+  `appended_report` and records what it is as `inner_role`. In sample this
+  costs what it should: `test_pit_log` recall 0.925 to 0.885, because a tab
+  no longer falls back on the first thing it names, and `narrative` recall
+  0.959 to 0.948 in exchange for precision 0.965 to 0.976.
 
 - **A page whose text layer is there and WRONG now says so.** An
   analysis-program printout bound into a report often carries a font with no
