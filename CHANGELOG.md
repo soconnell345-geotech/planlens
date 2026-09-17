@@ -28,13 +28,33 @@
   hand-transcribed into a private ledger, six open during development and
   nine scored blind: on the open six, ruler and unit 6/6, blow records and N
   values 57/57, layer tops 34/34, index values 35/36, header fields 63/68; on
-  the blind nine, 7/9, 4/8, 24/50, 14/26, 7/17 and 33/54 — and one of those
+  the blind nine, 6/9, 3/8, 24/50, 14/26, 7/17 and 33/54 — and one of those
   nine is the scanned page the optical path was built on, so read it as eight
   and a half. **The blind column is the one that forecasts anything.** One of
   the fifteen is a tabular list of borings with no depth scale on it, where
-  finding no ruler and saying so IS the answer; on two more the geometry
+  finding no ruler and saying so IS the answer; on three more the geometry
   yields no ruler where the truth says there are depths, and those are
-  refused rather than guessed. New
+  refused rather than guessed. **No sheet of the fifteen is read at a wrong
+  scale.**
+- **Signed numbers, and a header that outweighs a tick count.** A leading
+  dash is a minus sign, not something to strip: a column of elevations below
+  datum reads "-2.5, -4.0, -5.5", and throwing the signs away turned it into
+  a RISING series that could be, and on one sheet was, chosen as the depth
+  scale in place of the ruler the page prints. A trailing dash is still a
+  tick mark ("13-"). A monotone falling series is an elevation scale and is
+  only claimed under a header that says elevation. And what the header says
+  now outweighs even steps and tick count together, because the columns that
+  fit a straight line without being the scale are many — contact depths,
+  elevations, sample numbers, a plot axis — and several carry more ticks than
+  the ruler does.
+- **The headers gINT's default template prints**, which many firms ship
+  unchanged, are in the vocabulary: "Depth Scale (m)", "Elev. (ft)",
+  "Number", "Type", "Recov. (in)", "Penetr. resist. BL/6in", "N-Value
+  (Blows/ft)", "Sample Description", "MATERIAL SYMBOL", "Remarks (Drilling
+  Fluid, Depth of Casing, Water Level)" and their variants. With them, a
+  header now NAMES itself before it qualifies itself: the earliest phrase
+  wins and the longer of two starting together, so a remarks column that
+  mentions depth and a water level is a remarks column. New
   `planlens.testing.build_imperial_log` / `build_metric_log` /
   `build_log_without_ruler` build the same synthetic form on a 5 ft ruler, on
   a 1 m ruler and with no ruler at all, with the answers.

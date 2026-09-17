@@ -209,11 +209,14 @@ rather than silently deflating the answer.
   nine scored blind (tolerances 0.15 m on a sample, 0.30 m on a layer top):
   on the open six, ruler and unit 6/6, blow records and N values 57/57, layer
   tops 34/34, index values 35/36, header fields 63/68; on the blind nine,
-  ruler 7/9, unit 4/8, blow records and N values 24/50, layer tops 14/26,
+  ruler 6/9, unit 3/8, blow records and N values 24/50, layer tops 14/26,
   index values 7/17, fields 33/54 — and one of those nine is the scanned page
   the optical path was built on, so it is eight and a half blind logs. **Read
-  the blind column**: two of its nine sheets carry depths the geometry did not
-  yield, and the module refuses them rather than guessing. A page whose ruler cannot be found returns its cells with NO depths
+  the blind column**: three of its nine sheets carry depths the geometry did
+  not yield, and the module refuses them rather than guessing. No sheet of
+  the fifteen is now read at a wrong scale, which is the failure that
+  matters: a withheld depth costs a reader a page, a wrong one costs them
+  the boring. A page whose ruler cannot be found returns its cells with NO depths
   and says so in `warnings`; that is the point of it, and one of the twelve
   measured sheets is a tabular list of borings carrying no depth scale at
   all, where refusing IS the right answer. The corpus is private

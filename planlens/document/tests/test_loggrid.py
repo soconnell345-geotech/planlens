@@ -378,3 +378,106 @@ def test_a_page_that_is_not_a_log_at_all_still_says_it_has_no_depths():
     assert not grid.has_ruler
     assert any(NO_RULER in w for w in grid.warnings)
     assert all(c.depth is None for c in grid.rows)
+
+
+# ---------------------------------------------------------------------------
+# Signed numbers, and the contest a header must win
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text,value", [
+    ("-2.5", -2.5), ("−4.0", -4.0), ("–5.5", -5.5),
+    ("-8.9", -8.9), ("13-", 13.0), ("13", 13.0), ("+7", 7.0),
+    ("0.2", 0.2), ("-", None), ("--", None), ("N=21", None), ("5-9-12", None),
+])
+def test_a_leading_dash_is_a_minus_and_a_trailing_one_is_a_tick(text, value):
+    from planlens.document.loggrid import _single_number
+    assert _single_number(text) == value
+
+
+def test_elevations_below_datum_do_not_make_a_depth_ruler():
+    """A column reading -2.5, -4.0, -5.5 falls; it is not a depth scale.
+
+    Read unsigned it RISES, and it used to be chosen as the ruler over the
+    scale the page prints.
+    """
+    from planlens.document.loggrid import _fit_ruler
+    ticks = [(100.0, -2.5), (140.0, -4.0), (180.0, -5.5), (220.0, -7.0),
+             (260.0, -8.5)]
+    assert _fit_ruler(ticks, rising=True) is None
+    falling = _fit_ruler(ticks, rising=False)
+    assert falling is not None
+    assert falling[1] < 0                       # slope: value falls down y
+
+
+def test_a_column_the_form_calls_depth_beats_a_longer_unnamed_one():
+    from planlens.document.loggrid import Column, _ruler_candidates
+
+    named = Column(id="a", page=0, x0=0.0, x1=10.0, name="depth",
+                   names=("depth",), header="Depth Scale (m)")
+    anonymous = Column(id="b", page=0, x0=20.0, x1=30.0, name="other")
+    ticks = {
+        # three even ticks under a header that says depth
+        "a": [(100.0, 1.0), (200.0, 2.0), (300.0, 3.0)],
+        # nineteen even ticks under a header that says nothing
+        "b": [(100.0 + 10.0 * i, float(i)) for i in range(19)],
+    }
+    rising, _falling = _ruler_candidates(ticks, {"a": named, "b": anonymous}, 0)
+    assert rising[0].column_id == "a"
+
+
+def test_an_elevation_ruler_still_needs_a_header_that_says_elevation():
+    from planlens.document.loggrid import Column, _ruler_candidates
+
+    unnamed = Column(id="b", page=0, x0=0.0, x1=10.0, name="other")
+    ticks = {"b": [(100.0, -2.5), (200.0, -4.0), (300.0, -5.5)]}
+    _rising, falling = _ruler_candidates(ticks, {"b": unnamed}, 0)
+    assert falling == []
+
+
+# ---------------------------------------------------------------------------
+# The gINT default template's headers
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("header,expected", [
+    ("Depth Scale (m)", "depth"),
+    ("Depth Scale (feet)", "depth"),
+    ("Elev. (ft)", "elevation"),
+    ("Elev. (m)", "elevation"),
+    ("ELEV", "elevation"),
+    ("Number", "sample_id"),
+    ("Sample Data", "sample_id"),
+    ("Type", "sample_type"),
+    ("Recov. (in)", "recovery"),
+    ("Recov. (cm)", "recovery"),
+    ("Penetr. resist. BL/6in", "blows"),
+    ("Penetr. resist. BL/15cm", "blows"),
+    ("N-Value (Blows/ft)", "n_value"),
+    ("N-Value (Blows/30cm)", "n_value"),
+    ("USCS", "uscs"),
+    ("Sample Description", "description"),
+    ("MATERIAL SYMBOL", "graphic"),
+    ("Remarks (Drilling Fluid, Depth of Casing, Water Level)", "remarks"),
+])
+def test_the_gint_default_template_reads(header, expected):
+    names, _unit = classify_header(header)
+    assert names and names[0] == expected, names
+
+
+def test_a_header_names_itself_before_it_qualifies_itself():
+    """The earliest phrase wins, and the longest of two starting together."""
+    assert classify_header("Remarks (Depth of Casing)")[0][0] == "remarks"
+    assert classify_header("Sample Description")[0][0] == "description"
+    assert classify_header("TEST TYPE")[0][0] == "tests"
+    assert classify_header("SAMPLE TYPE")[0][0] == "sample_type"
+    # and a header naming several still names all of them
+    assert set(classify_header("N-Value (Blows/ft)")[0]) == {"n_value",
+                                                             "blows"}
+
+
+@pytest.mark.parametrize("header,unit", [
+    ("Depth Scale (m)", "m"), ("Depth Scale (feet)", "ft"),
+    ("Elev. (ft)", "ft"), ("Recov. (in)", None),
+])
+def test_a_parenthesised_unit_is_read_off_the_gint_headers(header, unit):
+    _names, found = classify_header(header)
+    assert found == unit

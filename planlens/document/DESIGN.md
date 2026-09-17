@@ -934,12 +934,18 @@ reader's, and it needs the page image for the symbols anyway.
    the header band and are numbers; picking the first full-width rule would
    be led astray by a page frame, a title block or a groundwater table drawn
    above the header.
-3. **The ruler.** Every column's lone numbers are fitted to a line. The
+3. **The ruler.** Every column's lone numbers are fitted to a line — signed
+   numbers, because a leading dash is a minus and a column of elevations
+   below datum reads "-2.5, -4.0, -5.5". Dropping the sign turned that column
+   into a rising series and let it be read as the depth scale. The
    longest monotone run is used rather than demanding that every number in
    the band rise, because an optical read puts a stray digit in the band and
    would otherwise throw a nineteen-tick ruler away for one stray. What wins
    is a column the form CALLS depth, whose steps are EVEN, and which has
-   MANY ticks — in that order of weight. The tie that rule exists to break is
+   MANY ticks — in that order of weight, and the header dominates the other
+   two together, because the columns that fit a straight line without being
+   the scale are many and several of them carry more ticks than the ruler
+   does. The tie the later two exist to break is
    a real one: a column of layer-contact depths is called depth too and fits
    the same straight line, but it steps unevenly and its labels are set
    against the contacts rather than centred on their own ticks, so reading it
@@ -955,12 +961,22 @@ reader's, and it needs the page image for the symbols anyway.
 
 ### Naming a column
 
-The header is read first, against a vocabulary of about 230 phrases in
-English, French and Spanish over 22 canonical names. A header can name
-SEVERAL: "ATTERBERG LIMITS LL-PL-PI" is one x band carrying three values, and
-`Column.names` holds all three in the order found. A header that matches
-nothing keeps its printed text and is named `other` — the vocabulary is never
-forced.
+The header is read first, against a vocabulary of about 270 phrases in
+English, French and Spanish over 22 canonical names, including the headers
+gINT's default template prints and that many firms ship unchanged ("Depth
+Scale (m)", "Penetr. resist. BL/6in", "N-Value (Blows/ft)", "Recov. (in)",
+"Sample Description"). A header can name SEVERAL: "ATTERBERG LIMITS LL-PL-PI"
+is one x band carrying three values, and `Column.names` holds all three. A
+header that matches nothing keeps its printed text and is named `other` — the
+vocabulary is never forced.
+
+**A header names itself first and qualifies itself afterwards**, so the match
+that starts EARLIEST wins and, of two starting together, the longer one.
+"Remarks (Drilling Fluid, Depth of Casing, Water Level)" is a remarks column
+that mentions depth and a water level, not a depth column and not the
+water-table strip; "Sample Description" is a description and not a sample;
+"N-Value (Blows/ft)" is an N value that mentions blows, and holds both names
+in that order. The vocabulary's own order is only the last tie-break.
 
 Two refinements follow, and both are recorded in the column's evidence so a
 reader can see which names came off the header and which off the ink:
@@ -1059,12 +1075,19 @@ log prints.
 
 | | open six | blind nine |
 |---|---|---|
-| ruler right (found, or correctly refused) | 6/6 | 7/9 |
-| unit right | 6/6 | 4/8 |
+| ruler right (read at the page's own scale, or correctly refused) | 6/6 | 6/9 |
+| ruler WRONG (a scale claimed that reads the page elsewhere) | 0 | 0 |
+| unit right | 6/6 | 3/8 |
 | blow records and N values | 57/57 | 24/50 |
 | layer tops | 34/34 | 14/26 |
 | index values (w, dry unit weight, LL/PL/PI, fines, q_u, RQD, pocket pen) | 35/36 | 7/17 |
 | header fields | 63/68 | 33/54 |
+
+The ruler is scored three ways and not two, because a ruler fitted to the
+wrong column is worse than no ruler at all: no ruler withholds every depth,
+while a wrong one hands back a page of confident numbers. On the fifteen
+logs there is now no wrong ruler. Three of the nine blind sheets are refused
+where the truth says depths exist, which is a miss and a safe one.
 
 **The blind column is the forecast; the open column is not.** Read the second
 one and discount it slightly further: one of the nine blind logs is the
@@ -1079,11 +1102,15 @@ the pages themselves were not opened:
   layers and one sample are recorded in the ledger as not scored by depth
   rather than counted as misses. It is the one row where a pass means a
   refusal.
-- **Two sheets that carry samples and layers and where no ruler is found at
-  all.** The module refuses them in the same words and places nothing with a
-  depth, which is the designed behaviour and is still a miss: the truth says
-  those pages state depths and the geometry did not yield them. They have not
-  been looked into, because looking would spend the log.
+- **Three sheets that carry samples and layers and where no ruler is found
+  at all.** The module refuses them in the same words and places nothing with
+  a depth, which is the designed behaviour and is still a miss: the truth
+  says those pages state depths and the geometry did not yield them. One of
+  the three used to be worse — it claimed a ruler, fitted to a column of
+  elevations below datum whose minus signs were being thrown away, and read
+  the whole page at the wrong datum. Signed numbers fixed that, and what was
+  a confident wrong answer is now a refusal. They have not been looked into
+  further, because looking would spend the log.
 - **Four sheets whose depth unit is stated nowhere** on the page or in its
   own text. Their depths come back in whatever the ruler prints, and the
   module says so; on two of them the unit was recovered from depths written

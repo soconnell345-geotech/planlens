@@ -164,6 +164,12 @@ _GENERIC_NAMES = frozenset(("tests", "sample_id", "remarks", "other"))
 #: no columns to search, and no column that holds one — read the same.
 NO_RULER = "no depth ruler was found"
 
+#: What a header saying "depth" is worth in the ruler contest, against 1.5
+#: for even steps and 0.1 a tick. It is deliberately more than both together:
+#: a column the form does not call depth has to be the only candidate before
+#: it is read as the scale.
+HEADER_NAMES_IT = 10.0
+
 #: Confidences, by how the fact was come by.
 CONF_HEADER_CANONICAL = 0.90
 CONF_HEADER_VALUES = 0.60
@@ -195,6 +201,8 @@ _VOCAB: Dict[str, Tuple[str, ...]] = {
         "soil and rock description", "classification of material",
         "material classification", "subsurface profile", "soil profile",
         "lithology", "strata", "stratum description", "visual description",
+        "sample description", "description of sample", "soil and rock",
+        "field description", "description of strata",
         "description des sols", "description du sol", "description de sol",
         "nature des terrains", "descripcion", "descripcion del suelo",
         "descripcion de suelos", "clasificacion",
@@ -202,6 +210,7 @@ _VOCAB: Dict[str, Tuple[str, ...]] = {
     ),
     "graphic": (
         "graphic log", "graphic", "soil graphic", "log graphic",
+        "material symbol", "graphic symbol", "soil profile symbol",
         "graphique", "grafico", "symbole graphique", "profile graphic",
     ),
     "uscs": (
@@ -213,15 +222,20 @@ _VOCAB: Dict[str, Tuple[str, ...]] = {
         "depth", "depth ft", "depth m", "depth feet", "depth meters",
         "depth metres", "depth in feet", "depth below grade",
         "depth below ground surface", "sample depth", "depth bgs",
+        # gINT's default template, which a great many firms print unchanged
+        "depth scale", "depth scale m", "depth scale ft", "depth scale feet",
+        "depth scale meters", "depth scale metres", "scale depth",
         "profondeur", "prof", "profundidad", "tiefe",
     ),
     "elevation": (
         "elevation", "elev", "elevations", "altitude", "cote",
         "elevacion", "nivel", "cota", "elevation ft", "elevation m",
+        "elev ft", "elev m", "elevation scale", "elev scale",
+        "ground elevation scale",
     ),
     "sample_type": (
         "sample type", "type of sample", "sampler type", "sampler",
-        "type d echantillon", "type de prelevement",
+        "type", "type d echantillon", "type de prelevement",
         "tipo de muestra", "tipo muestra", "sample type and number",
     ),
     "sample_id": (
@@ -230,6 +244,7 @@ _VOCAB: Dict[str, Tuple[str, ...]] = {
         "echantillon", "echantillons", "no echantillon",
         "prelevement", "muestra", "no muestra", "numero de muestra",
         "sample interval", "sample information",
+        "number", "sample data", "sample and rqd data", "samp",
     ),
     "blows": (
         "blows", "blow counts", "blow count", "blows per 6", "blows per 6 in",
@@ -239,15 +254,22 @@ _VOCAB: Dict[str, Tuple[str, ...]] = {
         "coups", "nombre de coups", "coups par", "battage",
         "golpes", "numero de golpes", "golpes por", "resistencia penetracion",
         "schlagzahl", "blows 150mm", "blows per 150 mm",
+        # gINT prints the penetration record abbreviated and unit-suffixed
+        "penetr resist", "penetr resist bl 6in", "penetr resist bl 15cm",
+        "pen resist", "bl 6in", "bl 15cm", "bl 30cm", "blows 6in",
+        "blows 15cm", "blows 30cm", "blow count 6in",
     ),
     "n_value": (
         "n value", "n values", "spt n", "spt n value", "n60",
         "standard penetration resistance n", "valeur n", "valor n",
         "n spt", "n blows",
+        "n value blows ft", "n value blows 30cm", "n value blows 300mm",
     ),
     "recovery": (
         "recovery", "rec", "recovery percent", "core recovery", "rec percent",
         "percent recovery", "recuperation", "recuperacion", "recobro",
+        "recov", "recov in", "recov cm", "recov mm", "recovery in",
+        "recovery cm",
     ),
     "rqd": ("rqd", "rock quality designation", "rqd percent", "r q d"),
     "water_content": (
@@ -663,14 +685,24 @@ def numbers_in(text: str) -> Tuple[float, ...]:
 
 _SINGLE_NUMBER = re.compile(r"^[-+]?\d*\.?\d+$")
 
+#: Dashes a printed minus sign can arrive as. A true minus sign, an en dash
+#: and an em dash all mean minus when a digit follows; a hyphen already does.
+_MINUS = "−–—"
+
 
 def _single_number(text: str) -> Optional[float]:
     """The value of a line that is ONE number and nothing else, else None.
 
     A trailing tick mark is tolerated because optical text reads the dash of a
-    printed ruler tick as part of the number beside it ("13-").
+    printed ruler tick as part of the number beside it ("13-"). A LEADING dash
+    is not tolerated but READ: it is a minus sign, and a column of elevations
+    below datum reads "-2.5, -4.0, -5.5". Stripping it turned that column into
+    a rising series, which let it be chosen as the depth ruler over the scale
+    the page actually prints.
     """
-    token = str(text or "").strip().strip("–—-").strip()
+    token = str(text or "").strip().rstrip("–—-").strip()
+    if token[:1] in _MINUS and token[1:2] and token[1:2] in "0123456789.":
+        token = "-" + token[1:]
     if not _SINGLE_NUMBER.match(token):
         return None
     try:
@@ -718,17 +750,35 @@ def classify_header(header: str) -> Tuple[Tuple[str, ...], Optional[str]]:
     if not flat.strip():
         return (), None
     unit = _unit_from_header(header)
-    for phrase in _WATER_LEVEL:
-        if f" {phrase} " in flat:
-            return (), unit
-    found: List[str] = []
-    for name in _COLUMN_ORDER:
-        for phrase in sorted(_VOCAB[name], key=len, reverse=True):
-            if f" {phrase} " in flat:
-                if name not in found:
-                    found.append(name)
-                break
-    return tuple(found), unit
+    water = min((flat.find(f" {phrase} ") for phrase in _WATER_LEVEL
+                 if f" {phrase} " in flat), default=-1)
+    hits: List[Tuple[int, int, int, str]] = []
+    for order, name in enumerate(_COLUMN_ORDER):
+        best: Optional[Tuple[int, int, int, str]] = None
+        for phrase in _VOCAB[name]:
+            at = flat.find(f" {phrase} ")
+            if at < 0:
+                continue
+            candidate = (at, -len(phrase), order, name)
+            if best is None or candidate < best:
+                best = candidate
+        if best is not None:
+            hits.append(best)
+    # A column header NAMES itself first and qualifies afterwards, so the
+    # earliest match wins, and of two starting together the longer wins.
+    # "Remarks (Drilling Fluid, Depth of Casing)" is a remarks column that
+    # mentions depth, not a depth column; "Sample Description" is a
+    # description, not a sample; "N-Value (Blows/ft)" is an N value that
+    # mentions blows. The vocabulary order is only the last tie-break.
+    hits.sort()
+    if water >= 0 and (not hits or water <= hits[0][0]):
+        # The column carries the water-table symbols and is not a value
+        # column at all; it keeps its printed header and no canonical name.
+        # The test is POSITIONAL, because "Remarks (Drilling Fluid, Depth of
+        # Casing, Water Level)" is a remarks column that mentions the water
+        # level, and refusing to name it at all lost a whole column.
+        return (), unit
+    return tuple(name for *_rest, name in hits), unit
 
 
 # ---------------------------------------------------------------------------
@@ -1105,14 +1155,19 @@ def _ruler_candidates(cells_by_column: Dict[str, List[Tuple[float, float]]],
             # dry unit weight down a stiffening profile fits beautifully. An
             # elevation scale is only claimed where a header says elevation.
             continue
-        # What a ruler is: a column the form CALLS depth, whose numbers step
-        # evenly, and of which there are many. A column of layer-contact
-        # depths is called depth too and fits the same straight line, but it
-        # steps unevenly and is short, and reading it as the ruler costs a
-        # fifth of a metre because its labels are set against the contacts
-        # rather than centred on their own ticks.
-        score = (2.0 if named else 0.0) + (1.5 if regular else 0.0)
-        score += min(len(ticks), 20) / 10.0
+        # What a ruler is, in order of weight: a column the form CALLS
+        # depth, then one whose numbers step evenly, then one with many
+        # ticks. The header DOMINATES, because the columns that fit a
+        # straight line without being the scale are numerous -- layer-contact
+        # depths, elevations, sample numbers, a plot axis -- and several of
+        # them carry more ticks than the ruler does. The two later terms are
+        # there to choose BETWEEN columns the form calls depth: a contact
+        # column is called depth too and fits the same line, but it steps
+        # unevenly and is short, and reading it as the ruler costs a fifth of
+        # a metre because its labels are set against the contacts rather than
+        # centred on their own ticks.
+        score = (HEADER_NAMES_IT if named else 0.0)
+        score += (1.5 if regular else 0.0) + min(len(ticks), 20) / 10.0
         conf = max(CONF_RULER_FLOOR,
                    min(0.98, 1.0 - resid / (MAX_RULER_RESIDUAL_FRAC * step)))
         ruler = Ruler(
