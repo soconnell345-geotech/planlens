@@ -219,6 +219,32 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "document_roles",
+        "description": (
+            "What each page of a report IS, and the work items its pages "
+            "make. Roles: narrative, figure, plan, profile, boring_log, "
+            "test_pit_log, cpt_log, dcp_log, lab_test, field_test, "
+            "calculation, appended_report, photos, divider, cover, letter, "
+            "toc, other — each with the evidence that decided it. Items "
+            "group the pages a reader takes in together: one per boring or "
+            "test pit (its \"Page 2 of 3\" continuation sheets folded in), "
+            "one per laboratory sheet or multi-page test, one per "
+            "calculation printout, one for the narrative, one per report "
+            "bound inside this one. Use it to find every log or every lab "
+            "sheet in a long report, and to read one of them at a time. "
+            "items_only=true returns the items without the per-page rows."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "items_only": {"type": "boolean",
+                               "description": "Return only the work items."},
+                "offset": {"type": "integer", "minimum": 0},
+            },
+            "required": ["handle"],
+        },
+    },
+    {
         "name": "render_page_thumbnails",
         "description": (
             "Contact sheets of the document: every page as a small thumbnail "

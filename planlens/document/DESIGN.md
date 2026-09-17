@@ -665,10 +665,114 @@ a symlink out are all refused the same way), and a shared HTTP deployment needs
 authentication from the platform in front of it. The SDK (`mcp`) is an optional
 extra pinned to its major version; v1 and v2 are different APIs.
 
+## Page roles and work items (2026-09-16)
+
+`roles.py`. The page map says what a page LOOKS like; this says what it IS —
+narrative, a boring log, a laboratory sheet, a calculation printout, a report
+bound inside another report — and groups the pages into the work items a
+reader consumes one at a time. Rules over the evidence the page map and the
+text extraction already produce; no trained model, and nothing keyed to a
+firm, a project or a template.
+
+### What decides a page, in order of authority
+
+1. **The document's own structure.** An appendix tab STATES what its appendix
+   holds ("APPENDIX B - LABORATORY TEST DATA", "PART 2 - FIELD BOREHOLE
+   LOGS", "APPENDIX D - CALCULATIONS", and often a contents list beneath),
+   and every page up to the next tab inherits it. A tab that hands its
+   appendix to somebody else's document ("APPENDIX C - GEOTECHNICAL REPORT
+   BY OTHERS") takes every one of that document's pages, whatever those pages
+   look like, because it is one appended document.
+2. **What the page's own title says.** Read from the page's largest two type
+   sizes and its top and bottom bands, never from a keyword anywhere on the
+   page: a laboratory sheet prints the boring and depth its sample came from,
+   and a narrative page discusses the test pits. Where the running header of
+   an appendix would decide the answer on its own ("Test Pit Logs and
+   Photographs" on every page of it), the page's OWN title is used instead —
+   the lines of its bands that do not repeat across the document.
+3. **The page's shape**, as `PageSummary` measures it: ruled form, figure,
+   scan, word density, images.
+
+Four rules carry most of the work and each exists because of a measured
+failure:
+
+- **A tab's declaration is read from its own type, not the whole page.** A
+  tab page inherits the PREVIOUS appendix's running footer; read from the
+  foot of the page, the new appendix is handed to the old one.
+- **What repeats is boilerplate.** A top- or bottom-band line printed on
+  three pages or more (compared with its digits masked, so a caption that
+  counts still matches itself) is the document's running band, not anything a
+  page is saying.
+- **A document's appendix lettering is a sequence, and a nested document
+  restarts it.** A report bound inside appendix C brings its own A, B, C, D,
+  E; the outer report's next tab is D, and D following the inner E is the
+  outer document speaking again, not the inner one going backwards. That is
+  how the extent of an appended report is found without reading it.
+- **A second volume announces itself with a contents page.** A title page
+  part-way through a PDF, followed within three pages by a table of contents,
+  opens a new volume of the same report — its narrative is narrative. A
+  laboratory certificate headed "Certificate of Analysis ... submitted to"
+  has no contents page after it and opens nothing.
+
+### Work items
+
+One item per boring / test pit / CPT / DCP log, with its "Page 2 of 3"
+continuation sheets folded in; one per laboratory sheet or multi-page test;
+one per calculation printout (a run of pages with one program banner or one
+calc title, not one item per page); one for each narrative run; one per
+appended report. Every page row names the item it belongs to; a divider
+belongs to none.
+
+### What is measured
+
+Scored against 4,147 hand-labelled pages of 14 real geotechnical reports
+(2026-09-16), 38 to 729 pages each, English, French, Spanish and Portuguese,
+text-layer and scanned, some read through Azure Document Intelligence. The
+corpus is private and is not in this repository; the measurement script and
+its numbers live with the corpus. Overall page accuracy 0.90. The five roles
+a downstream reader depends on:
+
+| role | precision | recall | hand-labelled pages |
+|---|---|---|---|
+| `boring_log` | 0.97 | 0.94 | 273 |
+| `test_pit_log` | 0.96 | 0.92 | 251 |
+| `lab_test` | 0.94 | 0.95 | 992 |
+| `narrative` | 0.94 | 0.93 | 433 |
+| `calculation` | 1.00 | 0.97 | 1,009 |
+
+`appended_report` scores 0.99 / 1.00 over 494 pages and is reported, not
+gated, along with the other twelve.
+
+### What is NOT measured, and what it will get wrong
+
+- **`dcp_log` recall is 0.24** (13 of 54). Dynamic-cone sheets in the corpus
+  are scans without a text layer, or French forms whose title names a boring
+  and a dynamic cone in one line. It is honest to say the role is
+  under-served rather than to tune for it.
+- **`other` is a residual, not a class** (precision 0.50). A page that is a
+  legend, a summary table, a groundwater reading sheet or an unlabelled form
+  is "other"; so is a page the rules could not place. A reader must not take
+  `other` as a statement.
+- **`figure` and `plan` are weak** (0.28 and 0.38 precision). A figure page
+  carries the least text of any page in a report, and the rules are text
+  rules.
+- **A page with no text at all cannot be placed by its title.** Nine boring
+  logs in one corpus report are image-only in a report with no Azure result;
+  they come out `figure`. Attaching an optical text source fixes them and
+  nothing else in the module needs to change.
+- **Hand labels are not perfect ground truth.** Several disagreements are
+  genuine ambiguity — a foundation sketch of a test pit labelled as the pit's
+  log on one page and as a photograph on the next.
+- Roles are NOT read from PDF structure tags, bookmarks or Azure paragraph
+  roles, none of which the corpus carries usefully.
+
 ## Not built yet
 
 - RapidOCR (`planlens.ocr`) as a text source (it currently emits IR TextItems).
 - The drawing tools (digitize / query / snip / search a drawing set) as
   planlens tools — the app's drawing adapter still owns them.
-- Roles/headings from the PDF text layer; multi-column reading order; figure
+- Headings from the PDF text layer; multi-column reading order; figure
   and caption detection; tables spanning pages.
+- A `dcp_log` that survives a scan (see "Page roles and work items"), and
+  roles for the in-situ tests the vocabulary has no word for (pressuremeter,
+  vane, dilatometer), which are answered `other` today.

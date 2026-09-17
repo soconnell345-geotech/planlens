@@ -33,6 +33,14 @@ located, attributed data:
   Intelligence result can supply text for scanned pages — planlens reads the
   result, it never calls or requires the paid service.
 
+  And it says what each page of a report IS — narrative, a boring log, a
+  laboratory sheet, a calculation printout, a report bound inside another
+  report — with the evidence for the call, and groups the pages into the work
+  items a reader takes in one at a time: one per boring or test pit with its
+  continuation sheets folded in, one per laboratory sheet, one per printout.
+  Rules over what the pages themselves print: what an appendix tab states it
+  holds, what a page's own largest type calls it, and the page's shape.
+
   It also reads the measurement calibration a PDF already stores, so a scale
   need not be guessed off a title block. When someone has calibrated a sheet
   in Bluebeam or measured with Acrobat's tools, the file carries that as
@@ -163,6 +171,18 @@ rather than silently deflating the answer.
 
 ## Capability status (kept honest)
 
+- **Page roles scored against hand-labelled pages (2026-09-16)**: 4,147
+  pages of 14 real geotechnical reports, 38 to 729 pages each, in four
+  languages, text-layer and scanned. Overall page accuracy 0.90; on the five
+  roles a reader depends on, precision/recall 0.97 / 0.94 `boring_log`,
+  0.96 / 0.92 `test_pit_log`, 0.94 / 0.95 `lab_test`, 0.94 / 0.93
+  `narrative`, 1.00 / 0.97 `calculation`, and 0.99 / 1.00 `appended_report`.
+  What it gets wrong is written down with it in
+  `planlens/document/DESIGN.md`: `dcp_log` recall is 0.24 on scanned forms,
+  `other` is a residual rather than a class, `figure` and `plan` are weak
+  because a figure page carries the least text on it of any page, and a page
+  with no text at all cannot be placed by its title. The corpus is private
+  and is not in this repository.
 - **Proven on real agency sheets**: bubble callouts (40/40 count match
   on a dense municipal standard detail), region rendering, endpoint /
   text-anchored queries, multi-page drawing-set search, OCR text
@@ -558,6 +578,12 @@ from planlens.testing import (
                                        # running header and "Page N", appendix
                                        # divider, ruled logs, a duplicated page,
                                        # two D-size sheets, attachment divider
+    build_synthetic_report,            # a geotechnical report with every page
+                                       # role: cover, contents, narrative,
+                                       # tabs, boring and test pit logs,
+                                       # photographs, lab sheets, a whole
+                                       # report bound inside an appendix, a
+                                       # program printout - with the answers
 )
 ```
 

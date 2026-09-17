@@ -24,6 +24,10 @@ from planlens.testing.document_fixtures import (
     build_synthetic_review_document,
     build_unmapped_text_pdf,
 )
+from planlens.testing.report_fixtures import (
+    ReportGT,
+    build_synthetic_report,
+)
 from planlens.testing.submittal_fixtures import (
     SubmittalGT,
     build_synthetic_submittal,
@@ -53,6 +57,8 @@ from planlens.testing.leader_fixtures import (
 
 __all__ = [
     "DocumentGT",
+    "ReportGT",
+    "build_synthetic_report",
     "FEET_PER_POINT",
     "RATIO_TEXT",
     "ScaledSheetGT",

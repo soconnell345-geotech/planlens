@@ -17,6 +17,9 @@ Tools
 ``document_markups``   the review record: every markup, with its threads
 ``document_structure`` the constituent documents: segments with their
                        running headers/footers and printed page numbers
+``document_roles``     what each page IS — narrative, boring log, lab sheet,
+                       calculation printout, appended report — and the work
+                       items those pages make
 ``render_page``        a page as a PNG image, for the model to look at
 ``render_region``      a zoomed region (with optional numbered marks) as a PNG
 ``render_page_thumbnails``  contact sheets of every page, like a viewer's
@@ -727,6 +730,56 @@ class ReviewToolkit:
                      "0-based PDF pages these tools take")}
         if nxt is not None:
             out["next_offset"] = nxt
+        return out
+
+    def _tool_document_roles(self, handle: str, items_only: bool = False,
+                             offset: int = 0) -> Dict[str, Any]:
+        from planlens.document.roles import roles_and_items
+
+        entry = self._entry(handle)
+        with entry.lock:
+            roles, items = roles_and_items(entry.doc)
+        counts: Dict[str, int] = {}
+        for r in roles:
+            counts[r.role] = counts.get(r.role, 0) + 1
+        item_rows = [i.to_dict() for i in items]
+        out: Dict[str, Any] = {
+            "handle": handle, "n_pages": len(roles),
+            "roles": dict(sorted(counts.items(), key=lambda kv: -kv[1])),
+            "note": ("a role per page and the work items those pages make: "
+                     "one item per boring / test pit / CPT / DCP log with its "
+                     "continuation sheets folded in, one per laboratory sheet "
+                     "or multi-page test, one per calculation printout, one "
+                     "for the narrative, one per report bound inside this "
+                     "one. Read an item's pages together. Pages are 0-based; "
+                     "roles read from the pages' own titles, their appendix "
+                     "tabs and their shape, with the evidence on each row")}
+        out["n_items"] = len(item_rows)
+        if items_only:
+            out["items"] = []
+            budget = self._budget(150) - json_len(out)
+            rows, nxt = fit_items(item_rows, max(budget, 500), start=offset)
+            out["items"] = rows
+            if nxt is not None:
+                out["next_offset"] = nxt
+            return out
+        payload = [r.to_dict() for r in roles]
+        out["items"] = []
+        out["pages"] = []
+        item_budget = self._budget(150) - json_len(out)
+        out["items"], item_next = fit_items(item_rows,
+                                            max(item_budget // 2, 500))
+        if item_next is not None:
+            out["hint"] = ("more work items than fit: call again with "
+                           "items_only=true and offset to page through them")
+        # What is left once the items and the wrapper are counted: the items
+        # are the answer a reader acts on, so they are never the part cut.
+        budget = self._budget(200) - json_len(out)
+        rows, nxt = fit_items(payload, max(budget, 500), start=offset)
+        out["pages"] = rows
+        if nxt is not None:
+            out["next_pages_offset"] = nxt
+            out.setdefault("hint", "call again with offset for more pages")
         return out
 
     def _tool_render_page_thumbnails(self, handle: str, pages: Any = None,

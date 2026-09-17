@@ -90,3 +90,54 @@ def test_render_notes_carry_the_image_view_hint(kit, gt):
     assert IMG_HINT in page["note"]
     region = call(kit, "render_region", handle=handle, page=0, bbox=[0, 0, 100, 100])
     assert region["note"] == IMG_HINT
+
+
+# -- document_roles ---------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def report_gt():
+    from planlens.testing import build_synthetic_report
+    return build_synthetic_report()
+
+
+@pytest.fixture
+def report_kit(report_gt, tmp_path):
+    k = ReviewToolkit(resolve_source=lambda key: report_gt.pdf,
+                      output_dir=str(tmp_path), image_view_hint=IMG_HINT)
+    yield k
+    k.close()
+
+
+def test_document_roles_tool_answers_pages_and_items(report_kit, report_gt):
+    call(report_kit, "open_document", source="report.pdf")
+    handle = report_kit.open("report.pdf").handle
+    out = call(report_kit, "document_roles", handle=handle)
+    assert out["n_pages"] == report_gt.n_pages
+    got = {row["page"]: row["role"] for row in out["pages"]}
+    assert got == report_gt.roles
+    kinds = [(i["kind"], i["pages"]) for i in out["items"]]
+    assert ("boring_log", "6-7") in kinds
+    assert ("appended_report", "14-17") in kinds
+    assert ("calculation", "19-20") in kinds
+
+
+def test_document_roles_items_only(report_kit):
+    report_kit.open("report.pdf")
+    handle = report_kit.open("report.pdf").handle
+    out = call(report_kit, "document_roles", handle=handle, items_only=True)
+    assert "pages" not in out
+    assert out["n_items"] == len(out["items"])
+    assert all(i["id"] and i["kind"] for i in out["items"])
+
+
+def test_document_roles_is_published_and_budgeted(report_kit):
+    assert "document_roles" in report_kit.tool_names
+    spec = next(s for s in report_kit.specs("plain")
+                if s["name"] == "document_roles")
+    assert "boring_log" in spec["description"]
+    assert set(spec["parameters"]["properties"]) == {
+        "handle", "items_only", "offset"}
+    handle = report_kit.open("report.pdf").handle
+    text = report_kit.call_json("document_roles", {"handle": handle},
+                                max_chars=1200)
+    assert len(text) <= 1200 and json.loads(text)

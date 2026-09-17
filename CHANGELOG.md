@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **What each page of a report IS, and the work items its pages make.** New
+  `planlens.document.roles`: `page_roles(doc)` gives every page one of
+  eighteen roles — narrative, figure, plan, profile, boring_log,
+  test_pit_log, cpt_log, dcp_log, lab_test, field_test, calculation,
+  appended_report, photos, divider, cover, letter, toc, other — with the
+  evidence that decided it, and `document_items(doc)` groups those pages into
+  what a reader takes in at once: one item per boring or test pit with its
+  "Page 2 of 3" continuation sheets folded in, one per laboratory sheet or
+  multi-page test, one per calculation printout, one for the narrative, one
+  per report bound inside the report. Rules, not a trained model, over
+  evidence the page map already produces: what an appendix tab STATES it
+  holds, what a page's own largest type calls it, and the page's shape. A
+  report bound into an appendix takes every one of its pages whatever they
+  look like, and its extent is found from the appendix lettering it restarts
+  and the outer document resumes. Served to a model as the tool
+  `document_roles` (and over MCP with the rest). Measured against 4,147
+  hand-labelled pages of 14 real geotechnical reports: overall page accuracy
+  0.90, and on the five roles a reader depends on — precision/recall 0.97 /
+  0.94 boring_log, 0.96 / 0.92 test_pit_log, 0.94 / 0.95 lab_test, 0.94 /
+  0.93 narrative, 1.00 / 0.97 calculation. What it gets wrong is written down
+  beside that: `dcp_log` recall is 0.24 on scanned forms, `other` is a
+  residual rather than a class, and a page with no text at all cannot be
+  placed by its title. New `planlens.testing.build_synthetic_report` builds a
+  21-page report carrying every one of those page kinds, with the answers.
+  See `planlens/document/DESIGN.md`, "Page roles and work items".
+
 - **A page whose text layer is there and WRONG now says so.** An
   analysis-program printout bound into a report often carries a font with no
   usable Unicode map: the extraction succeeds, returns thousands of
