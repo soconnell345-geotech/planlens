@@ -548,3 +548,58 @@ def test_the_overprinted_form_reads_like_the_plain_one(overprinted):
             assert [c for c in grid.cells("blows")
                     if c.text == text
                     and abs((c.depth or -999) - depth) <= 0.5], text
+
+
+# ---------------------------------------------------------------------------
+# A rule drawn in pieces
+# ---------------------------------------------------------------------------
+
+def test_collinear_pieces_join_into_the_run_they_make():
+    from planlens.document.loggrid import _Rule, join_segments
+
+    # The four strokes one corpus form emits for the line under its header.
+    pieces = [_Rule(170.0, 50.4, 338.4), _Rule(170.0, 331.2, 337.0),
+              _Rule(170.4, 352.8, 590.4), _Rule(170.0, 354.2, 360.0)]
+    joined = join_segments(pieces)
+    assert len(joined) == 1
+    assert (round(joined[0].lo, 1), round(joined[0].hi, 1)) == (50.4, 590.4)
+    assert joined[0].length > 500
+
+
+def test_two_rules_a_whole_column_apart_stay_two():
+    from planlens.document.loggrid import _Rule, join_segments
+
+    apart = [_Rule(170.0, 50.0, 150.0), _Rule(170.0, 260.0, 400.0)]
+    assert len(join_segments(apart)) == 2
+    # and a different y is a different rule however it overlaps
+    stacked = [_Rule(170.0, 50.0, 400.0), _Rule(220.0, 50.0, 400.0)]
+    assert len(join_segments(stacked)) == 2
+
+
+def test_a_header_rule_in_four_pieces_still_marks_the_body(request):
+    """Stroke by stroke there is no line under the header row at all."""
+    from planlens.testing import build_segmented_rule_log
+
+    gt = build_segmented_rule_log()
+    with open_document(gt.pdf) as doc:
+        grid = log_grid(doc, 0)
+    assert grid.has_ruler and grid.unit == "ft"
+    named = {c.name for c in grid.columns if c.names}
+    assert {"depth", "description", "water_content",
+            "dry_unit_weight"} <= named
+    assert [ly.top for ly in grid.layers] == [t for t, _b, _d in gt.layers]
+    for depth, blows, n_value in gt.samples:
+        for text in (blows, n_value):
+            assert [c for c in grid.cells("blows")
+                    if c.text == text
+                    and abs((c.depth or -999) - depth) <= 0.5], text
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("S-7", (7.0,)), ("SB-01", (1.0,)), ("TP-2A", (2.0,)),
+    ("5-9-12", (5.0, 9.0, 12.0)), ("-2.5", (-2.5,)), ("N=21", (21.0,)),
+    ("REC=25cm, 56%", (25.0, 56.0)), ("Longitude: -117.887", (-117.887,)),
+])
+def test_a_dash_after_a_letter_names_a_sample_and_is_not_a_minus(text,
+                                                                expected):
+    assert numbers_in(text) == expected

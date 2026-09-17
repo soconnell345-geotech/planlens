@@ -80,8 +80,8 @@ def _turned(page, text: str, x: float, y_bottom: float, size: float) -> None:
 
 
 def _draw_form(page, unit: str, ruler_step: float, ticks, per_unit: float,
-               contacts, layers, samples, index_tests, ruler: bool = True
-               ) -> None:
+               contacts, layers, samples, index_tests, ruler: bool = True,
+               segmented: bool = False) -> None:
     import fitz
 
     # -- the fields above the form ----------------------------------------
@@ -104,6 +104,17 @@ def _draw_form(page, unit: str, ruler_step: float, ticks, per_unit: float,
     for x in EDGES:
         page.draw_line((x, Y_FORM_TOP), (x, Y_FORM_BOTTOM), width=0.6)
     for y in (Y_FORM_TOP, Y_HEADER_BOTTOM, Y_FORM_BOTTOM):
+        if segmented and y == Y_HEADER_BOTTOM:
+            # Drawn once per stretch between the columns it has to skip, the
+            # way a form generator emits it: four collinear pieces, with a
+            # 14 pt gap where the depth ruler's own tick marks live. No piece
+            # crosses the form; the run they make crosses it exactly.
+            for a, b in ((X_LEFT, EDGES[2] + 5.0),
+                         (EDGES[2] + 1.0, EDGES[2] + 4.0),
+                         (EDGES[2] + 19.0, X_RIGHT),
+                         (EDGES[2] + 20.0, EDGES[2] + 25.0)):
+                page.draw_line((a, y), (b, y), width=0.6)
+            continue
         page.draw_line((X_LEFT, y), (X_RIGHT, y), width=0.6)
 
     heads = [h.format(u=unit) for h in HEADERS]
@@ -173,13 +184,13 @@ def _draw_form(page, unit: str, ruler_step: float, ticks, per_unit: float,
 
 def _build(unit: str, per_unit: float, ticks, contacts, layers, samples,
            index_tests, ruler: bool = True, overprint: bool = False,
-           title_block: bool = False) -> LogGridGT:
+           title_block: bool = False, segmented: bool = False) -> LogGridGT:
     import fitz
     doc = fitz.open()
     page = doc.new_page(width=LETTER[0], height=LETTER[1])
     step = ticks[1] - ticks[0]
     _draw_form(page, unit, step, ticks, per_unit, contacts, layers, samples,
-               index_tests, ruler=ruler)
+               index_tests, ruler=ruler, segmented=segmented)
     if overprint:
         # Drawn a second time, identically, the way a printer driver and
         # several form generators fake a bold weight.
@@ -265,6 +276,17 @@ def build_overprinted_log() -> LogGridGT:
     return _build("ft", 22.0, [5.0, 10.0, 15.0, 20.0], [4.0, 16.0],
                   _FT_LAYERS, _FT_SAMPLES, _FT_INDEX, overprint=True,
                   title_block=True)
+
+
+def build_segmented_rule_log() -> LogGridGT:
+    """The imperial form whose header rule is drawn in four pieces.
+
+    No piece crosses the form, so measured stroke by stroke there is no line
+    under the header row at all and no band between two rules can hold the
+    column labels. Joined, the pieces span the form exactly.
+    """
+    return _build("ft", 22.0, [5.0, 10.0, 15.0, 20.0], [4.0, 16.0],
+                  _FT_LAYERS, _FT_SAMPLES, _FT_INDEX, segmented=True)
 
 
 def build_log_without_ruler() -> LogGridGT:

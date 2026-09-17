@@ -80,6 +80,14 @@ MIN_COLUMN_EDGE_FRAC = 0.30
 SAME_EDGE_PT = 2.0
 MIN_COLUMN_WIDTH_PT = 5.0
 
+#: How wide a gap two collinear pieces of a rule may leave and still be one
+#: rule. A form draws the line under its header row in as many strokes as it
+#: has columns to skip: measured on one corpus template, four pieces with a
+#: 14 pt gap where a narrow column's tick marks live. The ceiling is one
+#: narrow column wide, so two rules that are genuinely separate — with a whole
+#: column between them — stay separate.
+RULE_JOIN_GAP_PT = 20.0
+
 #: A horizontal rule spanning this fraction of the ruled width is a full-width
 #: rule: the line between the header band and the body, or the line that
 #: closes the body. Stratum lines cross only the description column, which on
@@ -675,11 +683,13 @@ def _norm(text: str) -> str:
     return " " + " ".join(flat.split()) + " "
 
 
-#: A number, with the sign only where a sign can be. The hyphen in a blow
-#: record ("5-9-12") is a separator, and reading it as a minus turned two of
-#: the three blow counts negative.
+#: A number, with the sign only where a sign can be. A dash between two
+#: digits is a separator, not a minus: reading it as one turned two of the
+#: three counts in a blow record ("5-9-12") negative. So is a dash after a
+#: letter, which is how a sample is named ("S-7", "SB-01") -- and a sample
+#: called minus seven reads as a value in whatever column it stands in.
 _NUMBER = re.compile(
-    r"(?<![\d.,])[-+]?(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d*\.?\d+)")
+    r"(?<![\d.,A-Za-z])[-+]?(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d*\.?\d+)")
 
 
 def numbers_in(text: str) -> Tuple[float, ...]:
@@ -880,16 +890,38 @@ def page_rules(page) -> Tuple[List[_Rule], List[_Rule]]:
     return horizontal, vertical
 
 
-def _merge_edges(rules: Sequence[_Rule]) -> List[Tuple[float, float, float]]:
-    """Collapse rules at the same coordinate into ``(a, lo, hi)`` runs."""
-    out: List[Tuple[float, float, float]] = []
-    for r in sorted(rules, key=lambda r: r.a):
-        if out and abs(r.a - out[-1][0]) <= SAME_EDGE_PT:
-            a, lo, hi = out[-1]
-            out[-1] = ((a + r.a) / 2.0, min(lo, r.lo), max(hi, r.hi))
+def join_segments(rules: Sequence[_Rule],
+                  max_gap: float = RULE_JOIN_GAP_PT) -> List[_Rule]:
+    """Collinear pieces of one drawn rule, joined into the run they make.
+
+    A form's rules are very often not single strokes. The line under a header
+    row is drawn once per stretch between the columns it has to skip, so on
+    one corpus template it arrives as four collinear pieces with a 14 pt gap
+    where a narrow column's tick marks live. Measured on its own, no piece
+    crosses the form; joined, they span it exactly. Every question this module
+    asks of a horizontal rule — does it cross the whole form, does it cross
+    the description column — is a question about the RUN and not the stroke.
+
+    Pieces join when they share a y (or an x, for a vertical) within
+    :data:`SAME_EDGE_PT` and overlap or leave a gap no wider than one narrow
+    column. The run keeps the coordinate of its first piece, so a chain of
+    near-equal coordinates cannot drift away from where it started.
+    """
+    out: List[_Rule] = []
+    anchors: List[float] = []
+    for r in sorted(rules, key=lambda r: (r.a, r.lo)):
+        if (out and abs(r.a - anchors[-1]) <= SAME_EDGE_PT
+                and r.lo <= out[-1].hi + max_gap):
+            out[-1] = _Rule(out[-1].a, out[-1].lo, max(out[-1].hi, r.hi))
         else:
-            out.append((r.a, r.lo, r.hi))
+            out.append(_Rule(r.a, r.lo, r.hi))
+            anchors.append(r.a)
     return out
+
+
+def _merge_edges(rules: Sequence[_Rule]) -> List[Tuple[float, float, float]]:
+    """Vertical rules as ``(a, lo, hi)`` runs, collinear pieces joined."""
+    return [(r.a, r.lo, r.hi) for r in join_segments(rules)]
 
 
 # ---------------------------------------------------------------------------
@@ -1396,6 +1428,10 @@ def _read_page(doc, index: int) -> _PageGrid:
     v_runs: List[Tuple[float, float, float]] = []
     if fitz_page is not None:
         h_rules, v_rules = page_rules(fitz_page)
+        # Collinear pieces are one rule. Every length this module measures —
+        # does it cross the form, does it cross the description column, is it
+        # long enough to be a column edge — is a length of the RUN.
+        h_rules = join_segments(h_rules)
         v_runs = _merge_edges(v_rules)
     pg.horizontal = h_rules
 

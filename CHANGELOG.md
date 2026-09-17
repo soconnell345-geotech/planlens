@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **A rule drawn in pieces is one rule.** A form's lines are very often not
+  single strokes: the line under a header row is drawn once per stretch
+  between the columns it has to skip, so on one corpus template it arrives as
+  four collinear pieces with a 14 pt gap where a narrow column's tick marks
+  live. Measured stroke by stroke no piece crossed the form, the page looked
+  as though it had no line under its header at all, and every column on three
+  such sheets came back unnamed. Collinear pieces sharing a coordinate and
+  leaving a gap no wider than one narrow column are now joined before any
+  length is measured — for column edges, for the header band and for stratum
+  lines alike.
+- **A dash after a letter names a sample and is not a minus.** "S-7" is
+  sample seven, not minus seven. A dash between digits was already a
+  separator ("5-9-12"); a dash after a letter is one too, and only a dash
+  that starts a number, or follows a space, is a sign.
+
 - **A line drawn twice is one line.** Some forms and printer drivers draw a
   string a second time at the same place to fake a bold weight.
   `planlens.document` now returns it once, dropped in TEXT EXTRACTION rather
@@ -47,14 +62,14 @@
   hand-transcribed into a private ledger, six open during development and
   nine scored blind: on the open six, ruler and unit 6/6, blow records and N
   values 57/57, layer tops 34/34, index values 35/36, header fields 63/68; on
-  the blind nine, 9/9, 5/8, 24/50, 22/26, 7/17 and 33/54 — and one of those
+  the blind nine, 9/9, 6/8, 50/50, 22/26, 8/17 and 33/54 — and one of those
   nine is the scanned page the optical path was built on, so read it as eight
   and a half. **The blind column is the one that forecasts anything.** One of
   the fifteen is a tabular list of borings with no depth scale on it, where
   finding no ruler and saying so IS the answer, and it is the only sheet
   without one. **No sheet of the fifteen is read at a wrong scale.** What the
-  blind column is short of is three forms that draw no rule under their
-  header row, whose columns therefore cannot be named.
+  blind column is short of is the index properties, and two sheets that state
+  their depth unit nowhere at all.
 - **Signed numbers, and a header that outweighs a tick count.** A leading
   dash is a minus sign, not something to strip: a column of elevations below
   datum reads "-2.5, -4.0, -5.5", and throwing the signs away turned it into

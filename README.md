@@ -209,15 +209,13 @@ rather than silently deflating the answer.
   nine scored blind (tolerances 0.15 m on a sample, 0.30 m on a layer top):
   on the open six, ruler and unit 6/6, blow records and N values 57/57, layer
   tops 34/34, index values 35/36, header fields 63/68; on the blind nine,
-  ruler 9/9, unit 5/8, blow records and N values 24/50, layer tops 22/26,
-  index values 7/17, fields 33/54 — and one of those nine is the scanned page
+  ruler 9/9, unit 6/8, blow records and N values 50/50, layer tops 22/26,
+  index values 8/17, fields 33/54 — and one of those nine is the scanned page
   the optical path was built on, so it is eight and a half blind logs. **Read
   the blind column.** No sheet of the fifteen is read at a wrong scale, which
   is the failure that matters: a withheld depth costs a reader a page, a
-  wrong one costs them the boring. What the blind column is still short of is
-  three forms that draw no rule under their header row, so their columns
-  cannot be named and their samples score zero even though their rulers and
-  their layers are right. A page whose ruler cannot be found returns its cells with NO depths
+  wrong one costs them the boring. What it is still short of is the index
+  properties, and two sheets that state their depth unit nowhere at all. A page whose ruler cannot be found returns its cells with NO depths
   and says so in `warnings`; that is the point of it, and one of the twelve
   measured sheets is a tabular list of borings carrying no depth scale at
   all, where refusing IS the right answer. The corpus is private

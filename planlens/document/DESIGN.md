@@ -918,6 +918,17 @@ reader's, and it needs the page image for the symbols anyway.
 
 ### The five steps
 
+0. **Rules, joined.** A form's lines are very often not single strokes: the
+   line under a header row is drawn once per stretch between the columns it
+   has to skip, so on one corpus template it arrives as four collinear pieces
+   with a 14 pt gap where a narrow column's tick marks live. Measured stroke
+   by stroke, NO piece crosses the form and the page appears to have no line
+   under its header at all; every column on three such sheets came back
+   unnamed for that reason. So collinear pieces sharing a coordinate and
+   leaving a gap no wider than one narrow column are joined first, and every
+   length this module measures — does it cross the form, does it cross the
+   description column, is it long enough to be a column edge — is a length of
+   the RUN and not of the stroke.
 1. **Column edges.** Vertical rules running at least `MIN_COLUMN_EDGE_FRAC`
    (0.30) of the page height, merged where they are drawn twice. The
    outermost columns are bounded on one side by the form's BORDER rather than
@@ -926,7 +937,7 @@ reader's, and it needs the page image for the symbols anyway.
    form's width, and the first and last columns are not lost — which matters,
    because on two of the six corpus templates the depth ruler itself is the
    first column.
-2. **The header band.** The rules that cross the whole form are its top
+2. **The header band.** The runs that cross the whole form are its top
    border, the line under the header band and its foot. Which is which is
    settled by trying each candidate in the top half and keeping the one whose
    band NAMES the most columns. Looking for the first number instead would be
@@ -1095,10 +1106,10 @@ log prints.
 |---|---|---|
 | ruler right (read at the page's own scale, or correctly refused) | 6/6 | 9/9 |
 | ruler WRONG (a scale claimed that reads the page elsewhere) | 0 | 0 |
-| unit right | 6/6 | 5/8 |
-| blow records and N values | 57/57 | 24/50 |
+| unit right | 6/6 | 6/8 |
+| blow records and N values | 57/57 | 50/50 |
 | layer tops | 34/34 | 22/26 |
-| index values (w, dry unit weight, LL/PL/PI, fines, q_u, RQD, pocket pen) | 35/36 | 7/17 |
+| index values (w, dry unit weight, LL/PL/PI, fines, q_u, RQD, pocket pen) | 35/36 | 8/17 |
 | header fields | 63/68 | 33/54 |
 
 The ruler is scored three ways and not two, because a ruler fitted to the
@@ -1120,18 +1131,13 @@ the pages themselves were not opened:
   layers and one sample are recorded in the ledger as not scored by depth
   rather than counted as misses. It is the one row where a pass means a
   refusal.
-- **Three sheets whose columns the vocabulary cannot name at all.** They
-  find their rulers and read their layers, and every one of their fifteen to
-  nineteen columns comes back `other`, so nothing on them can be placed in a
-  named column and their samples and index values score zero. The cause is
-  known and is not the vocabulary: these forms draw NO rule under their
-  header row — the only rules crossing the whole form are its frame and its
-  title block, all within 50 pt of the top — so no band between two rules can
-  hold the column labels, and the header band is chosen from drawn rules
-  alone. Deriving the band from the ruler's own first tick instead was tried
-  and REJECTED: it does not name those columns either, and where it does fire
-  it reaches up into the sheet's own fields, costing two layer tops and two
-  header fields to buy one depth unit.
+- **Two sheets whose depth unit is stated nowhere**, on the page or in its
+  own text. Their depths come back in whatever the ruler prints, and the
+  module says so.
+- **Index values at 8 of 17.** The blow records and the layers on those same
+  sheets are right, so the depths are; what is missing is the index
+  properties, which on several templates are printed in a plotted column
+  against an axis of their own rather than as cells in a named column.
 - **Four sheets whose depth unit is stated nowhere** on the page or in its
   own text. Their depths come back in whatever the ruler prints, and the
   module says so; on two of them the unit was recovered from depths written
