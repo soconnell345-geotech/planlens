@@ -552,13 +552,13 @@ beside rather than inside `pages_without_text_layer` — two failures whose
 answers differ, and only the second can mislead a reader who does not look.
 
 **The threshold is measured, not chosen.** Across five real documents (1,108
-pages) only 52 carry any unmapped character at all, and they fall into two
+pages) only 53 carry any unmapped character at all, and they fall into two
 populations with nothing between them:
 
 | | unmapped fraction |
 |---|---|
 | a stray glyph — a bullet, a degree sign, a logo character (30 pages) | 0.0007 to **0.0064** |
-| a broken encoding — program printouts, a laboratory checklist (22 pages) | **0.248**, 0.436-0.469, 0.968-0.994 |
+| a broken encoding — program printouts, a laboratory checklist (23 pages) | **0.248**, 0.436-0.469 (8 pages), 0.968-0.994 (14 pages) |
 
 `MAX_UNMAPPED_FRACTION` is **0.10**, in the empty 38x span between them:
 fifteen times the worst benign page, two and a half times below the mildest
@@ -753,51 +753,79 @@ belongs to none.
 
 ### What is measured
 
+Two corpora, and they say different things. **The second one is the number to
+read.** Both are private and neither is in this repository; the measurement
+scripts and their outputs live with the corpora.
+
+#### In sample: the 14 hand-labelled reports
+
 Scored against 4,147 hand-labelled pages of 14 real geotechnical reports
 (2026-09-16), 38 to 729 pages each, English, French, Spanish and Portuguese,
-text-layer and scanned, some read through Azure Document Intelligence. The
-corpus is private and is not in this repository; the measurement script and
-its numbers live with the corpus.
+text-layer and scanned, some read through Azure Document Intelligence. Split
+into nine the rules were developed on and five set aside — an
+optical-character-over-scan report, a pure scan read through Azure, a short
+second volume, a 729-page report from another firm and a report in a non-US
+format.
 
-The reports are split into nine the rules were developed on and five held
-back — an optical-character-over-scan report, a pure scan read through Azure,
-a short second volume, a 729-page report from another firm and a report in a
-non-US format. **Read the held-out column, and read the caveat under it.**
-
-| role | dev P / R | held-out P / R | hand-labelled |
+| role | dev P / R | set-aside P / R | hand-labelled |
 |---|---|---|---|
-| `boring_log` | 0.96 / 0.92 | 0.99 / 1.00 | 273 |
-| `test_pit_log` | 0.95 / 0.93 | 1.00 / 0.90 | 251 |
-| `lab_test` | 0.97 / 0.98 | 0.81 / 0.98 | 992 |
-| `narrative` | 0.97 / 0.96 | 0.85 / 0.83 | 433 |
-| `calculation` | 1.00 / 0.99 | 0.99 / 0.94 | 1,009 |
-| page accuracy | 0.92 | 0.89 | 4,147 |
+| `boring_log` | 0.95 / 0.92 | 0.99 / 1.00 | 273 |
+| `test_pit_log` | 0.95 / 0.89 | 1.00 / 0.90 | 251 |
+| `lab_test` | 0.96 / 0.99 | 0.81 / 0.98 | 992 |
+| `narrative` | 0.98 / 0.95 | 0.96 / 0.79 | 433 |
+| `calculation` | 1.00 / 0.99 | 0.97 / 0.90 | 1,009 |
+| page accuracy | **0.92** (2,847 pages) | **0.88** (1,300 pages) | 4,147 |
 
-`appended_report` scores 1.00 / 1.00 on the held-out set over 472 pages and
-is reported, not gated, along with the other twelve.
+`appended_report` scores 1.00 / 1.00 on the set-aside reports over 472 pages
+and is reported, not gated, along with the other twelve.
 
-**The caveat: the split was imposed after the rules were written, and the
-rules had already been tuned against all fourteen reports.** So the held-out
-column is a weaker statement than it looks, and the two roles that fail there
-— `lab_test` precision 0.81 and `narrative` 0.85 / 0.83 — are failing on
-pages the rules had already seen. The confusions that cost them are
-`other -> lab_test` and `calculation -> lab_test` (a tab of laboratory
-results claiming the summary tables and the odd calculation bound behind it),
-and `figure -> narrative` with `narrative -> other`. Both are the same
+**Neither column is held out.** The split was imposed after the rules were
+written, and the rules had already been tuned against all fourteen reports.
+So the set-aside column is a weaker statement than it looks, and the roles
+that fail there fail on pages the rules had already seen. The confusions that
+cost them are `other -> lab_test` and `calculation -> lab_test` (a tab of
+laboratory results claiming the summary tables and the odd calculation bound
+behind it), `narrative -> lab_test` and `narrative -> other`. They are one
 failure class: a page that says nothing about itself taking its appendix
 tab's word for what it is.
 
+#### Out of sample: 70 pages the rules had never seen
+
+The honest measurement. Five pages drawn at random from each of fourteen
+further reports — a wider mix of firms, formats and decades than the labelled
+fourteen — hand-labelled from contact sheets BEFORE the rules were run on
+them, with a second acceptable label recorded where two are equally
+defensible. Those reports were never opened during development.
+
+| 70 pages, never seen | strict | accepting the alternate label |
+|---|---|---|
+| the rules as first written | 0.71 | 0.77 |
+| **the rules as shipped** | **0.79** | **0.86** |
+| as shipped, excluding four scanned pages with no text source | 0.83 | 0.91 |
+
+**0.79 is what these rules do on the next report; 0.92 is a description of
+the fourteen they were written against.** The gap is the point of the
+measurement, and it is why an inherited role carries `INHERITED_CONFIDENCE`
+and says which rule fired: the pages the rules get wrong out of sample are
+almost exactly the pages a review pass needs to look at. Every remaining
+strict miss is a page that says nothing about itself — two photograph pages
+and a figure under a tab that names several things (`other` with candidates,
+as designed), four scanned pages with no text source, three inherited labels
+the alternate accepts, a table of contents carrying the narrative's running
+header, a laboratory slip-sheet naming the laboratory, and a core-photograph
+log with no caption.
+
 ### What is NOT measured, and what it will get wrong
 
-- **`dcp_log` recall is 0.24** (13 of 54). Dynamic-cone sheets in the corpus
-  are scans without a text layer, or French forms whose title names a boring
-  and a dynamic cone in one line. It is honest to say the role is
-  under-served rather than to tune for it.
-- **`other` is a residual, not a class** (precision 0.50). A page that is a
+- **`dcp_log` recall is 0.54** (29 of 54; precision 0.97). What it misses are
+  dynamic-cone sheets that are scans without a text layer, or French forms
+  whose title names a boring and a dynamic cone in one line. It is honest to
+  say the role is under-served rather than to tune for it.
+- **`other` is a residual, not a class** (precision 0.51). A page that is a
   legend, a summary table, a groundwater reading sheet or an unlabelled form
   is "other"; so is a page the rules could not place. A reader must not take
   `other` as a statement.
-- **`figure` and `plan` are weak** (0.28 and 0.38 precision). A figure page
+- **`figure` and `plan` are weak** (0.26 and 0.29 precision). A figure page
   carries the least text of any page in a report, and the rules are text
   rules.
 - **A page with no text at all cannot be placed by its title.** Nine boring

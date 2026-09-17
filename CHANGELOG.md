@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-09-17
+
+The what-is-this-page release: a report now says what each of its pages IS and
+which of them are read together, a text layer that is there but WRONG is called
+out instead of quoted as prose, and a filled-in form is no longer reported as a
+copy of the sheet beside it.
 
 - **What each page of a report IS, and the work items its pages make.** New
   `planlens.document.roles`: `page_roles(doc)` gives every page one of
@@ -18,14 +23,18 @@
   look like, and its extent is found from the appendix lettering it restarts
   and the outer document resumes. Served to a model as the tool
   `document_roles` (and over MCP with the rest). Measured against 4,147
-  hand-labelled pages of 14 real geotechnical reports: overall page accuracy
-  0.90, and on the five roles a reader depends on — precision/recall 0.97 /
-  0.94 boring_log, 0.96 / 0.92 test_pit_log, 0.94 / 0.95 lab_test, 0.94 /
-  0.93 narrative, 1.00 / 0.97 calculation. What it gets wrong is written down
-  beside that: `dcp_log` recall is 0.24 on scanned forms, `other` is a
+  hand-labelled pages of 14 real geotechnical reports: page accuracy 0.92 on
+  the nine the rules were developed on and 0.88 on the five set aside, and on
+  those development reports, precision/recall 0.95 / 0.92 boring_log, 0.95 /
+  0.89 test_pit_log, 0.96 / 0.99 lab_test, 0.98 / 0.95 narrative, 1.00 / 0.99
+  calculation. Neither figure is held out — the rules had been tuned against
+  all fourteen — so read the out-of-sample one instead: **0.79**, or 0.86
+  where a second label is equally defensible, on 70 pages of fourteen further
+  reports never used in development. What it gets wrong is written down
+  beside that: `dcp_log` recall is 0.54 on scanned forms, `other` is a
   residual rather than a class, and a page with no text at all cannot be
   placed by its title. New `planlens.testing.build_synthetic_report` builds a
-  21-page report carrying every one of those page kinds, with the answers.
+  22-page report carrying eleven of those roles, with the answers.
   See `planlens/document/DESIGN.md`, "Page roles and work items".
 - **What the report says about itself**, for a model that is going to review
   it. `document_outline(doc)` reads the table of contents, the lists of
@@ -44,9 +53,12 @@
   (`INHERITED_CONFIDENCE`) and says so in its evidence, because that is
   exactly the row a reviewer should check.
 - **When the page and its appendix tab disagree, the page wins -- and when
-  neither knows, the answer says so.** Measured against 50 pages of ten
-  reports the rules had never seen, hand-labelled by a reviewer: 0.74 to 0.76
-  strict, 0.80 to 0.84 accepting alternates. A cue in the page's own largest
+  neither knows, the answer says so.** These four principles were written
+  against fifty hand-labelled pages of ten reports whose misses a reviewer
+  handed over (0.74 to 0.76 strict, 0.80 to 0.84 accepting alternates), and
+  then scored on seventy pages of fourteen reports that stayed shut
+  throughout: **0.71 to 0.79 strict, 0.77 to 0.86 accepting alternates.** A
+  cue in the page's own largest
   type always beats its tab, and a cue in its running bands beats it once the
   evidence is more than a mention; the cue tables run on every page that has
   words, because a plan is measured as a form, a figure, a scan or a mixed
@@ -78,7 +90,7 @@
   nothing to read and a page with the wrong thing to read need different
   answers. The threshold `MAX_UNMAPPED_FRACTION` is 0.10, measured over five
   real documents: 30 pages carrying a stray undecodable glyph sit at 0.0007 to
-  0.0064 and 22 pages with a broken encoding at 0.248 and above, and the floor
+  0.0064 and 23 pages with a broken encoding at 0.248 and above, and the floor
   sits in the empty span between them. New
   `planlens.testing.build_unmapped_text_pdf` builds such a page for tests. See
   `planlens/document/DESIGN.md`, "An unreliable text layer".

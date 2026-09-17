@@ -176,23 +176,25 @@ rather than silently deflating the answer.
 
 ## Capability status (kept honest)
 
-- **Page roles scored against hand-labelled pages (2026-09-16)**: 4,147
-  pages of 14 real geotechnical reports, 38 to 729 pages each, in four
-  languages, text-layer and scanned. Overall page accuracy 0.90; on the five
-  roles a reader depends on, precision/recall 0.97 / 0.94 `boring_log`,
-  0.96 / 0.92 `test_pit_log`, 0.94 / 0.95 `lab_test`, 0.94 / 0.93
-  `narrative`, 1.00 / 0.97 `calculation`, and 0.99 / 1.00 `appended_report`.
-  Nine of those reports were developed against and five held back; on the
-  held-out five, `boring_log` and `test_pit_log` hold up (0.99/1.00 and
-  1.00/0.90) while `lab_test` precision falls to 0.81 and `narrative` to
-  0.85/0.83 — and the split was imposed after the rules were written, so even
-  that is a weaker statement than it looks. What it gets wrong is written down
-  with it in
-  `planlens/document/DESIGN.md`: `dcp_log` recall is 0.56 on scanned forms,
-  `other` is a residual rather than a class, `figure` and `plan` are weak
-  because a figure page carries the least text on it of any page, and a page
-  with no text at all cannot be placed by its title. The corpus is private
-  and is not in this repository.
+- **Page roles, measured twice — read the second number (2026-09-16)**: the
+  rules were written against 4,147 hand-labelled pages of 14 real
+  geotechnical reports, 38 to 729 pages each, in four languages, text-layer
+  and scanned. Page accuracy on the nine reports they were developed on is
+  **0.92**, and **0.88** on the other five — but those five were looked at
+  too, so neither figure is held out and neither is a forecast. The
+  out-of-sample number is: **0.79**, or **0.86** where a hand-labeller
+  recorded a second equally defensible label, on **70 pages of fourteen
+  further reports that were never used in development**. 0.79 is what these
+  rules do on the next report. What they get wrong is written down with them
+  in `planlens/document/DESIGN.md`, and it is one thing above all: a page
+  that says nothing about itself takes its appendix tab's word for what it
+  is, which is why an inherited role carries a deliberately lower confidence
+  and names the rule that fired. On the development reports, `dcp_log` recall
+  is 0.54 because dynamic-cone sheets are usually scans, `other` is a
+  residual rather than a class (precision 0.51), `figure` and `plan` are weak
+  (precision 0.26 and 0.29) because a figure page carries the least text on
+  it of any page, and a page with no text at all cannot be placed by its
+  title. Both corpora are private and neither is in this repository.
 - **Proven on real agency sheets**: bubble callouts (40/40 count match
   on a dense municipal standard detail), region rendering, endpoint /
   text-anchored queries, multi-page drawing-set search, OCR text
@@ -588,8 +590,8 @@ from planlens.testing import (
                                        # running header and "Page N", appendix
                                        # divider, ruled logs, a duplicated page,
                                        # two D-size sheets, attachment divider
-    build_synthetic_report,            # a geotechnical report with every page
-                                       # role: cover, contents, narrative,
+    build_synthetic_report,            # a 22-page report over eleven of the
+                                       # roles: cover, contents, narrative,
                                        # tabs, boring and test pit logs,
                                        # photographs, lab sheets, a whole
                                        # report bound inside an appendix, a
