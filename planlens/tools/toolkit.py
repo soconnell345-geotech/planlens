@@ -833,6 +833,75 @@ class ReviewToolkit:
             out.setdefault("hint", "call again with offset for more pages")
         return out
 
+    def _tool_log_grid(self, handle: str, pages: Any = None,
+                       rows: bool = True, offset: int = 0) -> Dict[str, Any]:
+        from planlens.document.loggrid import log_grid
+
+        entry = self._entry(handle)
+        with entry.lock:
+            grid = log_grid(entry.doc, pages)
+        payload = grid.to_dict(rows=False)
+        out: Dict[str, Any] = {
+            "handle": handle,
+            "pages": payload["pages"],
+            "depth_unit": payload["depth_unit"],
+            "n_columns": payload["n_columns"],
+            "n_layers": len(payload["layers"]),
+            "n_rows": payload["n_rows"],
+            "note": ("columns and depths read off the page's own ruling "
+                     "lines, column headers and depth ruler. Values are as "
+                     "printed and not parsed: a blow record stays "
+                     "\"5-9-12\". Depths are in depth_unit. Anything the "
+                     "geometry could not settle is in warnings"),
+        }
+        if grid.warnings:
+            out["warnings"] = payload["warnings"]
+            out["look"] = self._look([
+                f"page {p} of this log" for p in grid.pages[:3]])
+        if payload["fields"]:
+            out["fields"] = payload["fields"]
+        ceiling = self._budget(300)
+
+        # The ruler on every sheet of one log is the same ruler shifted down
+        # the hole, so on a long log the evidence is said once and not
+        # twelve times.
+        rulers = payload["rulers"]
+        if len(rulers) > 3:
+            rulers = [{k: v for k, v in r.items() if k != "evidence"}
+                      for r in rulers]
+        out["rulers"], nxt = fit_items(rulers,
+                                       max(ceiling // 6 - json_len(out), 300))
+        if nxt is not None:
+            out["rulers_truncated_after"] = nxt
+
+        room = ceiling - json_len(out)
+        out["columns"], nxt = fit_items(payload["columns"],
+                                        max(room // 3, 400))
+        if nxt is not None:
+            out["columns_truncated_after"] = nxt
+
+        room = ceiling - json_len(out) - (600 if rows else 0)
+        out["layers"], nxt = fit_items(payload["layers"], max(room, 400))
+        if nxt is not None:
+            out["layers_truncated_after"] = nxt
+            out["hint"] = ("more layers than fit: call again with a shorter "
+                           "page range and rows=false to read the rest")
+        if not rows:
+            return out
+
+        room = ceiling - json_len(out)
+        placed, nxt = fit_items([c.to_dict() for c in grid.rows],
+                                max(room, 500), start=offset)
+        out["rows"] = placed
+        if nxt is not None:
+            out["next_offset"] = nxt
+            out.setdefault(
+                "hint",
+                "call again with offset for the rest of the rows, or with "
+                "rows=false for the columns, the ruler, the layers and the "
+                "fields alone")
+        return out
+
     def _tool_render_page_thumbnails(self, handle: str, pages: Any = None,
                                      columns: int = 6) -> Dict[str, Any]:
         entry = self._entry(handle)

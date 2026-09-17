@@ -171,3 +171,57 @@ def test_document_roles_ledger_is_one_line_per_page(report_kit, report_gt):
         >= report_gt.n_pages - len(out["ledger"])
     assert "[page-title]" in " ".join(out["ledger"])
     assert "ledger_note" in out
+
+
+# ---------------------------------------------------------------------------
+# log_grid
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def log_gt():
+    from planlens.testing import build_imperial_log
+    return build_imperial_log()
+
+
+@pytest.fixture
+def log_kit(log_gt, tmp_path):
+    k = ReviewToolkit(resolve_source=lambda key: log_gt.pdf,
+                      output_dir=str(tmp_path), image_view_hint=IMG_HINT)
+    yield k
+    k.close()
+
+
+def test_log_grid_tool_returns_the_grid(log_kit, log_gt):
+    handle = log_kit.open("log.pdf").handle
+    out = call(log_kit, "log_grid", handle=handle, pages="0")
+    assert out["depth_unit"] == "ft"
+    assert out["n_columns"] == len(log_gt.columns)
+    names = {c["name"] for c in out["columns"]}
+    assert {"depth", "description", "water_content",
+            "dry_unit_weight"} <= names
+    assert out["rulers"][0]["step"] == 5.0
+    tops = [layer["top"] for layer in out["layers"]]
+    assert tops == [t for t, _b, _d in log_gt.layers]
+    assert out["fields"]["boring_id"] == "B-12"
+    texts = {row["text"] for row in out["rows"]}
+    assert "5-9-12" in texts and "N=21" in texts
+    assert "warnings" not in out
+
+
+def test_log_grid_tool_can_leave_the_rows_out(log_kit):
+    handle = log_kit.open("log.pdf").handle
+    out = call(log_kit, "log_grid", handle=handle, pages="0", rows=False)
+    assert "rows" not in out
+    assert out["n_rows"] > 0 and out["layers"]
+
+
+def test_log_grid_is_published_and_budgeted(log_kit):
+    assert "log_grid" in log_kit.tool_names
+    spec = next(s for s in log_kit.specs("plain") if s["name"] == "log_grid")
+    assert "boring log" in spec["description"]
+    assert set(spec["parameters"]["properties"]) == {"handle", "pages",
+                                                     "rows", "offset"}
+    handle = log_kit.open("log.pdf").handle
+    text = log_kit.call_json("log_grid", {"handle": handle, "pages": "0"},
+                             max_chars=1500)
+    assert len(text) <= 1500

@@ -24,6 +24,12 @@ from planlens.testing.document_fixtures import (
     build_synthetic_review_document,
     build_unmapped_text_pdf,
 )
+from planlens.testing.loggrid_fixtures import (
+    LogGridGT,
+    build_imperial_log,
+    build_log_without_ruler,
+    build_metric_log,
+)
 from planlens.testing.report_fixtures import (
     ReportGT,
     build_synthetic_report,
@@ -57,7 +63,11 @@ from planlens.testing.leader_fixtures import (
 
 __all__ = [
     "DocumentGT",
+    "LogGridGT",
     "ReportGT",
+    "build_imperial_log",
+    "build_log_without_ruler",
+    "build_metric_log",
     "build_synthetic_report",
     "FEET_PER_POINT",
     "RATIO_TEXT",

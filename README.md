@@ -70,7 +70,9 @@ located, attributed data:
   documents. `search_document` takes `fuzzy` for text whose letters were read
   wrong, and `find_quantities` returns every value-with-unit the document
   states, filterable by kind and unit, so a model can compare the narrative's
-  claims with the drawing's geometry. The same tools serve over the Model
+  claims with the drawing's geometry. `log_grid` hands back one
+  boring or test-pit log as columns, a depth ruler, placed cells, layers and
+  header fields. The same tools serve over the Model
   Context Protocol (`planlens[mcp]`), generated from the same specs — see
   "Use from an MCP host".
 - **`planlens.ir`** — drawing geometry: lines, arcs, text, and the annotation
@@ -195,6 +197,25 @@ rather than silently deflating the answer.
   (precision 0.26 and 0.29) because a figure page carries the least text on
   it of any page, and a page with no text at all cannot be placed by its
   title. Both corpora are private and neither is in this repository.
+- **A boring log read as the grid it is (2026-09-17)**: `log_grid(doc,
+  pages)` gives one log's columns with their x bands and canonical names, the
+  depth ruler fitted to the printed scale with the residual of the fit, every
+  line of text placed in a column at a depth, the layers the description band
+  is cut into, and the fields printed outside the body. No templates: the
+  columns come from the form's own ruling lines and headers, in English,
+  French or Spanish. Values come back AS PRINTED and are never parsed into a
+  meaning — a blow record stays `"5-9-12"`. Measured against twelve
+  hand-transcribed logs from twelve reports in six templates, six open during
+  development and six scored blind (tolerances 0.15 m on a sample, 0.30 m on
+  a layer top): on the open six, ruler and unit 6/6, blow records and N
+  values 57/57, layer tops 34/34, index values 31/32, header fields 63/68; on
+  the blind six, ruler 5/6, unit 3/6, blow records and N values 24/36, layer
+  tops 13/21, index values 7/13, fields 27/39 — and one of those six is the
+  scanned page the optical path was built on, so it is five and a half blind
+  logs. A page whose ruler cannot be found returns its cells with NO depths
+  and says so in `warnings`; that is the point of it. The corpus is private
+  and is not in this repository. See `planlens/document/DESIGN.md`, "Log
+  grid".
 - **Proven on real agency sheets**: bubble callouts (40/40 count match
   on a dense municipal standard detail), region rendering, endpoint /
   text-anchored queries, multi-page drawing-set search, OCR text

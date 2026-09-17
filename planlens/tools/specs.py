@@ -219,6 +219,55 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "log_grid",
+        "description": (
+            "Read a boring log or a test-pit log as the grid it is. Give it "
+            "the pages of ONE log (its continuation sheets included, as "
+            "document_roles groups them) and it returns: the COLUMNS with "
+            "their x bands and what each header calls them (depth, "
+            "elevation, sample_id, sample_type, blows, n_value, recovery, "
+            "rqd, description, uscs, graphic, water_content, "
+            "dry_unit_weight, liquid_limit, plastic_limit, "
+            "plasticity_index, fines, qu, pocket_pen, torvane, remarks, "
+            "tests, or other keeping the printed header); the depth RULER "
+            "fitted to the printed scale, with its unit and the residual of "
+            "the fit; every remaining line of text as a ROW carrying its "
+            "column, its depth, the depth range its box covers, its numbers "
+            "and its box; the LAYERS the description column is cut into, "
+            "each with its top depth, its bottom and its text; and the "
+            "FIELDS printed outside the body (boring number, ground surface "
+            "elevation, dates, hammer type, driller, total depth, "
+            "groundwater). Values are returned AS PRINTED and never parsed "
+            "into a meaning: a blow record stays \"5-9-12\" and an N value "
+            "stays \"N=21\". Depths are in the unit the log prints, which "
+            "depth_unit names. A page whose ruler cannot be found returns "
+            "its cells with NO depths and says so in warnings - read the "
+            "warnings before using anything. This is data with boxes, not a "
+            "reading of the log; look at the page for what the geometry "
+            "cannot say (sample symbols, water-level symbols, refusal "
+            "notation)."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "pages": {
+                    "type": "string",
+                    "description": "The pages of one log, 0-based: \"35\" or "
+                                   "\"35-37\" or \"35,36,37\". Required in "
+                                   "practice - a whole document is not one "
+                                   "log.",
+                },
+                "rows": {"type": "boolean",
+                         "description": "Include the placed cells (default "
+                                        "true). false returns only the "
+                                        "columns, the ruler, the layers and "
+                                        "the fields."},
+                "offset": {"type": "integer", "minimum": 0},
+            },
+            "required": ["handle"],
+        },
+    },
+    {
         "name": "document_roles",
         "description": (
             "What each page of a report IS, and the work items its pages "

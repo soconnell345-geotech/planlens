@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+- **A boring log read as the grid it is.** New
+  `planlens.document.loggrid.log_grid(doc, pages)`, and the tool `log_grid`
+  beside it (over MCP with the rest). Give it the pages of ONE log — its
+  continuation sheets included, as `document_roles` already groups them — and
+  it returns the COLUMNS with their x bands and what the page's own header
+  calls each of them over 22 canonical names in English, French and Spanish;
+  the depth RULER fitted to the printed scale, with its unit and the residual
+  of the fit; every remaining line of text as a ROW carrying its column, its
+  depth, the depth range its box covers, its numbers and its box; the LAYERS
+  the description column is cut into; and the FIELDS printed outside the body
+  (boring number, ground surface elevation, dates, hammer type, driller,
+  total depth, groundwater). No templates and no trained model: the columns
+  come from the ruling lines the form is drawn with, the ruler from the one
+  band of numbers that steps evenly down the page, the layers from stratum
+  rules, printed depth ticks and a classification symbol that has been proved
+  top-aligned first. Values come back AS PRINTED and are never parsed into a
+  meaning — a blow record stays `"5-9-12"` and an N value `"N=21"` — because
+  naming the column and fixing the depth is the whole job and what a value
+  means needs the page image anyway. **A page whose ruler cannot be found
+  returns its cells with no depths and says so in `warnings`**, along with a
+  scan's softer column edges, a page stored rotated, a diagonal watermark
+  left out, a unit the page never states and sheets of one log drawn at
+  different scales. Measured against twelve logs from twelve real reports in
+  six templates, hand-transcribed into a private ledger, six open during
+  development and six scored blind: on the open six, ruler and unit 6/6,
+  blow records and N values 57/57, layer tops 34/34, index values 31/32,
+  header fields 63/68; on the blind six, 5/6, 3/6, 24/36, 13/21, 7/13 and
+  27/39 — and one of those blind six is the scanned page the optical path was
+  built on, so read it as five and a half. New
+  `planlens.testing.build_imperial_log` / `build_metric_log` /
+  `build_log_without_ruler` build the same synthetic form on a 5 ft ruler, on
+  a 1 m ruler and with no ruler at all, with the answers.
+  See `planlens/document/DESIGN.md`, "Log grid".
+
 ## 0.5.0 — 2026-09-17
 
 The what-is-this-page release: a report now says what each of its pages IS and

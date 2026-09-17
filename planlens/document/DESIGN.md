@@ -889,6 +889,193 @@ appendix and wrong about the summary table, the legend and the stray
 calculation bound into it, so a reviewer wants to see which rows are the tab
 talking and which are the page talking.
 
+## Log grid (2026-09-17)
+
+A boring log is a coordinate system. Down one narrow band of the page runs a
+depth ruler — a few numbers, evenly spaced, that fix a linear map from y to
+depth. Across the top sits a row of column headers, usually turned on their
+side to fit. Everything else on the page is a value that means whatever its
+column says it means, at whatever depth its y says it is. `log_grid(doc,
+pages)` reads that geometry and hands back the grid.
+
+It reads ONE log: the pages of one boring or test pit, its "Page 2 of 3"
+continuation sheets included, which is what `document_roles`' work items
+already group. Depths are joined across those sheets in page order.
+
+**No templates.** There is no list of firms and no list of log formats. Every
+fact comes off the page: the ruling lines the form is drawn with, the text
+lines with their boxes and reading direction, and a small multilingual
+vocabulary mapping a printed header onto a canonical column name. Six real
+templates from six firms, in feet and in metres, read the same way, and the
+seventh will too or will say why not.
+
+**Output is data with boxes, never a claim.** A blow record comes back as the
+string `"5-9-12"` and an N value as `"N=21"`; the numbers inside them are
+extracted (`(5.0, 9.0, 12.0)`) and nothing else is done to them. Naming the
+column and fixing the depth is the whole job. What a value MEANS — that the
+second and third drives make the N value, that `50/3"` is refusal — is the
+reader's, and it needs the page image for the symbols anyway.
+
+### The five steps
+
+1. **Column edges.** Vertical rules running at least `MIN_COLUMN_EDGE_FRAC`
+   (0.30) of the page height, merged where they are drawn twice. The
+   outermost columns are bounded on one side by the form's BORDER rather than
+   by a column edge, and on several templates that border is drawn as a
+   horizontal rule; so the widest rule crossing the ruled area sets the
+   form's width, and the first and last columns are not lost — which matters,
+   because on two of the six corpus templates the depth ruler itself is the
+   first column.
+2. **The header band.** The rules that cross the whole form are its top
+   border, the line under the header band and its foot. Which is which is
+   settled by trying each candidate in the top half and keeping the one whose
+   band NAMES the most columns. Looking for the first number instead would be
+   led astray by the axis labels of a plotted column, which are printed in
+   the header band and are numbers; picking the first full-width rule would
+   be led astray by a page frame, a title block or a groundwater table drawn
+   above the header.
+3. **The ruler.** Every column's lone numbers are fitted to a line. The
+   longest monotone run is used rather than demanding that every number in
+   the band rise, because an optical read puts a stray digit in the band and
+   would otherwise throw a nineteen-tick ruler away for one stray. What wins
+   is a column the form CALLS depth, whose steps are EVEN, and which has
+   MANY ticks — in that order of weight. The tie that rule exists to break is
+   a real one: a column of layer-contact depths is called depth too and fits
+   the same straight line, but it steps unevenly and its labels are set
+   against the contacts rather than centred on their own ticks, so reading it
+   as the ruler costs about a fifth of a metre. Value falling with y is an
+   elevation scale, and is only claimed where a header says elevation —
+   dry unit weight down a stiffening profile fits beautifully otherwise.
+4. **Cells.** Every remaining line goes to the column its centre stands in,
+   at the depth of its box centre, with the depth range its box covers. A
+   line reading diagonally is a watermark or a stamp and is left out (a DRAFT
+   across a whole appendix sits at 45 degrees; optical text is never exactly
+   straight, so the axis tolerance is 15 degrees).
+5. **Layers and fields.** Below.
+
+### Naming a column
+
+The header is read first, against a vocabulary of about 230 phrases in
+English, French and Spanish over 22 canonical names. A header can name
+SEVERAL: "ATTERBERG LIMITS LL-PL-PI" is one x band carrying three values, and
+`Column.names` holds all three in the order found. A header that matches
+nothing keeps its printed text and is named `other` — the vocabulary is never
+forced.
+
+Two refinements follow, and both are recorded in the column's evidence so a
+reader can see which names came off the header and which off the ink:
+
+- **A generic header is named by its values.** "FIELD TEST RESULTS" and
+  "SAMPLING DATA" are generic on the page and specific in fact: they hold
+  `5-9-12` and `N=6` and `REC=25cm, 56%`. Only a column whose header said
+  nothing specific is refined this way — "ATTERBERG LIMITS LL-PL-PI" holds
+  `42-21-21`, which has the shape of a blow record and is not one.
+- **A column of sentences is a description column, whatever is written over
+  it.** A description band is often unheaded: the only label above it belongs
+  to the narrow strip of layer-contact depths printed inside its left margin.
+  So a column with prose in it takes the name `description` and gives up any
+  numeric name it had.
+
+### Layers
+
+A layer opens at a boundary, and a boundary is one of four things:
+
+- a **stratum rule** across the description column — but not an UNDERLINE,
+  which on gINT and its imitators sits under the bold layer name at the head
+  of each layer and is just as wide. An underline is told from a stratum line
+  by sitting in the window around a text line's own foot and running under
+  most of that text.
+- a **depth tick** printed in a depth column other than the ruler, or in the
+  description column's own left margin. Its printed value is EXACT, so the
+  depth comes from the number and the y from where the ruler puts that
+  number — not from where the label happened to fit, which on a thin layer is
+  several points out.
+- a **change of classification symbol**, where the form has its own symbol
+  column AND that column is proved to be top-aligned first. Some templates
+  print the symbol against the top of its layer; others centre it in the
+  band, where reading it as a contact would put every boundary in the middle
+  of a layer. The column is calibrated against the contacts already known
+  from rules and ticks, and used only if it passes.
+- the **top of the body**, which opens the first layer of the first sheet.
+
+Each description line then goes to the last boundary at or above it, by the
+top of its box — a layer's first line starts at its contact, and on a thin
+layer the line is taller than the band it belongs to, so its centre is not
+where it belongs. A boundary a new sheet opens that catches no description is
+the sheet break and not a layer, and the layer above simply continues through
+it.
+
+### Fields
+
+The key-value pairs printed outside the body, in three shapes and only three:
+
+- `Contract Number: 22230051.000` — split on the colon, more than once when
+  the line carries more than one pair (`Dates Started: … Finished: …`).
+- `Ground Surface Elevation:` with the value beside it, or under it at the
+  same left margin when there was no room beside. Beside is tried first and
+  capped at 70 pt, because the nearest unrelated text on a crowded form
+  footer was 134 pt away and had been read as the value before the cap.
+- `DRILLING METHOD` with no colon at all, and the method beside it. Pairing
+  any two neighbouring lines would turn a log into nonsense, so only a line
+  that IS one of the known field names, exactly, is read this way.
+
+Plus the two facts a log states as sentences rather than as fields: its own
+number ("BORING LOG NO. B-1"), and its groundwater ("Groundwater encountered
+at 24 ft", and equally "Groundwater not encountered", which carries no number
+at all).
+
+A key the vocabulary does not know keeps the words the page printed.
+
+### What it says when it cannot
+
+`LogGrid.warnings` carries everything withheld, and a caller is meant to read
+them before using anything:
+
+- **no ruler** — no column holds three or more numbers on a straight line.
+  The cells are still placed in their columns; every depth is `None`. This is
+  the case the module exists to refuse.
+- **no ruled columns** — a scanned page draws no vector rules, so the columns
+  come from the header labels alone and their x bands are approximate.
+- **optical text** — read by Azure Document Intelligence or OCR, so boxes and
+  edges are softer. The layer-binding slack widens with the line height on
+  such a page, because DI's boxes wander by a quarter of a line.
+- **two rulers disagreeing**, **a page stored rotated**, **diagonal text
+  left out**, **the depth unit not stated** (in which case it is read off
+  depths written into the log's own text, and said so), and **sheets of one
+  log drawn at different scales**.
+
+### Measured (2026-09-17)
+
+Twelve logs from twelve reports, hand-transcribed from the rendered pages
+into a private ledger: the layers, the samples with their drives and N
+values, the index properties and the header fields. Six were open during
+development and six were scored blind. Tolerances: 0.15 m on a sample or
+index value, 0.30 m on a layer top, depths compared in metres whatever the
+log prints.
+
+| | open six | blind six |
+|---|---|---|
+| ruler found | 6/6 | 5/6 |
+| unit right | 6/6 | 3/6 |
+| blow records and N values | 57/57 | 24/36 |
+| layer tops | 34/34 | 13/21 |
+| index values (w, dry unit weight, LL/PL/PI, fines) | 31/32 | 7/13 |
+| header fields | 63/68 | 27/39 |
+
+The open six are the honest development figure and the blind six are the
+forecast — except that one of the blind logs is the scanned page the optical
+path was built on before the split was drawn, so read the blind numbers as
+five and a half logs, not six. Of the blind failures, one page is a test-pit
+sketch with no grid on it at all and the module says so; two carry no unit
+anywhere on the page or in their text; and one is scored zero throughout,
+which has not been looked into because looking would spend the log.
+
+The unmatched-cell count in the ledger is a precision PROXY and not a
+precision: the grid emits every text line on the page, and the hand truth
+states only samples, layers, index values and fields, so a description line,
+an elevation, a date and a ruler tick all count as unmatched by
+construction.
+
 ## Not built yet
 
 - RapidOCR (`planlens.ocr`) as a text source (it currently emits IR TextItems).
