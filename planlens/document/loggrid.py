@@ -159,6 +159,11 @@ MIN_SHAPE_CELLS = 2
 #: "42-21-21", which has the shape of a blow record and is not one.
 _GENERIC_NAMES = frozenset(("tests", "sample_id", "remarks", "other"))
 
+#: The sentence a page with no depth scale is reported with. One wording, so
+#: a caller can look for it, and so the two ways of failing to find a ruler —
+#: no columns to search, and no column that holds one — read the same.
+NO_RULER = "no depth ruler was found"
+
 #: Confidences, by how the fact was come by.
 CONF_HEADER_CANONICAL = 0.90
 CONF_HEADER_VALUES = 0.60
@@ -1465,9 +1470,9 @@ def _read_page(doc, index: int) -> _PageGrid:
                     f"was used")
     else:
         pg.warnings.append(
-            f"page {index}: no depth ruler was found — no column holds three "
-            f"or more numbers that fall on a straight line, so nothing on this "
-            f"page carries a depth")
+            f"page {index}: {NO_RULER} — no column holds three or more "
+            f"numbers that fall on a straight line, so nothing on this page "
+            f"carries a depth")
     if falling:
         pg.elevation_ruler = falling[0]
 
@@ -2050,6 +2055,14 @@ def log_grid(doc, pages=None) -> LogGrid:
     grid = LogGrid(pages=list(indexes))
     grids = [_read_page(doc, i) for i in indexes]
     for pg in grids:
+        if pg.ruler is None and not any(NO_RULER in w for w in pg.warnings):
+            # Said on every page that has none, however early the reading
+            # stopped. "No columns could be laid out" is a truer account of
+            # what went wrong, but it is not the sentence a caller looking
+            # for depths knows to look for.
+            pg.warnings.append(
+                f"page {pg.page}: {NO_RULER} — nothing on this page carries "
+                f"a depth")
         grid.warnings.extend(pg.warnings)
         grid.columns.extend(pg.columns)
         grid.rows.extend(pg.cells)

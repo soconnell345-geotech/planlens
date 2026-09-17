@@ -359,3 +359,22 @@ def test_empty_grid_is_still_a_grid():
     assert grid.to_dict()["n_rows"] == 0
     assert grid.cells("depth") == []
     assert grid.column("nope") is None
+
+
+def test_a_page_that_is_not_a_log_at_all_still_says_it_has_no_depths():
+    """The two ways of having no ruler are reported in the same words.
+
+    One page holds a form whose ruler is missing; another holds no form at
+    all and the reading stops before the ruler is ever looked for. A caller
+    checking whether it may trust a depth should not have to know which
+    happened, so both say "no depth ruler was found".
+    """
+    from planlens.document.loggrid import NO_RULER
+    from planlens.testing import build_synthetic_report
+
+    gt = build_synthetic_report()
+    with open_document(gt.pdf) as doc:
+        grid = log_grid(doc, 0)          # the report's cover page
+    assert not grid.has_ruler
+    assert any(NO_RULER in w for w in grid.warnings)
+    assert all(c.depth is None for c in grid.rows)

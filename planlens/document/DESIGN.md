@@ -1031,9 +1031,13 @@ A key the vocabulary does not know keeps the words the page printed.
 `LogGrid.warnings` carries everything withheld, and a caller is meant to read
 them before using anything:
 
-- **no ruler** — no column holds three or more numbers on a straight line.
-  The cells are still placed in their columns; every depth is `None`. This is
-  the case the module exists to refuse.
+- **no ruler** — `no depth ruler was found`. Either no column holds three or
+  more numbers on a straight line, or the page laid out no columns to search
+  in the first place; the wording is the same either way, because a caller
+  asking whether it may trust a depth should not have to know which happened.
+  The cells are still placed in whatever columns there were; every depth is
+  `None`. This is the case the module exists to refuse, and one of the twelve
+  measured logs is a tabular list of borings where refusing IS the answer.
 - **no ruled columns** — a scanned page draws no vector rules, so the columns
   come from the header labels alone and their x bands are approximate.
 - **optical text** — read by Azure Document Intelligence or OCR, so boxes and
@@ -1046,29 +1050,50 @@ them before using anything:
 
 ### Measured (2026-09-17)
 
-Twelve logs from twelve reports, hand-transcribed from the rendered pages
+Fifteen logs from fifteen reports, hand-transcribed from the rendered pages
 into a private ledger: the layers, the samples with their drives and N
 values, the index properties and the header fields. Six were open during
-development and six were scored blind. Tolerances: 0.15 m on a sample or
+development and nine were scored blind. Tolerances: 0.15 m on a sample or
 index value, 0.30 m on a layer top, depths compared in metres whatever the
 log prints.
 
-| | open six | blind six |
+| | open six | blind nine |
 |---|---|---|
-| ruler found | 6/6 | 5/6 |
-| unit right | 6/6 | 3/6 |
-| blow records and N values | 57/57 | 24/36 |
-| layer tops | 34/34 | 13/21 |
-| index values (w, dry unit weight, LL/PL/PI, fines) | 31/32 | 7/13 |
-| header fields | 63/68 | 27/39 |
+| ruler right (found, or correctly refused) | 6/6 | 7/9 |
+| unit right | 6/6 | 4/8 |
+| blow records and N values | 57/57 | 24/50 |
+| layer tops | 34/34 | 14/26 |
+| index values (w, dry unit weight, LL/PL/PI, fines, q_u, RQD, pocket pen) | 35/36 | 7/17 |
+| header fields | 63/68 | 33/54 |
 
-The open six are the honest development figure and the blind six are the
-forecast — except that one of the blind logs is the scanned page the optical
-path was built on before the split was drawn, so read the blind numbers as
-five and a half logs, not six. Of the blind failures, one page is a test-pit
-sketch with no grid on it at all and the module says so; two carry no unit
-anywhere on the page or in their text; and one is scored zero throughout,
-which has not been looked into because looking would spend the log.
+**The blind column is the forecast; the open column is not.** Read the second
+one and discount it slightly further: one of the nine blind logs is the
+scanned page the optical path was built against before the split was drawn,
+so call it eight and a half.
+
+What the blind column contains, from the warnings and the truth alone —
+the pages themselves were not opened:
+
+- **A tabular list of three borings with no depth scale on it anywhere.** The
+  right answer is to find no ruler and say so, which is what happens; its ten
+  layers and one sample are recorded in the ledger as not scored by depth
+  rather than counted as misses. It is the one row where a pass means a
+  refusal.
+- **Two sheets that carry samples and layers and where no ruler is found at
+  all.** The module refuses them in the same words and places nothing with a
+  depth, which is the designed behaviour and is still a miss: the truth says
+  those pages state depths and the geometry did not yield them. They have not
+  been looked into, because looking would spend the log.
+- **Four sheets whose depth unit is stated nowhere** on the page or in its
+  own text. Their depths come back in whatever the ruler prints, and the
+  module says so; on two of them the unit was recovered from depths written
+  into the log's prose instead.
+- **Two sheets the truth says sample nothing**, on which the grid put no
+  numeric cell in a blow-count column at all. That is the one clean precision
+  number on the scorecard.
+- **One log scoring zero on samples and layers** with its ruler found and its
+  unit right, which is the most interesting failure on the sheet and is
+  likewise unexamined.
 
 The unmatched-cell count in the ledger is a precision PROXY and not a
 precision: the grid emits every text line on the page, and the hand truth

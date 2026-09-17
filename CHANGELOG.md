@@ -24,13 +24,17 @@
   returns its cells with no depths and says so in `warnings`**, along with a
   scan's softer column edges, a page stored rotated, a diagonal watermark
   left out, a unit the page never states and sheets of one log drawn at
-  different scales. Measured against twelve logs from twelve real reports in
-  six templates, hand-transcribed into a private ledger, six open during
-  development and six scored blind: on the open six, ruler and unit 6/6,
-  blow records and N values 57/57, layer tops 34/34, index values 31/32,
-  header fields 63/68; on the blind six, 5/6, 3/6, 24/36, 13/21, 7/13 and
-  27/39 — and one of those blind six is the scanned page the optical path was
-  built on, so read it as five and a half. New
+  different scales. Measured against fifteen logs from fifteen real reports,
+  hand-transcribed into a private ledger, six open during development and
+  nine scored blind: on the open six, ruler and unit 6/6, blow records and N
+  values 57/57, layer tops 34/34, index values 35/36, header fields 63/68; on
+  the blind nine, 7/9, 4/8, 24/50, 14/26, 7/17 and 33/54 — and one of those
+  nine is the scanned page the optical path was built on, so read it as eight
+  and a half. **The blind column is the one that forecasts anything.** One of
+  the fifteen is a tabular list of borings with no depth scale on it, where
+  finding no ruler and saying so IS the answer; on two more the geometry
+  yields no ruler where the truth says there are depths, and those are
+  refused rather than guessed. New
   `planlens.testing.build_imperial_log` / `build_metric_log` /
   `build_log_without_ruler` build the same synthetic form on a 5 ft ruler, on
   a 1 m ruler and with no ruler at all, with the answers.

@@ -204,16 +204,19 @@ rather than silently deflating the answer.
   is cut into, and the fields printed outside the body. No templates: the
   columns come from the form's own ruling lines and headers, in English,
   French or Spanish. Values come back AS PRINTED and are never parsed into a
-  meaning — a blow record stays `"5-9-12"`. Measured against twelve
-  hand-transcribed logs from twelve reports in six templates, six open during
-  development and six scored blind (tolerances 0.15 m on a sample, 0.30 m on
-  a layer top): on the open six, ruler and unit 6/6, blow records and N
-  values 57/57, layer tops 34/34, index values 31/32, header fields 63/68; on
-  the blind six, ruler 5/6, unit 3/6, blow records and N values 24/36, layer
-  tops 13/21, index values 7/13, fields 27/39 — and one of those six is the
-  scanned page the optical path was built on, so it is five and a half blind
-  logs. A page whose ruler cannot be found returns its cells with NO depths
-  and says so in `warnings`; that is the point of it. The corpus is private
+  meaning — a blow record stays `"5-9-12"`. Measured against fifteen
+  hand-transcribed logs from fifteen reports, six open during development and
+  nine scored blind (tolerances 0.15 m on a sample, 0.30 m on a layer top):
+  on the open six, ruler and unit 6/6, blow records and N values 57/57, layer
+  tops 34/34, index values 35/36, header fields 63/68; on the blind nine,
+  ruler 7/9, unit 4/8, blow records and N values 24/50, layer tops 14/26,
+  index values 7/17, fields 33/54 — and one of those nine is the scanned page
+  the optical path was built on, so it is eight and a half blind logs. **Read
+  the blind column**: two of its nine sheets carry depths the geometry did not
+  yield, and the module refuses them rather than guessing. A page whose ruler cannot be found returns its cells with NO depths
+  and says so in `warnings`; that is the point of it, and one of the twelve
+  measured sheets is a tabular list of borings carrying no depth scale at
+  all, where refusing IS the right answer. The corpus is private
   and is not in this repository. See `planlens/document/DESIGN.md`, "Log
   grid".
 - **Proven on real agency sheets**: bubble callouts (40/40 count match
