@@ -481,3 +481,70 @@ def test_a_header_names_itself_before_it_qualifies_itself():
 def test_a_parenthesised_unit_is_read_off_the_gint_headers(header, unit):
     _names, found = classify_header(header)
     assert found == unit
+
+
+# ---------------------------------------------------------------------------
+# A form drawn twice, with a title block across its head
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def overprinted():
+    from planlens.testing import build_overprinted_log
+    gt = build_overprinted_log()
+    with open_document(gt.pdf) as doc:
+        yield gt, doc, log_grid(doc, 0)
+
+
+def test_a_line_drawn_twice_is_one_line(overprinted):
+    """Overprinting to fake a bold weight must not double the page."""
+    _gt, doc, _grid = overprinted
+    page = doc.page(0, tables=False)
+    assert page.stats["n_overprinted_lines"] > 20
+    texts = [ln.text for ln in page.lines]
+    seen = {(ln.text, tuple(round(v, 1) for v in ln.bbox))
+            for ln in page.lines}
+    assert len(seen) == len(page.lines)
+    assert texts.count("5-9-12") == 1
+    assert texts.count("5") == 1
+
+
+def test_a_doubled_ruler_still_fits(overprinted):
+    """"5, 5, 10, 10, 15, 15" has no strictly rising run of three in it."""
+    gt, _doc, grid = overprinted
+    assert grid.has_ruler
+    ruler = grid.rulers[0]
+    assert ruler.step == pytest.approx(gt.ticks[1] - gt.ticks[0])
+    assert len(ruler.ticks) == len(gt.ticks)
+    assert grid.unit == "ft"
+
+
+def test_ticks_seen_twice_collapse_even_if_they_reach_the_fitter():
+    from planlens.document.loggrid import _collapse_ticks, _fit_ruler
+    doubled = [(100.0, 5.0), (100.0, 5.0), (200.0, 10.0), (200.2, 10.0),
+               (300.0, 15.0), (300.0, 15.0), (400.0, 20.0)]
+    assert _collapse_ticks(doubled) == [(100.0, 5.0), (200.0, 10.0),
+                                        (300.0, 15.0), (400.0, 20.0)]
+    fitted = _fit_ruler(doubled, rising=True)
+    assert fitted is not None and len(fitted[0]) == 4
+
+
+def test_a_title_block_line_never_names_a_column(overprinted):
+    """It crosses the ruler's column; the words inside the column win."""
+    _gt, _doc, grid = overprinted
+    depth = [c for c in grid.columns if c.name == "depth"]
+    assert depth, [c.header for c in grid.columns]
+    assert "elevation" not in depth[0].names
+    assert depth[0].header.startswith("DEPTH")
+    # and it is still a line the fields can read, not a line thrown away
+    assert grid.fields["ground_surface_elevation"].startswith("104.5")
+
+
+def test_the_overprinted_form_reads_like_the_plain_one(overprinted):
+    """Every answer of the imperial log, off a page drawn twice."""
+    gt, _doc, grid = overprinted
+    assert [ly.top for ly in grid.layers] == [t for t, _b, _d in gt.layers]
+    for depth, blows, n_value in gt.samples:
+        for text in (blows, n_value):
+            assert [c for c in grid.cells("blows")
+                    if c.text == text
+                    and abs((c.depth or -999) - depth) <= 0.5], text

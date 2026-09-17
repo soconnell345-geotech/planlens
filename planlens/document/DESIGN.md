@@ -992,6 +992,24 @@ reader can see which names came off the header and which off the ink:
   So a column with prose in it takes the name `description` and gives up any
   numeric name it had.
 
+### What a page draws twice
+
+Some forms draw a string twice at the same place to fake a bold weight. It is
+one line on the page, and `planlens.document` now returns it once: the second
+drawing is dropped in TEXT EXTRACTION, not here, because counting it twice
+doubles the page's words, returns two search hits for one occurrence and
+hands a reader "9 9 10 10" where the page reads 9, 10. Measured over the
+7,829-page report corpus: 4,751 overprinted lines on 523 pages of at least
+twelve reports, up to 2.5 per cent of a report's lines. The page map reports
+the count as `n_overprinted_lines`. Re-scoring the page-role rules over 4,147
+hand-labelled pages afterwards moved nothing.
+
+For a depth ruler it was fatal rather than untidy: "5, 5, 10, 10, 15, 15" has
+no strictly rising run of three in it, so the scale was refused outright and
+the whole sheet came back with no depths. The fitter now collapses ticks that
+share a value and a y as well, so a doubled scale reads like a single one
+even if a duplicate reaches it another way.
+
 ### Layers
 
 A layer opens at a boundary, and a boundary is one of four things:
@@ -1075,19 +1093,19 @@ log prints.
 
 | | open six | blind nine |
 |---|---|---|
-| ruler right (read at the page's own scale, or correctly refused) | 6/6 | 6/9 |
+| ruler right (read at the page's own scale, or correctly refused) | 6/6 | 9/9 |
 | ruler WRONG (a scale claimed that reads the page elsewhere) | 0 | 0 |
-| unit right | 6/6 | 3/8 |
+| unit right | 6/6 | 5/8 |
 | blow records and N values | 57/57 | 24/50 |
-| layer tops | 34/34 | 14/26 |
+| layer tops | 34/34 | 22/26 |
 | index values (w, dry unit weight, LL/PL/PI, fines, q_u, RQD, pocket pen) | 35/36 | 7/17 |
 | header fields | 63/68 | 33/54 |
 
 The ruler is scored three ways and not two, because a ruler fitted to the
 wrong column is worse than no ruler at all: no ruler withholds every depth,
 while a wrong one hands back a page of confident numbers. On the fifteen
-logs there is now no wrong ruler. Three of the nine blind sheets are refused
-where the truth says depths exist, which is a miss and a safe one.
+logs there is no wrong ruler and no sheet without one that should have one:
+the only refusal is the tabular list that has no scale to find.
 
 **The blind column is the forecast; the open column is not.** Read the second
 one and discount it slightly further: one of the nine blind logs is the
@@ -1102,15 +1120,18 @@ the pages themselves were not opened:
   layers and one sample are recorded in the ledger as not scored by depth
   rather than counted as misses. It is the one row where a pass means a
   refusal.
-- **Three sheets that carry samples and layers and where no ruler is found
-  at all.** The module refuses them in the same words and places nothing with
-  a depth, which is the designed behaviour and is still a miss: the truth
-  says those pages state depths and the geometry did not yield them. One of
-  the three used to be worse — it claimed a ruler, fitted to a column of
-  elevations below datum whose minus signs were being thrown away, and read
-  the whole page at the wrong datum. Signed numbers fixed that, and what was
-  a confident wrong answer is now a refusal. They have not been looked into
-  further, because looking would spend the log.
+- **Three sheets whose columns the vocabulary cannot name at all.** They
+  find their rulers and read their layers, and every one of their fifteen to
+  nineteen columns comes back `other`, so nothing on them can be placed in a
+  named column and their samples and index values score zero. The cause is
+  known and is not the vocabulary: these forms draw NO rule under their
+  header row — the only rules crossing the whole form are its frame and its
+  title block, all within 50 pt of the top — so no band between two rules can
+  hold the column labels, and the header band is chosen from drawn rules
+  alone. Deriving the band from the ruler's own first tick instead was tried
+  and REJECTED: it does not name those columns either, and where it does fire
+  it reaches up into the sheet's own fields, costing two layer tops and two
+  header fields to buy one depth unit.
 - **Four sheets whose depth unit is stated nowhere** on the page or in its
   own text. Their depths come back in whatever the ruler prints, and the
   module says so; on two of them the unit was recovered from depths written

@@ -29,6 +29,7 @@ from planlens.testing.loggrid_fixtures import (
     build_imperial_log,
     build_log_without_ruler,
     build_metric_log,
+    build_overprinted_log,
 )
 from planlens.testing.report_fixtures import (
     ReportGT,
@@ -68,6 +69,7 @@ __all__ = [
     "build_imperial_log",
     "build_log_without_ruler",
     "build_metric_log",
+    "build_overprinted_log",
     "build_synthetic_report",
     "FEET_PER_POINT",
     "RATIO_TEXT",

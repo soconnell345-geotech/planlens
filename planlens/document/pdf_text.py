@@ -21,7 +21,7 @@ to OCR the page instead of trusting the string.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import math
 
@@ -102,6 +102,25 @@ def _textpage(page, flags):
     return tp
 
 
+#: How far two drawings of the same string may sit apart and still be the
+#: same line overprinted. Measured on the forms that do it: the second copy
+#: lands within 0.02 pt of the first, and the closest two DIFFERENT lines
+#: carrying the same short string ("5", "10") were a whole line height apart.
+OVERPRINT_TOLERANCE_PT = 0.5
+
+
+def _overprints(earlier: Optional[List[TextLine]],
+                bbox: Tuple[float, float, float, float]) -> bool:
+    """Has this exact string already been drawn at this exact place?"""
+    if not earlier:
+        return False
+    for other in earlier:
+        if all(abs(a - b) <= OVERPRINT_TOLERANCE_PT
+               for a, b in zip(other.bbox, bbox)):
+            return True
+    return False
+
+
 def extract_text(page, page_index: int, words: bool = False
                  ) -> Tuple[List[TextLine], List[TextBlock], Dict[str, Any]]:
     """Lines, blocks and text statistics for one ``fitz.Page``.
@@ -117,8 +136,10 @@ def extract_text(page, page_index: int, words: bool = False
     lines: List[TextLine] = []
     blocks: List[TextBlock] = []
     key_to_line: Dict[Tuple[int, int], TextLine] = {}
+    by_text: Dict[str, List[TextLine]] = {}
     n_chars = 0
     n_unmapped = 0
+    n_overprinted = 0
 
     for block in raw.get("blocks", []):
         if block.get("type") != 0:
@@ -130,6 +151,16 @@ def extract_text(page, page_index: int, words: bool = False
             spans = line.get("spans", [])
             text = "".join(s.get("text", "") for s in spans).strip()
             if not text:
+                continue
+            bbox = tuple(float(v) for v in line["bbox"])
+            if _overprints(by_text.get(text), bbox):
+                # The same string drawn again at the same place. A printer
+                # driver and several form generators do it to fake a bold
+                # weight, and it is ONE line on the page: counting it twice
+                # doubles the page's words, returns two search hits for one
+                # occurrence, hands a model "9 9 10 10" where the page reads
+                # 9, 10, and leaves a depth ruler with no rising run in it.
+                n_overprinted += 1
                 continue
             n_chars += len(text)
             n_unmapped += text.count(_UNMAPPED)
@@ -143,7 +174,7 @@ def extract_text(page, page_index: int, words: bool = False
                 id=f"p{page_index}.t{len(lines)}",
                 page=page_index,
                 text=text,
-                bbox=tuple(float(v) for v in line["bbox"]),
+                bbox=bbox,
                 rotation=_rotation(line.get("dir", (1, 0))),
                 size=float(dom.get("size", 0.0)) or None,
                 font=font,
@@ -154,6 +185,7 @@ def extract_text(page, page_index: int, words: bool = False
             )
             lines.append(tl)
             block_lines.append(tl)
+            by_text.setdefault(text, []).append(tl)
             key_to_line[(bnum, li)] = tl
         if block_lines:
             blocks.append(TextBlock(
@@ -179,4 +211,6 @@ def extract_text(page, page_index: int, words: bool = False
     stats = {"n_text_chars": n_chars, "n_lines": len(lines)}
     if n_unmapped:
         stats["n_unmapped_chars"] = n_unmapped
+    if n_overprinted:
+        stats["n_overprinted_lines"] = n_overprinted
     return lines, blocks, stats

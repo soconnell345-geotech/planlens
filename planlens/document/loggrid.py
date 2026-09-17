@@ -86,6 +86,19 @@ MIN_COLUMN_WIDTH_PT = 5.0
 #: every corpus template is under half the ruled width.
 FULL_WIDTH_FRAC = 0.60
 
+#: How much of a header line's own width must lie inside a column before the
+#: line is read as that column's name. Measured on the corpus: a header that
+#: overflows its ruled column (a wide word in a narrow band) keeps 68 per cent
+#: of itself inside, while a title-block line laid across the top of the form
+#: kept 38 per cent of itself inside the column it was renaming, and a group
+#: heading spanning three sub-columns 47 per cent.
+HEADER_INSIDE_FRAC = 0.60
+
+#: Two ticks this close in y, carrying the same value, are one tick seen
+#: twice. The overprinted-line fix removes most of them upstream; this is the
+#: fitter refusing to be fooled by any that reach it another way.
+SAME_TICK_PT = 1.0
+
 #: A ruler needs at least this many ticks. Three points make a line; a fourth
 #: is what makes the line an observation rather than a construction.
 MIN_RULER_TICKS = 3
@@ -953,8 +966,21 @@ def _header_text(lines: Sequence[TextLine], x0: float, x1: float) -> str:
     for ln in lines:
         b = ln.bbox
         centre = (b[0] + b[2]) / 2.0
-        if x0 - 0.5 <= centre < x1 + 0.5:
-            inside.append(ln)
+        if not (x0 - 0.5 <= centre < x1 + 0.5):
+            continue
+        # A column header is written INSIDE its column. A line that reaches
+        # well past the column edges is the form talking about the sheet, not
+        # about this column: a title-block key and value ("Elevation and
+        # Datum") laid across the top of the form, or a group heading spanning
+        # several sub-columns. Either one, read as this column's name, renames
+        # the column after something that is not in it -- a depth scale came
+        # back called "elevation" that way. Such a line is not a header; it is
+        # still a line, and `fields` still reads it.
+        width = max(1.0, b[2] - b[0])
+        within = min(b[2], x1) - max(b[0], x0)
+        if within < HEADER_INSIDE_FRAC * width:
+            continue
+        inside.append(ln)
     if not inside:
         return ""
     rot = _snap_rotation(inside[0].rotation)
@@ -1004,6 +1030,23 @@ def _bands_from_headers(lines: Sequence[TextLine]
             if b - a >= MIN_COLUMN_WIDTH_PT]
 
 
+def _collapse_ticks(ticks: Sequence[Tuple[float, float]]
+                    ) -> List[Tuple[float, float]]:
+    """One tick per printed tick: the same value at the same y is one.
+
+    A form that draws its scale labels twice to fake a bold weight hands the
+    fitter "9, 9, 10, 10, 11, 11" and there is no strictly rising run of three
+    in it, so the ruler is refused. Collapsing first means a doubled scale
+    reads exactly like a single one.
+    """
+    out: List[Tuple[float, float]] = []
+    for y, value in sorted(ticks):
+        if out and value == out[-1][1] and abs(y - out[-1][0]) <= SAME_TICK_PT:
+            continue
+        out.append((y, value))
+    return out
+
+
 def _longest_monotone(ticks: Sequence[Tuple[float, float]], rising: bool
                       ) -> List[Tuple[float, float]]:
     """The longest run of ticks whose values move one way down the page.
@@ -1043,6 +1086,7 @@ MIN_MONOTONE_FRAC = 0.60
 
 def _fit_ruler(ticks: Sequence[Tuple[float, float]], rising: bool):
     """``(ticks, slope, intercept, residual, step, regular, dropped)``or None."""
+    ticks = _collapse_ticks(ticks)
     kept = _longest_monotone(ticks, rising)
     if len(kept) < MIN_RULER_TICKS:
         return None
@@ -1404,22 +1448,36 @@ def _read_page(doc, index: int) -> _PageGrid:
         # instead would be led astray by the axis labels of a plotted column,
         # which are printed in the header band and are numbers.
         limit = ruled_top + HEADER_BAND_MAX_FRAC * (ruled_bottom - ruled_top)
-        candidates = [y for y in full_width if ruled_top + 2.0 < y <= limit]
-        best = (-1.0, ruled_top, ruled_top)
-        for y in candidates:
+        options = [(y, 1) for y in full_width
+                   if ruled_top + 2.0 < y <= limit]
+
+        def score_band(y: float, drawn: int):
             higher = [h for h in full_width if h < y - 2.0]
             top = max(higher) if higher else ruled_top
+            if not drawn:
+                top = max(top, y - HEADER_BAND_PT)
             band = [ln for ln in lines
                     if top - 1.0 <= (ln.bbox[1] + ln.bbox[3]) / 2.0 <= y + 1.0]
-            named = sum(1 for (a, b) in bands
-                        if classify_header(_header_text(band, a, b))[0])
+            return sum(1 for (a, b) in bands
+                       if classify_header(_header_text(band, a, b))[0]), top
+
+        # NOT tried: taking the body top from the ruler's own first tick when
+        # no drawn band names anything. Three corpus templates draw no line
+        # under their header row at all, and the tick-derived band does not
+        # name their columns either — so it buys nothing where it was meant
+        # to, and where it DOES fire it reaches up into the sheet's own
+        # fields: measured, it cost two layer tops and two header fields to
+        # buy one depth unit. The drawn line stays the only evidence.
+        best = (-1.0, 0, ruled_top, ruled_top)
+        for y, drawn in options:
+            named, top = score_band(y, drawn)
             # The band that NAMES the most columns is the header band. A form
             # can be bordered above its header by any number of rules — the
             # page frame, the title block, a groundwater table — and only one
             # of the bands between them holds the column labels.
-            if named > best[0]:
-                best = (named, y, top)
-        _, body_top, head_top = best
+            if (named, drawn) > (best[0], best[1]):
+                best = (named, drawn, y, top)
+        _, _drawn, body_top, head_top = best
         pg.body_bottom = ruled_bottom
         pg.header_band = (min(head_top, body_top), body_top)
     pg.body_top = body_top

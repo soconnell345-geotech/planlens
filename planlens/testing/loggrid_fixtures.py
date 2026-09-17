@@ -172,13 +172,26 @@ def _draw_form(page, unit: str, ruler_step: float, ticks, per_unit: float,
 
 
 def _build(unit: str, per_unit: float, ticks, contacts, layers, samples,
-           index_tests, ruler: bool = True) -> LogGridGT:
+           index_tests, ruler: bool = True, overprint: bool = False,
+           title_block: bool = False) -> LogGridGT:
     import fitz
     doc = fitz.open()
     page = doc.new_page(width=LETTER[0], height=LETTER[1])
     step = ticks[1] - ticks[0]
     _draw_form(page, unit, step, ticks, per_unit, contacts, layers, samples,
                index_tests, ruler=ruler)
+    if overprint:
+        # Drawn a second time, identically, the way a printer driver and
+        # several form generators fake a bold weight.
+        _draw_form(page, unit, step, ticks, per_unit, contacts, layers,
+                   samples, index_tests, ruler=ruler)
+    if title_block:
+        # A title-block key and value laid ACROSS the top of the form, inside
+        # the header band, overlapping three columns including the depth
+        # ruler's. It is not any column's name.
+        page.insert_text((EDGES[1] + 190, Y_HEADER_BOTTOM - 30),
+                         f"Elevation and Datum: 104.5 ({unit}) NAVD88",
+                         fontsize=7)
     pdf = doc.tobytes()
     doc.close()
     return LogGridGT(
@@ -237,6 +250,21 @@ def build_metric_log() -> LogGridGT:
     """The same form on a 1 m ruler — the twin that proves nothing is fixed."""
     return _build("m", 72.0, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [1.2, 4.9],
                   _M_LAYERS, _M_SAMPLES, _M_INDEX)
+
+
+def build_overprinted_log() -> LogGridGT:
+    """The imperial form drawn TWICE, with a title-block line across its head.
+
+    Two defects in one page, both of which cost a real sheet its depth scale.
+    Every scale label appears as two identical text objects, so the ruler
+    reads "5, 5, 10, 10, 15, 15" and has no strictly rising run of three in
+    it; and a title-block key and value crosses the ruler's own column inside
+    the header band, where being read as that column's name renamed a depth
+    scale after an elevation.
+    """
+    return _build("ft", 22.0, [5.0, 10.0, 15.0, 20.0], [4.0, 16.0],
+                  _FT_LAYERS, _FT_SAMPLES, _FT_INDEX, overprint=True,
+                  title_block=True)
 
 
 def build_log_without_ruler() -> LogGridGT:

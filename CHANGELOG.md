@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **A line drawn twice is one line.** Some forms and printer drivers draw a
+  string a second time at the same place to fake a bold weight.
+  `planlens.document` now returns it once, dropped in TEXT EXTRACTION rather
+  than in any one reader, because counting it twice doubles a page's words,
+  returns two search hits for one occurrence and hands a model "9 9 10 10"
+  where the page reads 9, 10. The page map reports how many were dropped as
+  `n_overprinted_lines`. Measured over a 7,829-page corpus of geotechnical
+  reports: 4,751 such lines on 523 pages of at least twelve reports, up to
+  2.5 per cent of a report's lines; re-scoring the page-role rules over 4,147
+  hand-labelled pages afterwards moved nothing. For `log_grid` it was fatal
+  rather than untidy — "5, 5, 10, 10, 15, 15" holds no strictly rising run of
+  three, so the depth scale was refused and the sheet came back with no
+  depths at all.
+- **A title block never names a column.** A header candidate must lie inside
+  the column it would name: a line that crosses column boundaries is the form
+  talking about the SHEET, not about that column, and reading one as a
+  column's name renamed a depth scale after an elevation. Such a line is not
+  discarded — `fields` still reads it.
+
 - **A boring log read as the grid it is.** New
   `planlens.document.loggrid.log_grid(doc, pages)`, and the tool `log_grid`
   beside it (over MCP with the rest). Give it the pages of ONE log — its
@@ -28,14 +47,14 @@
   hand-transcribed into a private ledger, six open during development and
   nine scored blind: on the open six, ruler and unit 6/6, blow records and N
   values 57/57, layer tops 34/34, index values 35/36, header fields 63/68; on
-  the blind nine, 6/9, 3/8, 24/50, 14/26, 7/17 and 33/54 — and one of those
+  the blind nine, 9/9, 5/8, 24/50, 22/26, 7/17 and 33/54 — and one of those
   nine is the scanned page the optical path was built on, so read it as eight
   and a half. **The blind column is the one that forecasts anything.** One of
   the fifteen is a tabular list of borings with no depth scale on it, where
-  finding no ruler and saying so IS the answer; on three more the geometry
-  yields no ruler where the truth says there are depths, and those are
-  refused rather than guessed. **No sheet of the fifteen is read at a wrong
-  scale.**
+  finding no ruler and saying so IS the answer, and it is the only sheet
+  without one. **No sheet of the fifteen is read at a wrong scale.** What the
+  blind column is short of is three forms that draw no rule under their
+  header row, whose columns therefore cannot be named.
 - **Signed numbers, and a header that outweighs a tick count.** A leading
   dash is a minus sign, not something to strip: a column of elevations below
   datum reads "-2.5, -4.0, -5.5", and throwing the signs away turned it into
