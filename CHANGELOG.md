@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-09-17
+
+The boring-log release: a ruled log form is read as the coordinate system it
+is, and a line a form draws twice is returned once.
 
 - **A rule drawn in pieces is one rule.** A form's lines are very often not
   single strokes: the line under a header row is drawn once per stretch
@@ -23,10 +26,12 @@
   than in any one reader, because counting it twice doubles a page's words,
   returns two search hits for one occurrence and hands a model "9 9 10 10"
   where the page reads 9, 10. The page map reports how many were dropped as
-  `n_overprinted_lines`. Measured over a 7,829-page corpus of geotechnical
-  reports: 4,751 such lines on 523 pages of at least twelve reports, up to
-  2.5 per cent of a report's lines; re-scoring the page-role rules over 4,147
-  hand-labelled pages afterwards moved nothing. For `log_grid` it was fatal
+  `n_overprinted_lines`. Measured over a PRIVATE 7,829-page corpus of 38
+  geotechnical reports, which is not in this repository: 4,751 such lines on
+  523 pages of at least twelve reports, up to 2.5 per cent of a report's
+  lines. Nothing published moved as a result — re-scoring the page-role rules
+  over the same 4,147 hand-labelled pages afterwards returned every rate
+  identical, held-out accuracy 0.880 included. For `log_grid` it was fatal
   rather than untidy — "5, 5, 10, 10, 15, 15" holds no strictly rising run of
   three, so the depth scale was refused and the sheet came back with no
   depths at all.
@@ -58,10 +63,12 @@
   returns its cells with no depths and says so in `warnings`**, along with a
   scan's softer column edges, a page stored rotated, a diagonal watermark
   left out, a unit the page never states and sheets of one log drawn at
-  different scales. Measured against fifteen logs from fifteen real reports,
-  hand-transcribed into a private ledger, six open during development and
-  nine scored blind: on the open six, ruler and unit 6/6, blow records and N
-  values 57/57, layer tops 34/34, index values 35/36, header fields 63/68; on
+  different scales. Measured against fifteen logs from fifteen real reports
+  of a private corpus that is not in this repository, hand-transcribed into a
+  private ledger: six were OPEN during development and the rules were tuned
+  on them, and nine were scored BLIND. On the open six, ruler and unit 6/6,
+  blow records and N values 57/57, layer tops 34/34, index values 35/36,
+  header fields 63/68; on
   the blind nine, 9/9, 6/8, 50/50, 22/26, 8/17 and 33/54 — and one of those
   nine is the scanned page the optical path was built on, so read it as eight
   and a half. **The blind column is the one that forecasts anything.** One of

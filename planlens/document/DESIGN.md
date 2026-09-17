@@ -1009,11 +1009,13 @@ Some forms draw a string twice at the same place to fake a bold weight. It is
 one line on the page, and `planlens.document` now returns it once: the second
 drawing is dropped in TEXT EXTRACTION, not here, because counting it twice
 doubles the page's words, returns two search hits for one occurrence and
-hands a reader "9 9 10 10" where the page reads 9, 10. Measured over the
-7,829-page report corpus: 4,751 overprinted lines on 523 pages of at least
-twelve reports, up to 2.5 per cent of a report's lines. The page map reports
-the count as `n_overprinted_lines`. Re-scoring the page-role rules over 4,147
-hand-labelled pages afterwards moved nothing.
+hands a reader "9 9 10 10" where the page reads 9, 10. Measured over a
+PRIVATE 7,829-page corpus of 38 geotechnical reports, which is not in this
+repository: 4,751 overprinted lines on 523 pages of at least twelve of them,
+up to 2.5 per cent of a report's lines. The page map reports the count as
+`n_overprinted_lines`. Nothing published here moved as a result — re-scoring
+the page-role rules over the same 4,147 hand-labelled pages afterwards
+returned every rate identical, held-out accuracy 0.880 included.
 
 For a depth ruler it was fatal rather than untidy: "5, 5, 10, 10, 15, 15" has
 no strictly rising run of three in it, so the scale was refused outright and
@@ -1081,7 +1083,7 @@ them before using anything:
   in the first place; the wording is the same either way, because a caller
   asking whether it may trust a depth should not have to know which happened.
   The cells are still placed in whatever columns there were; every depth is
-  `None`. This is the case the module exists to refuse, and one of the twelve
+  `None`. This is the case the module exists to refuse, and one of the fifteen
   measured logs is a tabular list of borings where refusing IS the answer.
 - **no ruled columns** — a scanned page draws no vector rules, so the columns
   come from the header labels alone and their x bands are approximate.
@@ -1095,10 +1097,11 @@ them before using anything:
 
 ### Measured (2026-09-17)
 
-Fifteen logs from fifteen reports, hand-transcribed from the rendered pages
-into a private ledger: the layers, the samples with their drives and N
-values, the index properties and the header fields. Six were open during
-development and nine were scored blind. Tolerances: 0.15 m on a sample or
+Fifteen logs from fifteen reports of a PRIVATE corpus that is not in this
+repository, hand-transcribed from the rendered pages into a private ledger:
+the layers, the samples with their drives and N values, the index properties
+and the header fields. Six were OPEN during development and the rules were
+tuned on them; nine were scored BLIND. Tolerances: 0.15 m on a sample or
 index value, 0.30 m on a layer top, depths compared in metres whatever the
 log prints.
 

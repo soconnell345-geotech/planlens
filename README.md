@@ -205,22 +205,33 @@ rather than silently deflating the answer.
   columns come from the form's own ruling lines and headers, in English,
   French or Spanish. Values come back AS PRINTED and are never parsed into a
   meaning — a blow record stays `"5-9-12"`. Measured against fifteen
-  hand-transcribed logs from fifteen reports, six open during development and
-  nine scored blind (tolerances 0.15 m on a sample, 0.30 m on a layer top):
-  on the open six, ruler and unit 6/6, blow records and N values 57/57, layer
-  tops 34/34, index values 35/36, header fields 63/68; on the blind nine,
-  ruler 9/9, unit 6/8, blow records and N values 50/50, layer tops 22/26,
-  index values 8/17, fields 33/54 — and one of those nine is the scanned page
-  the optical path was built on, so it is eight and a half blind logs. **Read
-  the blind column.** No sheet of the fifteen is read at a wrong scale, which
-  is the failure that matters: a withheld depth costs a reader a page, a
-  wrong one costs them the boring. What it is still short of is the index
-  properties, and two sheets that state their depth unit nowhere at all. A page whose ruler cannot be found returns its cells with NO depths
-  and says so in `warnings`; that is the point of it, and one of the twelve
-  measured sheets is a tabular list of borings carrying no depth scale at
-  all, where refusing IS the right answer. The corpus is private
-  and is not in this repository. See `planlens/document/DESIGN.md`, "Log
-  grid".
+  hand-transcribed logs from fifteen reports of a PRIVATE corpus that is not
+  in this repository: six were open during development and the rules were
+  TUNED ON them, and nine were scored BLIND (tolerances 0.15 m on a sample,
+  0.30 m on a layer top). On the open six, ruler and unit 6/6, blow records
+  and N values 57/57, layer tops 34/34, index values 35/36, header fields
+  63/68; on the blind nine, ruler 9/9, unit 6/8, blow records and N values
+  50/50, layer tops 22/26, index values 8/17, fields 33/54 — and one of those
+  nine is the scanned page the optical path was built on, so it is eight and
+  a half blind logs. **Read the blind column; the open one forecasts
+  nothing.** No sheet of the fifteen is read at a wrong scale, which is the
+  failure that matters: a withheld depth costs a reader a page, a wrong one
+  costs them the boring. What it is still short of is the index properties,
+  and two sheets that state their depth unit nowhere at all. A page whose
+  ruler cannot be found returns its cells with NO depths and says so in
+  `warnings`; that is the point of it, and one of the fifteen measured sheets
+  is a tabular list of borings carrying no depth scale at all, where refusing
+  IS the right answer. See `planlens/document/DESIGN.md`, "Log grid".
+- **A line a form draws twice is returned once (2026-09-17)**: some forms and
+  printer drivers overprint a string at the same place to fake a bold weight.
+  `planlens.document` now drops the duplicate in TEXT EXTRACTION, so a page's
+  words are not doubled, one occurrence does not return two search hits, and
+  a model is not handed "9 9 10 10" where the page reads 9, 10; the page map
+  reports how many went as `n_overprinted_lines`. Measured over a PRIVATE
+  7,829-page corpus of 38 geotechnical reports, not in this repository: 4,751
+  such lines on 523 pages of at least twelve of them, up to 2.5 per cent of a
+  report's lines. Nothing published moved — re-scoring the page-role rules
+  over the same 4,147 hand-labelled pages returned every rate identical.
 - **Proven on real agency sheets**: bubble callouts (40/40 count match
   on a dense municipal standard detail), region rendering, endpoint /
   text-anchored queries, multi-page drawing-set search, OCR text
