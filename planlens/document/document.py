@@ -288,6 +288,17 @@ class Document:
         return {k: v for k, v in (self._doc.metadata or {}).items()
                 if v and k != "format"}
 
+    def tobytes(self) -> bytes:
+        """The document as PDF bytes — what was opened, re-serialized.
+
+        A caller that writes a MARKED-UP copy needs the PDF itself and has
+        only the open document: re-resolving whatever string it was opened
+        under is not the same thing, because one document can be reached by
+        several names. An image source comes back as the one-page PDF it was
+        converted to on open, which is what such a caller wants.
+        """
+        return self._doc.tobytes()
+
     def toc(self) -> List[Dict[str, Any]]:
         """The PDF outline (bookmarks): level, title, 0-based page."""
         return [{"level": lvl, "title": title, "page": page - 1}

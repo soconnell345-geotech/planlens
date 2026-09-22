@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+- **The review goes back onto the PDF.** planlens has read a reviewer's
+  markups since 0.3.0; it can now write them. New
+  `planlens.document.markup_writer.write_markups(source, output, markups)` and
+  the tool `annotate_document` beside it (over MCP with the rest): a caller
+  hands over a list of small specs — a sticky NOTE, a HIGHLIGHT over the words
+  quoted, a BOX round a region, a CALLOUT with a leader pointing at a spot, or
+  a REPLY threaded onto an existing comment — and gets a NEW PDF whose
+  annotations Bluebeam and Acrobat list beside a person's. **Every markup is
+  anchored, never placed by eye.** A comment about text names the words: they
+  are found exactly first and then through the same fuzzy fallback
+  `search_document` offers, and the line's own word boxes narrow the highlight
+  to the words quoted rather than painting the whole column. A comment about a
+  drawing takes a box or a point in the displayed frame — the frame
+  `read_document(with_locations=true)`, a markup and `render_region` all
+  already speak, so a box goes back on with no conversion, on a `/Rotate 90`
+  sheet as on a portrait page. **A quote nobody can find is REFUSED with a
+  reason and named in the report**, because a comment on the wrong words is
+  worse than a comment the caller is told did not go on. The source file is
+  never opened for writing and `output == source` is an error; a second call to
+  the same `output` adds to the first call's file.
+- **What the writer reports is what the READER will see.** Every written markup
+  carries the box `Document.markups()` gives back for it, not the one that was
+  asked for: a Square is placed 1 pt smaller each way so that MuPDF's own
+  padding lands it exactly where it was asked for, while a Highlight's rect
+  keeps the appearance margin around its quads (shrinking them would stop the
+  highlight covering the words) and a callout's rect encloses its leader, as
+  the PDF specification asks. A callout's text is written with
+  `rotate=page.rotation`: a FreeText lays its text out in the UNROTATED box, so
+  on a `/Rotate 90` sheet the comment came out sideways and clipped to its
+  first few words — with the rotation set, the rendered callout is
+  pixel-identical to the same callout on an unrotated page, measured at
+  /Rotate 0, 90, 180 and 270.
+- **`--root` now confines writing as well as reading.** The MCP server's one
+  new tool writes a file, so `ReviewToolkit` gained `output_root`: with one
+  set, a relative `output_path` resolves inside that tree and anything
+  escaping it is refused. Without one a relative path goes beside the rendered
+  images and an absolute path is honoured, because a host that names one has
+  already decided where its files belong. `ReviewToolkit(author=...)` is who
+  a comment is signed by when the call names nobody.
+
 ## 0.6.0 — 2026-09-17
 
 The boring-log release: a ruled log form is read as the coordinate system it

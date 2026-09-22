@@ -199,6 +199,117 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "annotate_document",
+        "description": (
+            "Write your review comments onto a COPY of the PDF as ordinary "
+            "annotations — the reviewer opens the result in Bluebeam or "
+            "Acrobat and sees notes, highlights, boxes, callouts and replies "
+            "in the comments list like anyone else's. Use it to DELIVER a "
+            "review, once you have read the pages and know what to say. Each "
+            "markup names its kind, its 0-based page, its comment and ONE "
+            "anchor. Anchor by quote whenever the comment is about text on "
+            "the page — pass the words as printed and they are found for you, "
+            "even if a letter was read wrong; that is what puts the mark on "
+            "the right words. For a spot on a drawing use box or callout with "
+            "a bbox from read_document(with_locations=true), a markup, or the "
+            "region you rendered — same frame, no conversion. Reply to an "
+            "existing comment with reply_to and its markup id from "
+            "document_markups. Every comment is a DRAFT attributed to the AI "
+            "author unless you are told to sign it otherwise, so say what is "
+            "unresolved rather than asserting. The source document is never "
+            "changed: output_path is a NEW file, and calling again with the "
+            "same output_path adds to it. The result lists what went on and "
+            "WHAT DID NOT — a markup whose quote is not on the page is "
+            "skipped with a reason, not moved somewhere else, so read the "
+            "skipped list and re-anchor those comments."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "output_path": {
+                    "type": "string",
+                    "description": "Where to write the marked-up copy, e.g. "
+                                   "'<document>_marked.pdf'. Never the source."},
+                "markups": {
+                    "type": "array",
+                    "description": "The comments to write, in order.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": ["note", "highlight", "box", "callout",
+                                         "reply"],
+                                "description": "note = a sticky note at a "
+                                               "spot; highlight = over the "
+                                               "words quoted; box = a "
+                                               "rectangle round a region; "
+                                               "callout = a text box with a "
+                                               "leader pointing at a spot; "
+                                               "reply = an answer threaded "
+                                               "onto an existing markup."},
+                            "page": {"type": "integer", "minimum": 0,
+                                     "description": "0-based, as everywhere "
+                                                    "else."},
+                            "comment": {"type": "string",
+                                        "description": "What the markup says. "
+                                                       "One point per markup."},
+                            "quote": {"type": "string",
+                                      "description": "Words on that page the "
+                                                     "comment is about. "
+                                                     "Matched exactly first, "
+                                                     "then approximately."},
+                            "bbox": {"type": "array",
+                                     "items": {"type": "number"},
+                                     "minItems": 4, "maxItems": 4,
+                                     "description": "[x0,y0,x1,y1] in PDF "
+                                                    "points, displayed page, "
+                                                    "top-left origin. For a "
+                                                    "callout this is where "
+                                                    "its text box goes."},
+                            "point": {"type": "array",
+                                      "items": {"type": "number"},
+                                      "minItems": 2, "maxItems": 2,
+                                      "description": "[x,y] in the same "
+                                                     "frame."},
+                            "points_at": {"type": "array",
+                                          "items": {"type": "number"},
+                                          "minItems": 2, "maxItems": 2,
+                                          "description": "Callout only: the "
+                                                         "spot its leader "
+                                                         "aims at."},
+                            "reply_to": {"type": "string",
+                                         "description": "Reply only: the "
+                                                        "markup id from "
+                                                        "document_markups "
+                                                        "(e.g. 'p3.m1')."},
+                            "author": {"type": "string",
+                                       "description": "Overrides the author "
+                                                      "for this one markup."},
+                            "min_score": {"type": "integer", "minimum": 50,
+                                          "maximum": 100,
+                                          "description": "Lowest fuzzy score "
+                                                         "a quote may match "
+                                                         "at (default 80; "
+                                                         "about 75 for a "
+                                                         "short quote)."},
+                        },
+                        "required": ["kind", "page", "comment"],
+                    },
+                },
+                "author": {"type": "string",
+                           "description": "Who every markup is signed by. "
+                                          "Defaults to the host's AI author."},
+                "append": {"type": "boolean",
+                           "description": "Default true: an output_path that "
+                                          "already exists is added to. false "
+                                          "starts the marked-up copy again "
+                                          "from the source."},
+            },
+            "required": ["handle", "output_path", "markups"],
+        },
+    },
+    {
         "name": "document_structure",
         "description": (
             "The constituent documents inside a stapled PDF — transmittal, "

@@ -7,6 +7,7 @@ the displayed frame).
 """
 
 import json
+import os
 
 import pytest
 
@@ -512,3 +513,158 @@ def test_find_quantities_pages_and_fits_the_limit(kit):
     assert calls > 1                        # it really did page
     bad = call(kit, "find_quantities", handle=handle, offset=999)
     assert "outside" in bad["error"]
+
+
+# -- annotate_document ---------------------------------------------------------
+
+def _kit_writing_to(gt, tmp_path, **kw):
+    """A toolkit that writes into ``tmp_path`` and can reopen what it wrote.
+
+    The resolver takes real paths as well as the upload key, because reading
+    the marked-up copy back through ``open_document`` is how a model checks
+    its own review.
+    """
+    def resolve(key):
+        if key == UPLOAD:
+            return gt.pdf
+        if os.path.isfile(key):
+            return key
+        raise ToolError(f"no upload named '{key}'", hint=f"uploads: [{UPLOAD}]")
+
+    return ReviewToolkit(resolve_source=resolve, output_dir=str(tmp_path), **kw)
+
+
+def test_annotate_document_writes_a_new_file_the_reader_can_open(gt, tmp_path):
+    kit = _kit_writing_to(gt, tmp_path, author="GSE (AI draft)")
+    try:
+        handle = _open(kit)
+        out = call(kit, "annotate_document", handle=handle,
+                   output_path="review_marked.pdf", markups=[
+                       {"kind": "highlight", "page": gt.narrative_page,
+                        "comment": "State the datum for these depths.",
+                        "quote": "20 to 35 feet"},
+                       {"kind": "callout", "page": gt.sheet_page,
+                        "comment": "Confirm the pile embedment.",
+                        "points_at": list(gt.reviewer_target)},
+                   ])
+        assert out["n_written"] == 2 and out["n_skipped"] == 0
+        assert out["author"] == "GSE (AI draft)"
+        assert out["appended_to_existing"] is False
+        assert {w["kind"] for w in out["written"]} == {"highlight", "callout"}
+        # A NEW file, in the directory the host configured; the opened one is
+        # byte-for-byte what it was.
+        written = out["output_path"]
+        assert os.path.dirname(written) == str(tmp_path)
+        # The tools read their own output back, which is how a model checks it.
+        second = call(kit, "open_document", source=written)
+        assert second["handle"] != handle
+        assert second["markups"]["by_author"]["GSE (AI draft)"] == 2
+    finally:
+        kit.close()
+
+
+def test_annotate_document_says_what_it_would_not_place(gt, tmp_path):
+    kit = _kit_writing_to(gt, tmp_path)
+    try:
+        handle = _open(kit)
+        out = call(kit, "annotate_document", handle=handle,
+                   output_path="skips.pdf", markups=[
+                       {"kind": "highlight", "page": gt.narrative_page,
+                        "comment": "x", "quote": "CURTAIN WALL PERMEABILITY"},
+                       {"kind": "box", "page": gt.sheet_page,
+                        "comment": "no dimension", "bbox": [1200, 700, 1600, 820]},
+                   ])
+        assert out["n_written"] == 1 and out["n_skipped"] == 1
+        assert out["skipped"][0]["reason"].startswith("'CURTAIN WALL")
+        assert "NOT on the page" in out["note"]
+    finally:
+        kit.close()
+
+
+def test_annotate_document_appends_to_the_same_copy(gt, tmp_path):
+    kit = _kit_writing_to(gt, tmp_path)
+    try:
+        handle = _open(kit)
+        args = {"handle": handle, "output_path": "running.pdf"}
+        call(kit, "annotate_document", markups=[
+            {"kind": "note", "page": 0, "comment": "one", "point": [90, 90]}],
+            **args)
+        again = call(kit, "annotate_document", markups=[
+            {"kind": "note", "page": 0, "comment": "two", "point": [90, 130]}],
+            **args)
+        assert again["appended_to_existing"] is True
+        marked = call(kit, "open_document", source=again["output_path"])
+        assert marked["markups"]["n"] == 5 + 2
+    finally:
+        kit.close()
+
+
+def test_annotate_document_refuses_what_it_cannot_write(gt, tmp_path):
+    kit = _kit_writing_to(gt, tmp_path)
+    try:
+        handle = _open(kit)
+        empty = call(kit, "annotate_document", handle=handle,
+                     output_path="none.pdf", markups=[])
+        assert "nothing would be written" in empty["error"]
+        assert "reply_to" in empty["hint"]
+        bad = call(kit, "annotate_document", handle=handle,
+                   output_path="bad.pdf",
+                   markups=[{"kind": "scribble", "page": 0, "comment": "x"}])
+        assert "unknown markup kind" in bad["error"]
+        nowhere = call(kit, "annotate_document", handle=handle, output_path="",
+                       markups=[{"kind": "note", "page": 0, "comment": "x",
+                                 "point": [1, 1]}])
+        assert "output_path is required" in nowhere["error"]
+    finally:
+        kit.close()
+
+
+def test_annotate_document_will_not_write_over_the_document_it_read(gt,
+                                                                    tmp_path):
+    original = tmp_path / "set.pdf"
+    original.write_bytes(gt.pdf)
+    kit = _kit_writing_to(gt, tmp_path)
+    try:
+        handle = call(kit, "open_document", source=str(original))["handle"]
+        out = call(kit, "annotate_document", handle=handle,
+                   output_path=str(original),
+                   markups=[{"kind": "note", "page": 0, "comment": "x",
+                             "point": [90, 90]}])
+        assert "the document itself" in out["error"]
+        assert original.read_bytes() == gt.pdf
+    finally:
+        kit.close()
+
+
+def test_a_write_root_confines_the_output(gt, tmp_path):
+    kit = _kit_writing_to(gt, tmp_path, output_root=str(tmp_path))
+    try:
+        handle = _open(kit)
+        mark = [{"kind": "note", "page": 0, "comment": "x", "point": [90, 90]}]
+        inside = call(kit, "annotate_document", handle=handle,
+                      output_path="inside.pdf", markups=mark)
+        assert inside["output_path"] == os.path.join(str(tmp_path),
+                                                     "inside.pdf")
+        out = call(kit, "annotate_document", handle=handle,
+                   output_path=os.path.join("..", "escape.pdf"), markups=mark)
+        assert "outside the directory" in out["error"]
+    finally:
+        kit.close()
+
+
+def test_annotate_document_fits_the_limit(gt, tmp_path):
+    kit = _kit(gt, max_chars=1500)
+    kit._output_dir = str(tmp_path)
+    try:
+        handle = _open(kit)
+        text = kit.call_json("annotate_document", {
+            "handle": handle, "output_path": "many.pdf",
+            "markups": [{"kind": "note", "page": 0,
+                         "comment": f"comment number {n}",
+                         "point": [90, 90 + 4 * n]} for n in range(40)]})
+        assert len(text) <= 1500
+        out = json.loads(text)               # valid JSON, not a cut string
+        assert out["n_written"] == 40
+        assert len(out["written"]) < 40 and "written_truncated_after" in out
+    finally:
+        kit.close()

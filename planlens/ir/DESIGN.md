@@ -498,11 +498,13 @@ which is exactly the small-`n` upward bias the caveat describes.
 Two, as of planlens 0.4.0:
 
 - **`planlens.tools.ReviewToolkit`** (in this package, framework-neutral) —
-  ten whole-document tools over `planlens.document`: `open_document`,
+  the whole-document tools over `planlens.document`: `open_document`,
   `document_structure`, `document_page_map`, `read_document`,
   `search_document`, `find_quantities`, `document_markups`,
-  `render_page_thumbnails`, `render_page`, `render_region`. The same ten serve
-  over MCP (`planlens.mcp_server`), generated from the same specs. See
+  `annotate_document` (the only one that WRITES: review comments onto a copy
+  of the PDF), `log_grid`, `document_roles`, `render_page_thumbnails`,
+  `render_page`, `render_region`. The same set serves over MCP
+  (`planlens.mcp_server`), generated from the same specs. See
   `planlens/document/DESIGN.md`.
 - **The geotech app's drawing adapter** — the drawing-geometry tools below
   still live in `GeotechStaffEngineer/funhouse_agent/adapters/drawing_ir_adapter.py`;

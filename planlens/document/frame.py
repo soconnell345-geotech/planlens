@@ -52,6 +52,51 @@ def to_display_bbox(page, bbox: Sequence[float]) -> BBox:
     return (min(xs), min(ys), max(xs), max(ys))
 
 
+def from_display_point(page, x: float, y: float) -> Point:
+    """Displayed frame -> unrotated PyMuPDF page coordinates.
+
+    The exact inverse of :func:`to_display_point`, and what a writer needs:
+    PyMuPDF's ``add_*_annot`` methods take the UNROTATED page space that
+    ``annot.rect`` comes back in, so a caller holding a displayed-frame point
+    (this package's contract) converts here before placing anything.
+    """
+    return _apply(page.derotation_matrix, float(x), float(y))
+
+
+def from_display_bbox(page, bbox: Sequence[float]) -> BBox:
+    """Axis-aligned displayed box -> axis-aligned unrotated box.
+
+    The inverse of :func:`to_display_bbox`; /Rotate is a multiple of 90
+    degrees, so the box stays axis-aligned either way.
+    """
+    x0, y0, x1, y1 = (float(v) for v in bbox)
+    m = page.derotation_matrix
+    pts = [_apply(m, x0, y0), _apply(m, x1, y0), _apply(m, x0, y1),
+           _apply(m, x1, y1)]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def from_display_corners(page, bbox: Sequence[float]
+                         ) -> Tuple[Point, Point, Point, Point]:
+    """Displayed box -> its four unrotated corners in READING order.
+
+    ``(upper-left, upper-right, lower-left, lower-right)`` as the reader sees
+    them, which is not the same as the corners of
+    :func:`from_display_bbox`'s axis-aligned box: on a /Rotate 90 page the
+    displayed upper-left is the unrotated LOWER-left. The order matters to
+    anything that treats a box as a line of text — a PDF text-markup
+    annotation's ``/QuadPoints`` is read as ul, ur, ll, lr and MuPDF takes
+    ul -> ur as the reading direction, so handing it an axis-aligned quad on a
+    rotated page describes a line running the wrong way.
+    """
+    x0, y0, x1, y1 = (float(v) for v in bbox)
+    m = page.derotation_matrix
+    return (_apply(m, x0, y0), _apply(m, x1, y0),
+            _apply(m, x0, y1), _apply(m, x1, y1))
+
+
 def direction_to_rotation(page, direction: Sequence[float]) -> float:
     """A text reading direction (unrotated, y-down) -> degrees CCW as displayed.
 

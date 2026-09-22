@@ -72,7 +72,11 @@ located, attributed data:
   states, filterable by kind and unit, so a model can compare the narrative's
   claims with the drawing's geometry. `log_grid` hands back one
   boring or test-pit log as columns, a depth ruler, placed cells, layers and
-  header fields. The same tools serve over the Model
+  header fields. And `annotate_document` sends the review BACK: notes,
+  highlights over the words quoted, boxes, callouts and replies written onto a
+  NEW copy of the PDF as ordinary annotations, anchored to text that is
+  searched for rather than to coordinates guessed at, with anything it could
+  not anchor reported instead of placed. The same tools serve over the Model
   Context Protocol (`planlens[mcp]`), generated from the same specs — see
   "Use from an MCP host".
 - **`planlens.ir`** — drawing geometry: lines, arcs, text, and the annotation

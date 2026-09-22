@@ -28,9 +28,10 @@ Two things the wire adds:
   hands pages to its own vision tool passes ``--vision-hint`` instead.
 
 Security. This server opens the files the caller names, with the privileges of
-whoever launched it. It performs no authentication of its own: the host that
-starts it decides who may run it. ``--root`` narrows the blast radius to one
-directory tree (relative ``source`` paths resolve against it, anything
+whoever launched it, and ``annotate_document`` WRITES one. It performs no
+authentication of its own: the host that starts it decides who may run it.
+``--root`` narrows the blast radius to one directory tree in both directions
+(relative ``source`` and ``output_path`` alike resolve against it, anything
 resolving outside it is refused), and a shared HTTP deployment needs
 authentication from the platform in front of it — see the README.
 
@@ -122,7 +123,10 @@ def build_toolkit(max_chars: int = DEFAULT_MAX_CHARS,
         vision_hint=vision_hint if vision_hint is not None
         else DEFAULT_VISION_HINT,
         image_view_hint=MCP_IMAGE_VIEW_HINT,
-        output_dir=output_dir)
+        output_dir=output_dir,
+        # A root that confines reading confines writing too, or the one tool
+        # that writes a file would step straight out of it.
+        output_root=root)
 
 
 # -- results ------------------------------------------------------------------

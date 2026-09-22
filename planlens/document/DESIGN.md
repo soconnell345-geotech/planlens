@@ -19,6 +19,7 @@ document/
   model.py        TextLine / TextBlock / Table / Markup / PageSummary / PageContent
   pdf_text.py     the PDF text layer (default text source)
   annotations.py  review markups + hidden CAD text
+  markup_writer.py  the other direction: review comments ONTO a copy
   tables.py       find_tables wrapper
   scale.py        the measurement calibration the PDF itself stores
   quantities.py   the numbers the text STATES, with their units
@@ -82,6 +83,66 @@ vertices, colour. Relationships come only from explicit PDF data:
 | `points_to_markup` | the smallest other markup whose box CONTAINS `points_at`, skipping the markup's own /IRT companions (Bluebeam ties the cloud a responder draws around the original comment to the response by /IRT; the tip lands inside that cloud too). On the real submittal this links contractor replies to reviewer comments. |
 | `in_reply_to` / `replies` | the PDF `/IRT` link and its inverse. |
 | `appearance_text` | text the annotation's OWN appearance draws (`annot.get_text`), kept when it differs from the comment field: review-stamp wording, what a snapshot stamp copied. Per-annotation, so overlapping markups cannot swap text (an earlier box-containment version did). Capped at 400 chars. |
+
+## Writing markups (2026-09-21)
+
+A review that only reads is half a review. `markup_writer.write_markups(source,
+output, markups)` puts comments back ON the PDF as ordinary annotations — a
+sticky `note`, a `highlight` over quoted words, a `box` round a region, a
+`callout` with a leader, a `reply` threaded onto an existing comment by `/IRT`
+— so the reviewer opens the result in their own viewer and sees them in the
+comments list beside a person's. The tool layer exposes it as
+`annotate_document`.
+
+**Every markup is anchored, never placed by eye**, and there are exactly four
+anchors:
+
+| anchor | what it means |
+|---|---|
+| `quote` | words on that page. Exact search first, then the same fuzzy fallback `search_document` offers — a comment about a scan or about stroke-plotted lettering still lands on the words. NOT FOUND is REFUSED with a reason, because a comment on the wrong words is worse than one the caller is told did not go on. |
+| `bbox` / `point` | the displayed frame, unconverted: a box off `read_document(with_locations=true)`, off a markup, or the region that was rendered. |
+| `reply_to` | a `Markup.id` from a prior read; becomes the `/IRT` link `in_reply_to` reads back. |
+| `points_at` | a callout only, and an anchor in its own right: the spot the leader lands on IS the thing being commented on, and the box is placed beside it. |
+
+A quote's boxes are narrowed by the line's **own word boxes** — the longest run
+of consecutive words the line shares with the quote — because a search hit
+names a LINE and a line of a paragraph is the full width of the column, so
+highlighting the line to mark three words of it marks the wrong thing. A line
+with no word boxes, and a fuzzy hit whose letters differ, keep the whole line.
+
+**What a written markup reports is what the READER will see**, not what was
+asked for, because MuPDF sets `/Rect` itself:
+
+- a **Square** is placed 1 pt smaller on each side, which is exactly the
+  padding MuPDF adds (measured at /Rotate 0, 90, 180 and 270 and at border
+  widths 0, 1 and 2), so the box read back is the box asked for;
+- a **Highlight**'s rect keeps its appearance margin — about 1/16 of the line
+  height above and below and 0.24 of it left and right — and that is NOT
+  compensated for, because the quads are the ink and shrinking them would stop
+  the highlight covering the words;
+- a **callout**'s rect encloses its leader as well as its text box, which is
+  what ISO 32000-1 §12.5.6.6 asks for.
+
+Three things the displayed frame costs, and each was measured rather than
+assumed. A text-markup quad is handed to MuPDF in **reading order** (`ul, ur,
+ll, lr` as the reader sees them, `frame.from_display_corners`): an
+axis-aligned quad on a `/Rotate 90` page describes a line of text running the
+wrong way, and MuPDF then inflated the rect by three times the highlight's
+width to accommodate it. A **sticky note's** icon is a fixed size MuPDF
+chooses, and placing it by its point alone lands it a whole icon away on a
+rotated page, so the icon is asked for its size and then given the rect whose
+DISPLAYED top-left is the spot named. A **callout** is written with
+`rotate=page.rotation`: a FreeText lays its text out in the unrotated box,
+which on a rotated sheet is tall and narrow, so the comment came out sideways
+and clipped to its first few words — with the rotation set, the rendered
+callout is pixel-identical to the same callout on an unrotated page.
+
+**The source is never modified**: it is opened from its bytes, `output` is a
+new file, and `output == source` is an error. With `append=True` (the default)
+an `output` that already exists becomes the base, so a second pass adds to the
+first pass's copy. Writing annotations does not touch the content stream, so
+the text layer a highlight sits over stays searchable — which the tests assert
+rather than assume.
 
 ## Hidden CAD text
 

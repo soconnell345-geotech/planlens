@@ -15,6 +15,8 @@ Tools
                        exactly or approximately (``fuzzy``)
 ``find_quantities``    every number WITH A UNIT the document states, located
 ``document_markups``   the review record: every markup, with its threads
+``annotate_document``  write review comments onto a COPY of the PDF, as
+                       ordinary annotations a reviewer opens in Bluebeam
 ``document_structure`` the constituent documents: segments with their
                        running headers/footers and printed page numbers
 ``document_roles``     what each page IS — narrative, boring log, lab sheet,
@@ -105,10 +107,14 @@ def _default_resolver(source: str) -> Source:
 
 
 class _Entry:
-    def __init__(self, handle: str, name: str, doc: Document):
+    def __init__(self, handle: str, name: str, doc: Document,
+                 path: Optional[str] = None):
         self.handle = handle
         self.name = name
         self.doc = doc
+        #: The file this document was opened FROM, when it came from a file
+        #: rather than from bytes — what a tool that WRITES must not write to.
+        self.path = path
         self.lock = threading.RLock()
 
 
@@ -135,11 +141,21 @@ class ReviewToolkit:
         the same ``source`` and displayed-frame box). Defaults to this
         toolkit's ``render_page`` / ``render_region``.
     output_dir : str, optional
-        Where the render tools write PNG files. Defaults to a temporary
-        directory created on first use.
+        Where the render tools write PNG files, and where ``annotate_document``
+        puts a marked-up copy whose ``output_path`` is relative. Defaults to a
+        temporary directory created on first use.
+    output_root : str, optional
+        Confines every file a tool WRITES to one directory tree: a relative
+        ``output_path`` resolves against it and anything escaping it is
+        refused. A host that confines what may be read (the MCP server's
+        ``--root``) sets this too, so the confinement covers both directions.
     image_view_hint : str, optional
         How the model views a PNG file the render tools wrote (a host with an
         image-analysis tool names it here, e.g. "analyze_image(path)").
+    author : str, optional
+        Who ``annotate_document`` attributes a comment to when the call names
+        nobody — the app's own AI identity, so a reader can always tell a
+        drafted comment from a person's.
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -148,7 +164,9 @@ class ReviewToolkit:
                  text_source_for: Optional[Callable[[str, str], Any]] = None,
                  vision_hint: Optional[str] = None,
                  output_dir: Optional[str] = None,
-                 image_view_hint: Optional[str] = None):
+                 image_view_hint: Optional[str] = None,
+                 output_root: Optional[str] = None,
+                 author: Optional[str] = None):
         if max_chars < 1000:
             raise ValueError("max_chars below 1000 cannot hold a useful result")
         self.resolve_source = resolve_source or _default_resolver
@@ -158,6 +176,8 @@ class ReviewToolkit:
         self.vision_hint = (vision_hint if vision_hint is not None
                             else DEFAULT_VISION_HINT)
         self._output_dir = output_dir
+        self._output_root = output_root
+        self.author = author
         self.image_view_hint = (image_view_hint if image_view_hint is not None
                                 else DEFAULT_IMAGE_VIEW_HINT)
         self._entries: "OrderedDict[str, _Entry]" = OrderedDict()
@@ -268,7 +288,9 @@ class ReviewToolkit:
                 raise ToolError(f"could not open '{source}' as a PDF or "
                                 f"image: {type(exc).__name__}: {exc}")
             handle = "doc_" + hashlib.sha1(key.encode()).hexdigest()[:10]
-            entry = _Entry(handle, name, doc)
+            entry = _Entry(handle, name, doc,
+                           path=(None if isinstance(resolved, (bytes, bytearray))
+                                 else str(resolved)))
             entry.source = source
             self._entries[handle] = entry
             self._by_key[key] = handle
@@ -291,6 +313,16 @@ class ReviewToolkit:
             self._entries.move_to_end(handle)
             return entry
 
+    def document_name(self, handle: str) -> Optional[str]:
+        """The file name a handle was opened under, or None if it is not open.
+
+        A host that names an OUTPUT file after the document it is marking up
+        has nothing else to get it from: a handle is a hash of the content.
+        """
+        with self._guard:
+            entry = self._entries.get(handle)
+            return entry.name if entry is not None else None
+
     def close(self) -> None:
         with self._guard:
             for entry in self._entries.values():
@@ -307,6 +339,36 @@ class ReviewToolkit:
         with entry.lock:
             return entry.doc.render(page, bbox=bbox, dpi=dpi, marks=marks,
                                     pad_frac=pad_frac)
+
+    def _resolve_output(self, output_path: str) -> str:
+        """Where a tool that WRITES a document file may put it.
+
+        A relative path goes into :attr:`output_dir`, beside the PNGs the
+        render tools write; an absolute path is honoured, because a host that
+        names one has already decided where its files belong (the app resolves
+        the model's bare filename into the conversation's folder before the
+        call reaches here). ``output_root`` overrides both and confines every
+        write to one tree.
+        """
+        path = os.path.expanduser(str(output_path or "").strip())
+        if not path:
+            raise ToolError("output_path is required",
+                            hint="name the file to write, e.g. "
+                                 "'<document>_marked.pdf'")
+        if self._output_root is not None:
+            base = os.path.realpath(self._output_root)
+            full = os.path.realpath(os.path.join(base, path))
+            if full != base and not full.startswith(base + os.sep):
+                raise ToolError(
+                    f"'{output_path}' is outside the directory this server may "
+                    f"write to", hint=f"pass a path inside {base}")
+            return full
+        if os.path.isabs(path):
+            return path
+        if self._output_dir is None:
+            self._output_dir = tempfile.mkdtemp(prefix="planlens_")
+        os.makedirs(self._output_dir, exist_ok=True)
+        return os.path.join(self._output_dir, path)
 
     def _write_png(self, png: bytes, handle: str, info: Dict[str, Any]) -> str:
         if self._output_dir is None:
@@ -711,6 +773,68 @@ class ReviewToolkit:
             out["look"] = self._look([
                 "a markup's 'points at' / 'box' is where to view to see what "
                 "is being commented on"])[0]
+        return out
+
+    def _tool_annotate_document(self, handle: str, output_path: str,
+                                markups: Any = None,
+                                author: Optional[str] = None,
+                                append: bool = True) -> Dict[str, Any]:
+        from planlens.document.markup_writer import DEFAULT_AUTHOR, write_markups
+
+        entry = self._entry(handle)
+        if isinstance(markups, dict):
+            markups = [markups]
+        if not markups:
+            raise ToolError(
+                "markups is empty: nothing would be written",
+                hint="each markup is {kind, page, comment} plus ONE anchor: "
+                     "quote, bbox, point or reply_to")
+        out_path = self._resolve_output(output_path)
+        if entry.path and os.path.abspath(entry.path) == os.path.abspath(out_path):
+            raise ToolError(
+                "output_path is the document itself; a marked-up copy is a "
+                "NEW file", hint="use a name like '<document>_marked.pdf'")
+        try:
+            with entry.lock:
+                # The bytes come off the OPEN document rather than from
+                # resolving its source again: one document can be reached by
+                # several names, and the one it was first opened under may not
+                # even resolve for this caller.
+                report = write_markups(
+                    entry.doc.tobytes(), out_path, markups,
+                    author=author or self.author or DEFAULT_AUTHOR,
+                    append=bool(append))
+        except ValueError as exc:
+            raise ToolError(str(exc),
+                            hint="fix that markup and call again; the ones "
+                                 "before it were not written either")
+        out: Dict[str, Any] = {
+            "handle": handle,
+            "output_path": report.output,
+            "author": report.author,
+            "appended_to_existing": report.appended,
+            "n_written": report.n_written,
+            "n_skipped": report.n_skipped,
+            "note": ("a NEW file: the document you opened is unchanged. Each "
+                     "written row gives the box the reader will see (a "
+                     "highlight's and a callout's are wider than what was "
+                     "asked for — the leader and the appearance margin are "
+                     "inside them). READ the skipped rows: those comments are "
+                     "NOT on the page. open_document on output_path to check "
+                     "the result"),
+        }
+        ceiling = self._budget(0)
+        rows, nxt = fit_items([w.to_dict() for w in report.written],
+                              max((ceiling - json_len(out)) // 2, 400))
+        out["written"] = rows
+        if nxt is not None:
+            out["written_truncated_after"] = nxt
+        if report.skipped:
+            rows, nxt = fit_items(report.skipped,
+                                  max(ceiling - json_len(out) - 40, 300))
+            out["skipped"] = rows
+            if nxt is not None:
+                out["skipped_truncated_after"] = nxt
         return out
 
     def _tool_document_structure(self, handle: str,
