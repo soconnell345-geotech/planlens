@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-09-22
 
 - **The review goes back onto the PDF.** planlens has read a reviewer's
   markups since 0.3.0; it can now write them. New

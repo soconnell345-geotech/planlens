@@ -5,4 +5,4 @@ Deterministic geometry extraction (:mod:`planlens.ir`, :mod:`planlens.pdf`,
 (:mod:`planlens.ir.queries`) from PDF/DXF construction drawings.
 """
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
