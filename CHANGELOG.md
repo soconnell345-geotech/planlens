@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 — 2026-09-23
 
 - **Renders sized to the model that looks at them.** New
   `planlens.document.budget`: named image budgets (`openai-high`,
@@ -15,7 +15,9 @@
   grid). Every render's note states the image's pixel size, the top-left
   origin and the box convention for the model's family.
 - **`fmt="auto"`** keeps the smaller of PNG and JPEG: PNG for vector drawings,
-  JPEG for scans. The MCP server sends a JPEG as `image/jpeg`.
+  JPEG for scans. The MCP server sends a JPEG as `image/jpeg`, and gains
+  `--image-budget` / `--image-format` so a host sizes the pictures to the
+  model it runs.
 - **Fixed:** a render now IS the size its info reports. A whole-number dpi
   made the "2000 px" page 2016 px, and the outward-rounded pixel rect could
   pass `max_pixels`.

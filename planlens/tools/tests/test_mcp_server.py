@@ -340,3 +340,19 @@ def test_a_jpeg_render_travels_as_a_jpeg(tmp_path):
     png.write_bytes(PNG_SIGNATURE + b"rest-of-a-png")
     assert _image_content(str(jpg)).mime_type == "image/jpeg"
     assert _image_content(str(png)).mime_type == "image/png"
+
+
+def test_image_budget_and_format_flags(tmp_path):
+    args = build_parser().parse_args([])
+    assert args.image_budget is None and args.image_format == "png"
+    args = build_parser().parse_args(["--image-budget", "claude",
+                                      "--image-format", "auto"])
+    assert (args.image_budget, args.image_format) == ("claude", "auto")
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--image-budget", "gpt-9"])
+    kit = build_toolkit(image_budget="claude", image_format="auto",
+                        output_dir=str(tmp_path))
+    try:
+        assert kit.image_budget.name == "claude" and kit.image_format == "auto"
+    finally:
+        kit.close()

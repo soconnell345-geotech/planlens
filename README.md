@@ -66,7 +66,12 @@ located, attributed data:
   a figure, a drawing sheet or a ruled form read as a sparse grid comes back
   with a `! look:` line and the host's instruction for viewing it, and
   `render_page` / `render_region` produce the image (displayed frame,
-  pixel-capped, numbered marks on request). Image files open as one-page
+  pixel-capped, numbered marks on request). Given the vision model's image
+  budget (`image_budget="openai-original"`, `"claude"`, ...), every image is
+  the largest that model reads without shrinking it, a zoom is re-drawn from
+  the PDF to fill it, and `render_region` also takes a box read off an
+  earlier image (in its pixels, or on a 0-999 grid) so the model can zoom on
+  what it saw. Image files open as one-page
   documents. `search_document` takes `fuzzy` for text whose letters were read
   wrong, and `find_quantities` returns every value-with-unit the document
   states, filterable by kind and unit, so a model can compare the narrative's
@@ -588,10 +593,13 @@ Flags: `--max-chars` matches the host's own result-size limit
 lines, whose default names this server's `render_page` /
 `render_region` — pass your host's own vision tool instead if it has
 one; `--root DIR` confines reading to one directory tree; `--http
-HOST:PORT` serves streamable HTTP instead of stdio.
+HOST:PORT` serves streamable HTTP instead of stdio; `--image-budget`
+sizes every page and zoom to the model family the host runs (`claude`,
+`claude-hires`, `openai-high`, `openai-original`, `gpt-4.1-high`) and
+`--image-format auto` sends a scan as JPEG and a drawing as PNG.
 
 Over MCP the pictures travel: `render_page`, `render_region` and
-`render_page_thumbnails` return the PNG as image content alongside the
+`render_page_thumbnails` return the image as content alongside the
 JSON, so a host whose model can see gets the page itself.
 
 **Two caveats, both about who is allowed to read what.** The server

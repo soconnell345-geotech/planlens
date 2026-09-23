@@ -51,6 +51,7 @@ import json
 import os
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from planlens.document.budget import BUDGETS
 from planlens.tools import (
     DEFAULT_MAX_CHARS, DEFAULT_VISION_HINT, ReviewToolkit, ToolError,
 )
@@ -118,7 +119,9 @@ def make_resolver(root: Optional[str] = None) -> Callable[[str], str]:
 def build_toolkit(max_chars: int = DEFAULT_MAX_CHARS,
                   vision_hint: Optional[str] = None,
                   root: Optional[str] = None,
-                  output_dir: Optional[str] = None) -> ReviewToolkit:
+                  output_dir: Optional[str] = None,
+                  image_budget: Optional[str] = None,
+                  image_format: str = "png") -> ReviewToolkit:
     """The toolkit this server publishes, configured for an MCP host."""
     return ReviewToolkit(
         resolve_source=make_resolver(root),
@@ -129,7 +132,9 @@ def build_toolkit(max_chars: int = DEFAULT_MAX_CHARS,
         output_dir=output_dir,
         # A root that confines reading confines writing too, or the one tool
         # that writes a file would step straight out of it.
-        output_root=root)
+        output_root=root,
+        image_budget=image_budget,
+        image_format=image_format)
 
 
 # -- results ------------------------------------------------------------------
@@ -280,6 +285,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="serve streamable HTTP instead of stdio. This server provides "
              "no authentication; a shared deployment needs it from the "
              "platform in front.")
+    parser.add_argument(
+        "--image-budget", default=None, choices=sorted(BUDGETS),
+        help="size every page and zoom to the largest image this model "
+             "family reads without shrinking it (e.g. 'claude' for a Claude "
+             "host). Without it: about 2000 px a page, 200 dpi a zoom.")
+    parser.add_argument(
+        "--image-format", default="png", choices=["png", "jpeg", "auto"],
+        help="image encoding; 'auto' keeps the smaller of PNG and JPEG "
+             "(PNG for drawings, JPEG for scans). Default png.")
     return parser
 
 
@@ -291,7 +305,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--max-chars: below 1000 cannot hold a useful result")
     toolkit = build_toolkit(max_chars=args.max_chars,
                             vision_hint=args.vision_hint,
-                            root=args.root)
+                            root=args.root,
+                            image_budget=args.image_budget,
+                            image_format=args.image_format)
     server = build_server(toolkit)
     try:
         if args.http:
