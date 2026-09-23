@@ -49,6 +49,12 @@ from planlens.document.azure_di import (
     pages_needing_ocr,
     pages_to_azure_range,
 )
+from planlens.document.budget import (
+    BUDGETS,
+    ImageBudget,
+    fit_size,
+    image_box_to_page,
+)
 from planlens.document.document import (
     DEFAULT_FUZZY_MIN_SCORE,
     Document,
@@ -87,6 +93,10 @@ from planlens.document.scale import (
 )
 
 __all__ = [
+    "BUDGETS",
+    "ImageBudget",
+    "fit_size",
+    "image_box_to_page",
     "page_advice",
     "AzureLayout",
     "pages_needing_ocr",

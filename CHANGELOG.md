@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- **Renders sized to the model that looks at them.** New
+  `planlens.document.budget`: named image budgets (`openai-high`,
+  `openai-original`, `gpt-4.1-high`, `claude`, `claude-hires`) with the
+  published limits, `fit_size` and `image_box_to_page`.
+  `Document.render(budget=...)` makes the largest image the model reads without
+  shrinking it, and re-renders a region from the PDF to fill it.
+  `ReviewToolkit(image_budget=..., image_format=...)` applies it to
+  `render_page` / `render_region` / `render()`. The default is unchanged.
+- **Zoom on what was seen.** `render_region` also takes `image` (an earlier
+  render's `image_path`) plus `image_box` in `px` or `norm1000` (a 0-999
+  grid). Every render's note states the image's pixel size, the top-left
+  origin and the box convention for the model's family.
+- **`fmt="auto"`** keeps the smaller of PNG and JPEG: PNG for vector drawings,
+  JPEG for scans. The MCP server sends a JPEG as `image/jpeg`.
+- **Fixed:** a render now IS the size its info reports. A whole-number dpi
+  made the "2000 px" page 2016 px, and the outward-rounded pixel rect could
+  pass `max_pixels`.
+
 ## 0.7.0 — 2026-09-22
 
 - **The review goes back onto the PDF.** planlens has read a reviewer's

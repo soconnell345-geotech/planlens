@@ -72,6 +72,9 @@ MCP_IMAGE_VIEW_HINT = "the image is attached to this result — look at it"
 
 SERVER_NAME = "planlens"
 
+#: The first bytes of every JPEG file (a render made with image_format="jpeg").
+JPEG_MAGIC = bytes([0xFF, 0xD8, 0xFF])
+
 
 # -- the files the caller may name --------------------------------------------
 def make_resolver(root: Optional[str] = None) -> Callable[[str], str]:
@@ -131,7 +134,7 @@ def build_toolkit(max_chars: int = DEFAULT_MAX_CHARS,
 
 # -- results ------------------------------------------------------------------
 def image_paths(payload: Any) -> List[str]:
-    """Every PNG a tool result names, in the order it names them.
+    """Every image a tool result names, in the order it names them.
 
     One rule for every tool instead of a per-tool table: a result that names
     an image file gets that image attached. ``render_page`` and
@@ -158,7 +161,8 @@ def _image_content(path: str) -> Optional["types.ImageContent"]:
         # The metadata still names the path; a missing file is not worth
         # failing a result the model can otherwise use.
         return None
-    return types.ImageContent(type="image", mime_type="image/png",
+    mime = "image/jpeg" if data.startswith(JPEG_MAGIC) else "image/png"
+    return types.ImageContent(type="image", mime_type=mime,
                               data=base64.b64encode(data).decode("ascii"))
 
 

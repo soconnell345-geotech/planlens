@@ -444,13 +444,15 @@ TOOL_SPECS = [
     {
         "name": "render_page",
         "description": (
-            "Render one page to a PNG file and return its path, so you can "
+            "Render one page to an image file and return its path, so you can "
             "look at the page. Use it for any page the other tools flag with "
             "'! look:' (scans, figures, drawing sheets, forms) and whenever a "
             "text or table result looks incomplete or wrong. The image is in "
             "the displayed-page frame: boxes from read_document and markups "
-            "map onto it directly. Resolution is chosen automatically (about "
-            "2000 px on the long side); pass dpi to change it."),
+            "map onto it directly. Resolution is chosen automatically (the "
+            "largest your vision model reads without shrinking); pass dpi to "
+            "change it. The result gives the image's pixel size; to zoom on "
+            "something you see in it, pass its image_path to render_region."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -464,13 +466,20 @@ TOOL_SPECS = [
     {
         "name": "render_region",
         "description": (
-            "Render a zoomed-in region of a page to a PNG file — to read "
+            "Render a zoomed-in region of a page to an image file — to read "
             "small lettering, see what a markup points at, or check a "
-            "dimension, symbol or detail. bbox is [x0, y0, x1, y1] in PDF "
-            "points, displayed page, top-left origin: pass a box straight "
-            "from a text line, table or markup. Optional marks = [[x, y, "
-            "label], ...] draw numbered circles so you can ask 'what is at "
-            "mark 2'. Default 200 dpi, padded 10%."),
+            "dimension, symbol, curve or detail. Say WHERE one of two ways: "
+            "(1) handle + page + bbox = [x0, y0, x1, y1] in PDF points, "
+            "displayed page, top-left origin — a box straight from a text "
+            "line, table or markup; or (2) image = the image_path of an "
+            "earlier render + image_box = [x0, y0, x1, y1] on THAT image, "
+            "top-left origin, in box_units ('px' = its pixels, 'norm1000' = "
+            "a 0-999 grid over it; the render's note says which to use) — "
+            "for something you found by looking. The region is re-drawn "
+            "from the PDF as large as your vision model reads, so zooming "
+            "twice keeps gaining detail. Optional marks = [[x, y, label], "
+            "...] (PDF points) draw numbered circles so you can ask 'what is "
+            "at mark 2'. Padded 10%."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -478,13 +487,17 @@ TOOL_SPECS = [
                 "page": {"type": "integer", "minimum": 0},
                 "bbox": {"type": "array", "items": {"type": "number"},
                          "minItems": 4, "maxItems": 4},
+                "image": {"type": "string"},
+                "image_box": {"type": "array", "items": {"type": "number"},
+                              "minItems": 4, "maxItems": 4},
+                "box_units": {"type": "string", "enum": ["px", "norm1000"]},
                 "marks": {"type": "array",
                           "items": {"type": "array", "minItems": 2,
                                     "maxItems": 3}},
-                "dpi": {"type": "number", "minimum": 36, "maximum": 600},
+                "dpi": {"type": "number", "minimum": 36, "maximum": 1200},
                 "pad_frac": {"type": "number", "minimum": 0, "maximum": 1},
             },
-            "required": ["handle", "page", "bbox"],
+            "required": [],
         },
     },
 ]

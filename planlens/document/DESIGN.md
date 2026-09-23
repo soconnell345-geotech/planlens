@@ -698,6 +698,44 @@ toolkit exposes it as `render_page` / `render_region` (PNG files) and
 directly. An image file opens as a one-page document (`source_kind="image"`,
 converted to PDF by MuPDF), so a photographed drawing is reviewed like a scan.
 
+## Image budgets — the render is the picture the model sees (2026-09-23)
+
+Prompted by the Opus 5.5 system card (§8.13: Chartography 64% → 89% with only
+a container and an image-cropping tool) and Anthropic's zoom-tool cookbook,
+checked against OpenAI's "Images and vision" guide the same day. A vision model
+shrinks every image to its own limits (a longest side and a patch or tile
+count) before it looks. The fixed 2000 px page was therefore either shrunk by
+the server (GPT-5.4 `high`: 1.6 MP; Claude: 1568 px), so the pixels the model
+spoke of were not ours, or far below what the model could take (GPT-5.4
+`original`: about 10 MP). And a region at a fixed 200 dpi left most of the
+budget unused.
+
+`budget.py` names the published limits (`openai-high`, `openai-original`,
+`gpt-4.1-high`, `claude`, `claude-hires`). `Document.render(budget=...)` makes
+the page or region the LARGEST image that budget holds: it re-renders the
+region from the PDF at whatever dpi fills it (capped at `MAX_RENDER_DPI`), and
+checks the image to the pixel, because the clip's pixel rect rounds outward
+and one pixel can cost a row of patches. That check also fixed an old
+misreport: a whole-number dpi made the "2000 px" page 2016 px.
+
+Zooming on what was seen. The toolkit remembers what each image it rendered
+shows (page and clip), so `render_region(image=..., image_box=...)` takes a box
+read off an earlier image and maps it back to points with
+`image_box_to_page`. The box convention follows the model's family: OpenAI
+advises a 0-999 grid (`norm1000`), which survives any resize; Anthropic advises
+pixels of the image as seen (`px`), which is exact only because the budget
+makes the image as seen the image we hold. Every render's note states the
+pixel size, the top-left origin and the convention to use.
+
+Format. The cookbook sends JPEG to stay inside request limits. Measured here:
+on a vector sheet (white paper, thin lines) PNG is about HALF the size of a q92
+JPEG, and JPEG smears the lines. `fmt="auto"` keeps whichever is smaller:
+PNG for drawings, JPEG for scans.
+
+Default unchanged: with no budget, a page is about 2000 px and a region is at
+200 dpi, as before. A host sets `ReviewToolkit(image_budget=...,
+image_format="auto")` for the model it runs.
+
 ## MCP (2026-09-16)
 
 `planlens.mcp_server` puts the same tools on the Model Context Protocol, so a

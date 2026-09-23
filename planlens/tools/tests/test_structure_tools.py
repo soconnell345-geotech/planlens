@@ -89,7 +89,7 @@ def test_render_notes_carry_the_image_view_hint(kit, gt):
     page = call(kit, "render_page", handle=handle, page=0)
     assert IMG_HINT in page["note"]
     region = call(kit, "render_region", handle=handle, page=0, bbox=[0, 0, 100, 100])
-    assert region["note"] == IMG_HINT
+    assert region["note"].startswith(IMG_HINT)
 
 
 # -- document_roles ---------------------------------------------------------

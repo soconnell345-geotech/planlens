@@ -23,8 +23,10 @@ Tools
                        calculation printout, appended report — the work items
                        those pages make, and on request the report's own
                        outline or one ledger line per page
-``render_page``        a page as a PNG image, for the model to look at
-``render_region``      a zoomed region (with optional numbered marks) as a PNG
+``render_page``        a page as an image, for the model to look at
+``render_region``      a zoomed region (with optional numbered marks) as an
+                       image — located by a page box, or by a box on an
+                       earlier image
 ``render_page_thumbnails``  contact sheets of every page, like a viewer's
                        page panel, to take a long document in at a glance
 
@@ -33,7 +35,8 @@ page the text cannot represent (a scan, a figure, a drawing sheet, a ruled form
 read as a sparse grid) carries a ``! look:`` line saying so, followed by the
 host's :attr:`ReviewToolkit.vision_hint` — its own instructions for how the
 model views a page or region. A host whose model can see images gets them from
-:meth:`ReviewToolkit.render` (bytes) or the two render tools (PNG files).
+:meth:`ReviewToolkit.render` (bytes) or the two render tools (image files),
+sized to the model's image budget when the host names one.
 
 Conventions the model is told: pages are 0-based; coordinates are PDF points in
 the displayed page frame (top-left origin, y down), the frame a rendered page
@@ -71,6 +74,10 @@ DEFAULT_MAX_CHARS = 7500
 
 #: Documents kept open at once; the least recently used is closed first.
 DEFAULT_MAX_OPEN = 8
+
+#: Rendered images whose page and clip are remembered, so a box read off one
+#: can be zoomed on; the oldest is forgotten first.
+MAX_REMEMBERED_RENDERS = 256
 
 #: How the model views a page when no host instruction is configured: with
 #: this toolkit's own render tools.
@@ -156,6 +163,18 @@ class ReviewToolkit:
         Who ``annotate_document`` attributes a comment to when the call names
         nobody — the app's own AI identity, so a reader can always tell a
         drafted comment from a person's.
+    image_budget : str or ImageBudget, optional
+        The vision model's image budget (a name in
+        :data:`planlens.document.budget.BUDGETS`, e.g. ``"openai-original"``).
+        Set, every render is the largest image that model looks at without
+        shrinking it, and a zoom fills it; the result then tells the model
+        the box convention its family reads locations in. ``None`` keeps the
+        fixed sizes (about 2000 px a page, 200 dpi a region).
+    image_format : str
+        ``"png"`` (default), ``"jpeg"`` or ``"auto"`` (the smaller of the
+        two: PNG for a vector drawing, JPEG for a scan) for the images the
+        render tools make — ``auto`` keeps a conversation full of zooms
+        inside request limits without blurring line art.
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -166,9 +185,19 @@ class ReviewToolkit:
                  output_dir: Optional[str] = None,
                  image_view_hint: Optional[str] = None,
                  output_root: Optional[str] = None,
-                 author: Optional[str] = None):
+                 author: Optional[str] = None,
+                 image_budget: Any = None,
+                 image_format: str = "png"):
+        from planlens.document.budget import resolve_budget
         if max_chars < 1000:
             raise ValueError("max_chars below 1000 cannot hold a useful result")
+        if image_format not in ("png", "jpeg", "auto"):
+            raise ValueError("image_format must be 'png', 'jpeg' or 'auto'")
+        self.image_budget = resolve_budget(image_budget)
+        self.image_format = image_format
+        #: What each image the render tools wrote shows, by its path — so a
+        #: box the model reads off an image maps back onto the page.
+        self._renders: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         self.resolve_source = resolve_source or _default_resolver
         self.max_chars = int(max_chars)
         self.max_open = int(max_open)
@@ -334,11 +363,14 @@ class ReviewToolkit:
     # -- rendering (for hosts that hand images to the model themselves) ---------
     def render(self, handle: str, page: int, bbox=None, dpi=None,
                marks=None, pad_frac: float = 0.1):
-        """PNG bytes + info for a page or region (see :meth:`Document.render`)."""
+        """Image bytes + info for a page or region (see
+        :meth:`Document.render`), at this toolkit's image budget and format."""
         entry = self._entry(handle)
         with entry.lock:
             return entry.doc.render(page, bbox=bbox, dpi=dpi, marks=marks,
-                                    pad_frac=pad_frac)
+                                    pad_frac=pad_frac,
+                                    budget=self.image_budget,
+                                    fmt=self.image_format)
 
     def _resolve_output(self, output_path: str) -> str:
         """Where a tool that WRITES a document file may put it.
@@ -370,16 +402,35 @@ class ReviewToolkit:
         os.makedirs(self._output_dir, exist_ok=True)
         return os.path.join(self._output_dir, path)
 
-    def _write_png(self, png: bytes, handle: str, info: Dict[str, Any]) -> str:
+    def _write_image(self, data: bytes, handle: str,
+                     info: Dict[str, Any]) -> str:
         if self._output_dir is None:
             self._output_dir = tempfile.mkdtemp(prefix="planlens_")
         os.makedirs(self._output_dir, exist_ok=True)
         stem = f"{handle}_p{info['page']}_" + "_".join(
             str(int(round(v))) for v in info["clip"])
-        path = os.path.join(self._output_dir, stem + ".png")
+        ext = ".jpg" if info.get("format") == "jpeg" else ".png"
+        path = os.path.join(self._output_dir, stem + ext)
         with open(path, "wb") as fh:
-            fh.write(png)
+            fh.write(data)
+        self._renders[path] = {"handle": handle, "page": info["page"],
+                               "clip": list(info["clip"]),
+                               "width_px": info["width_px"],
+                               "height_px": info["height_px"]}
+        self._renders.move_to_end(path)
+        while len(self._renders) > MAX_REMEMBERED_RENDERS:
+            self._renders.popitem(last=False)
         return path
+
+    def _image_note(self, info: Dict[str, Any]) -> str:
+        """How the model reads a location off this image and zooms on it."""
+        units = self.image_budget.box_units if self.image_budget else "px"
+        how = ("a 0-999 grid over the image" if units == "norm1000"
+               else "pixels of this image")
+        return (f"image is {info['width_px']}x{info['height_px']} px, origin "
+                f"top-left; to zoom on something seen in it, call "
+                f"render_region(image=<this image_path>, image_box=[x0, y0, "
+                f"x1, y1], box_units='{units}') with the box in {how}")
 
     # -- tools --------------------------------------------------------------------
     def _budget(self, reserve: int = 600) -> int:
@@ -1055,24 +1106,77 @@ class ReviewToolkit:
                           dpi: Optional[float] = None) -> Dict[str, Any]:
         entry = self._entry(handle)
         with entry.lock:
-            png, info = entry.doc.render(page, dpi=dpi)
-        path = self._write_png(png, handle, info)
+            data, info = entry.doc.render(page, dpi=dpi,
+                                          budget=self.image_budget,
+                                          fmt=self.image_format)
+        path = self._write_image(data, handle, info)
         info.update({"handle": handle, "image_path": path,
                      "note": f"{self.image_view_hint}; the image is the "
                              f"displayed page, so boxes from read_document / "
-                             f"markups map onto it directly"})
+                             f"markups map onto it directly; "
+                             f"{self._image_note(info)}"})
         return info
 
-    def _tool_render_region(self, handle: str, page: int, bbox: Any,
-                            marks: Any = None, dpi: Optional[float] = None,
-                            pad_frac: float = 0.1) -> Dict[str, Any]:
+    def _box_from_image(self, image: str, image_box: Any,
+                        box_units: Optional[str]) -> Tuple[Dict[str, Any], List[float]]:
+        """The render ``image`` names, and ``image_box`` on its page in points."""
+        from planlens.document.budget import BOX_UNITS, image_box_to_page
+        rec = self._renders.get(str(image))
+        if rec is None:
+            want = os.path.normcase(os.path.realpath(str(image)))
+            rec = next((r for p, r in self._renders.items()
+                        if os.path.normcase(os.path.realpath(p)) == want), None)
+        if rec is None:
+            raise ToolError(f"'{image}' is not an image this session rendered",
+                            hint="pass the image_path of a render_page or "
+                                 "render_region result, or a bbox in points")
+        units = box_units or (self.image_budget.box_units
+                              if self.image_budget else "px")
+        if units not in BOX_UNITS:
+            raise ToolError(f"box_units must be one of {list(BOX_UNITS)}")
         try:
-            box = [float(v) for v in bbox]
+            box = [float(v) for v in image_box]
             if len(box) != 4:
                 raise ValueError
         except (TypeError, ValueError):
-            raise ToolError("bbox must be [x0, y0, x1, y1] in PDF points "
-                            "(displayed page, top-left origin)")
+            raise ToolError("image_box must be [x0, y0, x1, y1] on the image "
+                            "(top-left origin)")
+        page_box = image_box_to_page(box, rec["clip"], rec["width_px"],
+                                     rec["height_px"], units)
+        return rec, [round(v, 2) for v in page_box]
+
+    def _tool_render_region(self, handle: Optional[str] = None,
+                            page: Optional[int] = None, bbox: Any = None,
+                            marks: Any = None, dpi: Optional[float] = None,
+                            pad_frac: float = 0.1, image: Optional[str] = None,
+                            image_box: Any = None,
+                            box_units: Optional[str] = None) -> Dict[str, Any]:
+        if image is not None or image_box is not None:
+            if bbox is not None:
+                raise ToolError("pass bbox OR image + image_box, not both")
+            if image is None or image_box is None:
+                raise ToolError("image and image_box go together",
+                                hint="image = the image_path of an earlier "
+                                     "render; image_box = the box on it")
+            rec, box = self._box_from_image(image, image_box, box_units)
+            for name, given, known in (("handle", handle, rec["handle"]),
+                                       ("page", page, rec["page"])):
+                if given is not None and given != known:
+                    raise ToolError(f"{name} {given!r} is not the {name} of "
+                                    f"that image ({known!r})",
+                                    hint=f"omit {name}; the image names it")
+            handle, page = rec["handle"], rec["page"]
+        else:
+            if handle is None or page is None:
+                raise ToolError("render_region needs handle, page and bbox — "
+                                "or image + image_box")
+            try:
+                box = [float(v) for v in bbox]
+                if len(box) != 4:
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise ToolError("bbox must be [x0, y0, x1, y1] in PDF points "
+                                "(displayed page, top-left origin)")
         mk = None
         if marks:
             try:
@@ -1083,11 +1187,14 @@ class ReviewToolkit:
                 raise ToolError("marks must be [[x, y, label], ...]")
         entry = self._entry(handle)
         with entry.lock:
-            png, info = entry.doc.render(page, bbox=box, dpi=dpi, marks=mk,
-                                         pad_frac=pad_frac)
-        path = self._write_png(png, handle, info)
+            data, info = entry.doc.render(page, bbox=box, dpi=dpi, marks=mk,
+                                          pad_frac=pad_frac,
+                                          budget=self.image_budget,
+                                          fmt=self.image_format)
+        path = self._write_image(data, handle, info)
         info.update({"handle": handle, "image_path": path, "bbox": box,
-                     "note": self.image_view_hint})
+                     "note": f"{self.image_view_hint}; "
+                             f"{self._image_note(info)}"})
         if mk:
             info["marks"] = [[x, y, lab] for x, y, lab in mk]
         return info

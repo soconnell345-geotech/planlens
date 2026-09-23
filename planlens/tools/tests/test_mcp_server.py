@@ -330,3 +330,13 @@ def test_stdio_subprocess_serves_the_same_tools(root):
     assert names == ReviewToolkit().tool_names
     assert not result.is_error
     assert json.loads(result.content[0].text)["handle"].startswith("doc_")
+
+
+def test_a_jpeg_render_travels_as_a_jpeg(tmp_path):
+    from planlens.mcp_server import JPEG_MAGIC, _image_content
+    jpg = tmp_path / "zoom.jpg"
+    jpg.write_bytes(JPEG_MAGIC + b"\xe0rest-of-a-jpeg")
+    png = tmp_path / "page.png"
+    png.write_bytes(PNG_SIGNATURE + b"rest-of-a-png")
+    assert _image_content(str(jpg)).mime_type == "image/jpeg"
+    assert _image_content(str(png)).mime_type == "image/png"

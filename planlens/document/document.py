@@ -174,6 +174,18 @@ DEFAULT_MAX_PIXELS = 4_000_000
 #: Full-page renders target this long side in pixels when no dpi is given.
 DEFAULT_PAGE_LONG_SIDE_PX = 2000
 
+#: The highest dpi a render sized to an image budget will use: a region small
+#: enough to need more is shown as large as this makes it, not larger (past
+#: this a vector drawing gains nothing and a scan only shows bigger pixels).
+MAX_RENDER_DPI = 1200.0
+
+#: JPEG quality for renders sent to a model as JPEG — Anthropic's zoom-tool
+#: cookbook value: fine lettering survives, the file is a fraction of a PNG's.
+DEFAULT_JPEG_QUALITY = 92
+
+#: Image formats :meth:`Document.render` makes (``auto``: the smaller of the two).
+RENDER_FORMATS = ("png", "jpeg", "auto")
+
 #: Lowest rapidfuzz partial-ratio score (0-100) a fuzzy search hit may have.
 #: MEASURED, not chosen — see "Forgiving search" in DESIGN.md: real drawing
 #: callouts from a submittal's sheets, each corrupted by one substituted
@@ -892,49 +904,112 @@ class Document:
     def render(self, index: int, bbox: Optional[Sequence[float]] = None,
                dpi: Optional[float] = None, pad_frac: float = 0.1,
                marks: Optional[Sequence[Sequence[Any]]] = None,
-               max_pixels: int = DEFAULT_MAX_PIXELS) -> Tuple[bytes, Dict[str, Any]]:
-        """Render a page, or a region of it, to PNG for a model to look at.
+               max_pixels: Optional[int] = None,
+               budget: Any = None, fmt: str = "png",
+               jpeg_quality: int = DEFAULT_JPEG_QUALITY,
+               ) -> Tuple[bytes, Dict[str, Any]]:
+        """Render a page, or a region of it, to an image for a model to look at.
 
         ``bbox`` and ``marks`` are in the displayed frame this package uses
         everywhere (PDF points, top-left origin) — a box from a text line, a
         table or a markup renders as-is. ``marks`` are ``(x, y, label)``
-        numbered circles for set-of-marks prompting. With no ``dpi`` a full
-        page renders at about :data:`DEFAULT_PAGE_LONG_SIDE_PX` on its long
-        side and a region at 200 dpi; either is lowered to stay under
-        ``max_pixels``. Returns ``(png_bytes, info)`` where ``info`` has the
-        clip actually rendered, the dpi used and the pixel size.
+        numbered circles for set-of-marks prompting.
+
+        Size. With an image ``budget`` (an
+        :class:`~planlens.document.budget.ImageBudget` or a name in
+        :data:`~planlens.document.budget.BUDGETS`) the image is the largest
+        the model looks at WITHOUT shrinking it: with no ``dpi`` the page or
+        region fills the budget — a small region is re-rendered from the PDF
+        at whatever dpi that takes, up to :data:`MAX_RENDER_DPI` — and a given
+        ``dpi`` is lowered if it would overshoot. Without a budget a full page
+        renders at about :data:`DEFAULT_PAGE_LONG_SIDE_PX` on its long side
+        and a region at 200 dpi. Either way the render stays under
+        ``max_pixels`` (default :data:`DEFAULT_MAX_PIXELS`, or the budget's
+        own area when that is larger).
+
+        ``fmt`` is ``"png"``, ``"jpeg"`` (at ``jpeg_quality``) or ``"auto"``,
+        which keeps whichever is smaller — for images going to a model, where
+        a conversation of zooms runs into request-size limits. A vector
+        drawing (white paper, thin lines) is about half the size as PNG, a
+        scan much smaller as JPEG, so ``auto`` picks right for both and never
+        blurs line art with JPEG artefacts it did not need. Returns
+        ``(image_bytes, info)``; ``info`` has the clip actually rendered, the
+        dpi, the pixel size of the image as made, its format (``png`` or
+        ``jpeg``, after ``auto``) and the budget's name.
         """
         import fitz
-        from planlens.ir.render import clip_rect_for_bbox, render_region
+        from planlens.document.budget import fit_size, resolve_budget
+        from planlens.ir.render import (
+            DEFAULT_MARK_RADIUS, _draw_marks, clip_rect_for_bbox)
+        if fmt not in RENDER_FORMATS:
+            raise ValueError(f"fmt must be one of {RENDER_FORMATS}, got {fmt!r}")
+        bud = resolve_budget(budget)
+        cap = DEFAULT_MAX_PIXELS if max_pixels is None else int(max_pixels)
+        if bud is not None and max_pixels is None:
+            cap = max(cap, bud.max_pixels)
         (index,) = parse_pages(index, self.n_pages)
         page = self._doc[index]
         pr = page.rect
         clip = clip_rect_for_bbox(tuple(bbox) if bbox is not None else None,
                                   (pr.x0, pr.y0, pr.x1, pr.y1), pad_frac)
         cw, ch = clip[2] - clip[0], clip[3] - clip[1]
-        if dpi is None:
+        if bud is not None:
+            tw, th = fit_size(cw, ch, bud)
+            fit_dpi = 72.0 * min(tw / cw, th / ch)
+            dpi = fit_dpi if dpi is None else min(float(dpi), fit_dpi)
+            dpi = min(dpi, MAX_RENDER_DPI)
+        elif dpi is None:
             dpi = (72.0 * DEFAULT_PAGE_LONG_SIDE_PX / max(cw, ch, 1.0)
                    if bbox is None else 200.0)
             dpi = max(36.0, dpi)
         px = (cw * dpi / 72.0) * (ch * dpi / 72.0)
-        if px > max_pixels:
-            dpi = dpi * (max_pixels / px) ** 0.5
+        if px > cap:
+            dpi = dpi * (cap / px) ** 0.5
+        # The dpi is used exactly (a zoom matrix, not get_pixmap's whole-number
+        # dpi), so the image is the size asked for: a whole-number dpi made
+        # a "2000 px" page 2016 px, and a budget must be met to the pixel.
         dpi = float(dpi)
+
+        src, target = self._doc, page
         if marks:
             # Drawing marks writes into the page; render from a fresh copy so
             # the cached document (and its text extraction) stays untouched.
-            png = render_region(content=self._doc.tobytes(), page=index,
-                                bbox=tuple(bbox) if bbox is not None else None,
-                                dpi=int(round(dpi)), pad_frac=pad_frac,
-                                marks=[tuple(m) for m in marks], frame="page")
-        else:
-            pix = page.get_pixmap(dpi=int(round(dpi)), clip=fitz.Rect(clip))
-            png = pix.tobytes("png")
+            src = fitz.open(stream=self._doc.tobytes(), filetype="pdf")
+            target = src[index]
+            _draw_marks(target, [tuple(m) for m in marks], DEFAULT_MARK_RADIUS,
+                        (1.0, 0.0, 0.0), fill_color=None,
+                        text_color=(1.0, 0.0, 0.0))
+        try:
+            pix = target.get_pixmap(matrix=fitz.Matrix(dpi / 72.0, dpi / 72.0),
+                                    clip=fitz.Rect(clip))
+            # The clip's pixel rect rounds outward, so an exact fit can come
+            # out a pixel over — and one pixel can cost a row of patches.
+            for _ in range(4):
+                if (pix.width * pix.height <= cap
+                        and (bud is None or bud.fits(pix.width, pix.height))):
+                    break
+                dpi *= 1.0 - 2.0 / max(pix.width, pix.height)
+                pix = target.get_pixmap(
+                    matrix=fitz.Matrix(dpi / 72.0, dpi / 72.0),
+                    clip=fitz.Rect(clip))
+            if fmt == "auto":
+                png = pix.tobytes("png")
+                jpg = pix.tobytes("jpeg", jpg_quality=int(jpeg_quality))
+                data, fmt = (jpg, "jpeg") if len(jpg) < len(png) else (png, "png")
+            elif fmt == "jpeg":
+                data = pix.tobytes("jpeg", jpg_quality=int(jpeg_quality))
+            else:
+                data = pix.tobytes("png")
+            width_px, height_px = pix.width, pix.height
+        finally:
+            if src is not self._doc:
+                src.close()     # the marks are discarded, never saved
         info = {"page": index, "clip": [round(v, 1) for v in clip],
-                "dpi": round(dpi, 1),
-                "width_px": int(round(cw * dpi / 72.0)),
-                "height_px": int(round(ch * dpi / 72.0))}
-        return png, info
+                "dpi": round(dpi, 1), "width_px": width_px,
+                "height_px": height_px, "format": fmt}
+        if bud is not None:
+            info["budget"] = bud.name
+        return data, info
 
     # -- markups / text -----------------------------------------------------
     def markups(self, pages: PageSpec = None,
