@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.0 — 2026-09-24
+
+- **Which budget is a fact about the model, and a deployment name is an
+  alias.** Found on the first Tiny Apps run: `tinyapp-gpt-medium` is
+  GPT-5.1, a TILE model that cuts every image to 768 px on its short side and
+  ACCEPTS `detail="original"` only to ignore it. New in
+  `planlens.document.budget`: `budget_for_model(name)` looks a model name up
+  (the name a response says answered, never an alias), and
+  `budget_from_probe(small_high, large_high, large_original)` reads the
+  budget off the image tokens of three blank squares — tile, 2,500-patch or
+  6,144-patch, and whether `original` is really honoured — by RATIOS, so a
+  model's token multiplier cancels and a model no table knows still works.
+  New budget `gpt-5.2-high` (GPT-5.2 / GPT-4.1-mini: 2048 px, 6,144 patches).
+- **Too small to read, said out loud.** `Document.text_size(page)` is how
+  tall the page's small lettering is (the character-weighted 25th percentile
+  of its line heights); every render's info carries `text_px`, that lettering
+  in the image's pixels; and the toolkit's render notes warn below 12 px —
+  read the words from the text layer, zoom on a window about N pt across
+  (N from the lettering and the budget: `legible_window`), and do not call
+  the page unreadable before both. On the bridge sheet that prompted it, 5 pt
+  lettering arrived at 4.8 px on GPT-5.1; a 238 pt zoom brings it to 16 px.
+
 ## 0.8.0 — 2026-09-23
 
 - **Renders sized to the model that looks at them.** New

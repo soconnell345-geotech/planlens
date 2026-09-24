@@ -71,7 +71,10 @@ located, attributed data:
   the largest that model reads without shrinking it, a zoom is re-drawn from
   the PDF to fill it, and `render_region` also takes a box read off an
   earlier image (in its pixels, or on a 0-999 grid) so the model can zoom on
-  what it saw. Image files open as one-page
+  what it saw. `budget_from_probe` reads the budget a deployment really
+  applies off three blank test images, and each render reports how tall
+  the page's lettering is in it (`text_px`), warning when it is too small
+  to read. Image files open as one-page
   documents. `search_document` takes `fuzzy` for text whose letters were read
   wrong, and `find_quantities` returns every value-with-unit the document
   states, filterable by kind and unit, so a model can compare the narrative's

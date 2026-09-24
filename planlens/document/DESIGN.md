@@ -733,7 +733,19 @@ JPEG, and JPEG smears the lines. `fmt="auto"` keeps whichever is smaller:
 PNG for drawings, JPEG for scans.
 
 Default unchanged: with no budget, a page is about 2000 px and a region is at
-200 dpi, as before. A host sets `ReviewToolkit(image_budget=...,
+200 dpi, as before.
+
+**Measured, not assumed (0.9.0, 2026-09-24).** The first Tiny Apps run sent a
+half-size bridge sheet (5 pt lettering) to `tinyapp-gpt-medium`; the model said
+it was "too blurry", and it was right about what it saw. Asked through the API,
+the alias was GPT-5.1 — a tile model (768 px short side), which also accepted
+`detail="original"` and ignored it (630 image tokens either way). A deployment
+name is an alias its owners can re-point, so `budget_from_probe` reads the
+budget off what three blank squares cost at `high` and `original`; ratios
+cancel each model's token multiplier. And `text_px` / `legible_window` turn
+"is it legible?" into a number every render carries, because the right answer
+on that sheet was never a bigger picture: its 75 rebar callouts were exact text
+in the text layer, and a 238 pt zoom reads them at 16 px. A host sets `ReviewToolkit(image_budget=...,
 image_format="auto")` for the model it runs.
 
 ## MCP (2026-09-16)
