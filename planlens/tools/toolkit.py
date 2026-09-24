@@ -79,6 +79,15 @@ DEFAULT_MAX_OPEN = 8
 #: can be zoomed on; the oldest is forgotten first.
 MAX_REMEMBERED_RENDERS = 256
 
+#: Lettering shorter than this many pixels in an image is not read reliably
+#: by a vision model: 5 pt CAD lettering at ~5 px made "#8" and "1'-0\""
+#: smear (measured 2026-09-24 on a half-size bridge sheet seen by GPT-5.1),
+#: while ~16 px read cleanly. Below it, a render's note says so.
+LEGIBLE_TEXT_PX = 12.0
+
+#: The lettering height a suggested zoom window aims for.
+TARGET_TEXT_PX = 16.0
+
 #: How the model views a page when no host instruction is configured: with
 #: this toolkit's own render tools.
 DEFAULT_VISION_HINT = ("to view it: render_page(handle, page) for a page, "
@@ -427,10 +436,28 @@ class ReviewToolkit:
         units = self.image_budget.box_units if self.image_budget else "px"
         how = ("a 0-999 grid over the image" if units == "norm1000"
                else "pixels of this image")
-        return (f"image is {info['width_px']}x{info['height_px']} px, origin "
+        note = (f"image is {info['width_px']}x{info['height_px']} px, origin "
                 f"top-left; to zoom on something seen in it, call "
                 f"render_region(image=<this image_path>, image_box=[x0, y0, "
                 f"x1, y1], box_units='{units}') with the box in {how}")
+        return note + self._legibility_note(info)
+
+    @staticmethod
+    def _legibility_note(info: Dict[str, Any]) -> str:
+        """A warning when the page's small lettering is too small to read in
+        this image — with the two ways round it: the text layer, and a zoom
+        window small enough to bring the lettering up to size."""
+        text_px = info.get("text_px")
+        if not text_px or text_px >= LEGIBLE_TEXT_PX:
+            return ""
+        x0, y0, x1, y1 = info["clip"]
+        window = min(x1 - x0, y1 - y0) * float(text_px) / TARGET_TEXT_PX
+        return (f"; ! the page's small lettering is only ~{text_px:g} px tall "
+                f"in this image — too small to read reliably: read the words "
+                f"with read_document(handle, page={info['page']}) (the text "
+                f"layer is exact), and to SEE a detail zoom with "
+                f"render_region on a window about {max(20, round(window)):g} "
+                f"pt across. Do not report it as unreadable before zooming")
 
     # -- tools --------------------------------------------------------------------
     def _budget(self, reserve: int = 600) -> int:

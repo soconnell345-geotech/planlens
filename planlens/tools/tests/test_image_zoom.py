@@ -136,3 +136,33 @@ def test_host_render_bytes_use_the_toolkit_settings(kit, gt):
     data, info = kit.render(handle, gt.sheet_page)
     assert data[:3] == bytes([0xFF, 0xD8, 0xFF])
     assert info["budget"] == "openai-original"
+
+
+def test_a_render_warns_when_its_lettering_is_too_small(gt, tmp_path):
+    import fitz as _fitz
+    pdf = _fitz.open()
+    page = pdf.new_page(width=1224, height=792)            # a half-size sheet
+    for i in range(20):
+        page.insert_text((72 + 50 * (i % 4), 100 + 20 * i),
+                         "#5 BARS @ 1'-0\" MAX.", fontsize=5)
+    data = pdf.tobytes()
+    pdf.close()
+    k = ReviewToolkit(resolve_source=lambda key: data,
+                      output_dir=str(tmp_path / "img"),
+                      image_budget="gpt-4.1-high")
+    try:
+        handle = call(k, "open_document", source="sheet.pdf")["handle"]
+        page_out = call(k, "render_page", handle=handle, page=0)
+        assert page_out["text_px"] < 6
+        assert "too small to read reliably" in page_out["note"]
+        assert "read_document(handle, page=0)" in page_out["note"]
+        assert "Do not report it as unreadable before zooming" in page_out["note"]
+        # The window it suggests brings the lettering up to size.
+        import re
+        window = float(re.search(r"window about (\d+) pt", page_out["note"]).group(1))
+        zoom = call(k, "render_region", handle=handle, page=0,
+                    bbox=[300, 200, 300 + window, 200 + window], pad_frac=0.0)
+        assert zoom["text_px"] >= 14
+        assert "too small" not in zoom["note"]
+    finally:
+        k.close()

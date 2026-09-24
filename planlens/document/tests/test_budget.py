@@ -194,3 +194,95 @@ def test_without_a_budget_the_page_is_the_size_it_says(doc, gt):
 def _clip_size(info):
     x0, y0, x1, y1 = info["clip"]
     return x1 - x0, y1 - y0
+
+
+# -- which budget a model needs: by name, and by measurement ------------------------
+
+from planlens.document.budget import (  # noqa: E402
+    budget_for_model, budget_from_probe, legible_window,
+)
+
+
+def test_the_gpt_5_2_budget():
+    b = BUDGETS["gpt-5.2-high"]
+    assert (b.max_edge, b.unit, b.max_units, b.box_units) == (2048, 32, 6144, "norm1000")
+
+
+@pytest.mark.parametrize("model,general,detailed", [
+    ("gpt-5.1-2025-11-13", "gpt-4.1-high", "gpt-4.1-high"),    # Tiny Apps, measured
+    ("gpt-5.4-2026-03-05", "openai-high", "openai-original"),  # funhouse-gpt-high
+    ("gpt-5.6-sol", "openai-high", "openai-original"),
+    ("gpt-5.2", "gpt-5.2-high", "gpt-5.2-high"),
+    ("gpt-4.1-mini-2025-04-14", "gpt-5.2-high", "gpt-5.2-high"),
+    ("gpt-4.1-2025-04-14", "gpt-4.1-high", "gpt-4.1-high"),
+    ("gpt-4o", "gpt-4.1-high", "gpt-4.1-high"),
+    ("claude-sonnet-5", "claude-hires", "claude-hires"),
+    ("claude-haiku-4-5", "claude", "claude"),
+])
+def test_budget_for_model(model, general, detailed):
+    g, d = budget_for_model(model)
+    assert (g.name, d.name) == (general, detailed)
+
+
+def test_an_alias_names_no_model():
+    assert budget_for_model("tinyapp-gpt-medium") is None
+    assert budget_for_model("funhouse-gpt-high") is None
+    assert budget_for_model(None) is None
+
+
+def test_budget_from_probe_reads_the_measured_patterns():
+    # GPT-5.1 on Tiny Apps, 2026-09-24: 630 tokens for every image, and
+    # detail="original" accepted but ignored.
+    g, d, r = budget_from_probe(630, 630, 630)
+    assert (g.name, d.name, r["high"]) == ("gpt-4.1-high", "gpt-4.1-high", 1.0)
+    # A 2,500-patch model with original honoured (GPT-5.4): any multiplier.
+    for m in (1.0, 1.62):
+        g, d, r = budget_from_probe(1024 * m, 2500 * m, 4096 * m)
+        assert (g.name, d.name) == ("openai-high", "openai-original")
+    # The same model with original ignored stays at high for charts too.
+    g, d, _ = budget_from_probe(1024, 2500, 2500)
+    assert (g.name, d.name) == ("openai-high", "openai-high")
+    # A 6,144-patch model takes the 2048 square whole.
+    g, d, _ = budget_from_probe(1024, 4096, None)
+    assert (g.name, d.name) == ("gpt-5.2-high", "gpt-5.2-high")
+    with pytest.raises(ValueError):
+        budget_from_probe(0, 630)
+
+
+def test_legible_window():
+    # 5 pt lettering at 14 px on a 768 px square: 274 pt across.
+    assert round(legible_window(5, BUDGETS["gpt-4.1-high"])) == 274
+    assert legible_window(5, BUDGETS["openai-high"]) > 2 * legible_window(
+        5, BUDGETS["gpt-4.1-high"])
+    with pytest.raises(ValueError):
+        legible_window(0, BUDGETS["claude"])
+
+
+def test_text_size_and_text_px(doc, gt):
+    size = doc.text_size(gt.sheet_page)
+    assert size is not None and size > 0
+    data, info = doc.render(gt.sheet_page, budget="gpt-4.1-high")
+    assert info["text_px"] == pytest.approx(size * info["dpi"] / 72.0, abs=0.1)
+    # A scanned page has no text to measure: no text_px, not a zero.
+    assert doc.text_size(gt.scanned_page) is None
+    _, sinfo = doc.render(gt.scanned_page, budget="gpt-4.1-high")
+    assert "text_px" not in sinfo
+
+
+def test_text_size_weights_lines_by_their_characters():
+    import fitz as _fitz
+    from planlens.document import Document
+    pdf = _fitz.open()
+    page = pdf.new_page(width=612, height=792)
+    page.insert_text((72, 72), "TITLE", fontsize=24)
+    for i in range(12):
+        page.insert_text((72, 120 + 14 * i), "#5 BARS @ 12 IN. MAX. SPACING",
+                         fontsize=5)
+    data = pdf.tobytes()
+    pdf.close()
+    d = Document(content=data)
+    try:
+        assert d.text_size(0) == pytest.approx(5.0, abs=0.2)
+        assert d.text_size(0, quantile=1.0) == pytest.approx(24.0, abs=0.5)
+    finally:
+        d.close()

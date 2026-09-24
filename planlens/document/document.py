@@ -892,6 +892,43 @@ class Document:
         return out[:cap]
 
     # -- reading advice / rendering ------------------------------------------
+    def text_size(self, index: int, quantile: float = 0.25) -> Optional[float]:
+        """How tall the SMALL lettering on a page is, in points, or ``None``.
+
+        The ``quantile`` (default the 25th percentile) of the page's text-line
+        heights, each line weighted by its characters, so the notes and
+        callouts a reader must read count and a few big titles do not. A
+        line's font size is used where the text layer states one, otherwise
+        the short side of its box. ``None`` for a page with no text (a scan):
+        there is nothing to measure, not nothing to read. Paired with a render's
+        dpi this says whether the lettering will be legible in the image.
+        """
+        (index,) = parse_pages(index, self.n_pages)
+        lines = self._page_text(index)[0]
+        sized = []
+        for ln in lines:
+            n = len(ln.text.strip())
+            if not n:
+                continue
+            if ln.size:
+                h = float(ln.size)
+            else:
+                x0, y0, x1, y1 = ln.bbox
+                h = min(abs(x1 - x0), abs(y1 - y0))
+            if h > 0:
+                sized.append((h, n))
+        if not sized:
+            return None
+        sized.sort()
+        total = sum(n for _, n in sized)
+        target = max(0.0, min(1.0, quantile)) * total
+        run = 0
+        for h, n in sized:
+            run += n
+            if run >= target:
+                return round(h, 2)
+        return round(sized[-1][0], 2)
+
     def advice(self, index: int, content: bool = True) -> List[str]:
         """What the text tools cannot give for this page (see
         :mod:`planlens.document.advice`). ``content=False`` uses only the cheap
@@ -935,7 +972,9 @@ class Document:
         blurs line art with JPEG artefacts it did not need. Returns
         ``(image_bytes, info)``; ``info`` has the clip actually rendered, the
         dpi, the pixel size of the image as made, its format (``png`` or
-        ``jpeg``, after ``auto``) and the budget's name.
+        ``jpeg``, after ``auto``), the budget's name and ``text_px`` — how
+        tall the page's small lettering (:meth:`text_size`) is in this image,
+        absent on a page with no text.
         """
         import fitz
         from planlens.document.budget import fit_size, resolve_budget
@@ -1009,6 +1048,12 @@ class Document:
                 "height_px": height_px, "format": fmt}
         if bud is not None:
             info["budget"] = bud.name
+        size = self.text_size(index)
+        if size is not None:
+            # How tall the page's small lettering is IN THIS IMAGE: the one
+            # number that says whether a model can read it here or must
+            # read the text layer / zoom.
+            info["text_px"] = round(size * dpi / 72.0, 1)
         return data, info
 
     # -- markups / text -----------------------------------------------------

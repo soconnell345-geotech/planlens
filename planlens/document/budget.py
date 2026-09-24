@@ -24,10 +24,21 @@ guide and Anthropic's zoom-tool cookbook):
                      ``auto`` too): 6000 px, 10,000 patches of 32 px. GPT-5.6
                      keeps larger images at ``original``; this budget is the
                      sensible ceiling on what one image should cost.
+``gpt-5.2-high``     GPT-5.2 / GPT-4.1-mini (any detail): 2048 px, 6,144
+                     patches of 32 px.
 ``gpt-4.1-high``     GPT-4.1 / GPT-4o / GPT-5.1 at ``high``: fit 2048 px, then
-                     the SHORTEST side to 768 px (512 px tiles).
+                     the SHORTEST side to 768 px (512 px tiles). GPT-5.1
+                     ACCEPTS ``detail="original"`` and ignores it (measured
+                     2026-09-24: the same tokens as ``high``).
 ``claude``           Claude, standard tier: 1568 px, 1,568 patches of 28 px.
 ``claude-hires``     Claude, high-resolution tier: 2576 px, 4,784 patches.
+
+Which budget a deployment needs is a fact about the MODEL behind it, and a
+deployment name is an alias that can be re-pointed at another model without
+notice. :func:`budget_for_model` reads the model a response says answered;
+:func:`budget_from_probe` goes further and reads the budget off the token
+counts of three blank test images, so it needs no table and works on a model
+it has never heard of.
 
 Each budget also names the box convention its family is advised to use:
 OpenAI recommends a 0-999 grid with a top-left origin (``norm1000``);
@@ -95,6 +106,8 @@ BUDGETS: Dict[str, ImageBudget] = {b.name: b for b in (
                 detail="high", box_units="norm1000"),
     ImageBudget("openai-original", max_edge=6000, unit=32, max_units=10000,
                 detail="original", box_units="norm1000"),
+    ImageBudget("gpt-5.2-high", max_edge=2048, unit=32, max_units=6144,
+                detail="high", box_units="norm1000"),
     ImageBudget("gpt-4.1-high", max_edge=2048, short_side=768,
                 detail="high", box_units="px"),
     ImageBudget("claude", max_edge=1568, unit=28, max_units=1568,
@@ -113,6 +126,93 @@ def resolve_budget(budget: Union[None, str, ImageBudget]) -> Optional[ImageBudge
     except KeyError:
         raise ValueError(f"unknown image budget {budget!r}; "
                          f"known: {', '.join(sorted(BUDGETS))}") from None
+
+
+#: Model-name prefixes, most specific first, and the budgets they take:
+#: (for any image, for a detail-bound one). From OpenAI's "Images and vision"
+#: guide and Anthropic's vision docs, 2026-09-23/24. A first guess only —
+#: :func:`budget_from_probe` measures instead of trusting a name.
+MODEL_BUDGETS: Tuple[Tuple[str, str, str], ...] = (
+    ("gpt-6", "openai-high", "openai-original"),
+    ("gpt-5.6", "openai-high", "openai-original"),
+    ("gpt-5.5", "openai-high", "openai-original"),
+    ("gpt-5.4", "openai-high", "openai-original"),
+    ("gpt-5.2", "gpt-5.2-high", "gpt-5.2-high"),
+    ("gpt-4.1-mini", "gpt-5.2-high", "gpt-5.2-high"),
+    ("gpt-5.1", "gpt-4.1-high", "gpt-4.1-high"),
+    ("gpt-5-", "gpt-4.1-high", "gpt-4.1-high"),
+    ("gpt-4.1", "gpt-4.1-high", "gpt-4.1-high"),
+    ("gpt-4o", "gpt-4.1-high", "gpt-4.1-high"),
+    ("claude-fable", "claude-hires", "claude-hires"),
+    ("claude-opus-5", "claude-hires", "claude-hires"),
+    ("claude-sonnet-5", "claude-hires", "claude-hires"),
+    ("claude", "claude", "claude"),
+)
+
+
+def budget_for_model(model: Optional[str]) -> Optional[Tuple[ImageBudget, ImageBudget]]:
+    """``(any image, detail-bound image)`` budgets for a model name, or ``None``.
+
+    ``model`` is what a response says answered (``gpt-5.1-2025-11-13``), not
+    a deployment alias — an alias says nothing about the model behind it.
+    """
+    name = (model or "").strip().lower()
+    for prefix, general, detailed in MODEL_BUDGETS:
+        if name.startswith(prefix):
+            return BUDGETS[general], BUDGETS[detailed]
+    return None
+
+
+#: The two square test images :func:`budget_from_probe` reasons about.
+PROBE_SMALL_PX = 1024
+PROBE_LARGE_PX = 2048
+
+
+def budget_from_probe(small_high: float, large_high: float,
+                      large_original: Optional[float] = None
+                      ) -> Tuple[ImageBudget, ImageBudget, Dict[str, float]]:
+    """Read a deployment's image budget off what three blank images cost.
+
+    Send a :data:`PROBE_SMALL_PX` and a :data:`PROBE_LARGE_PX` square image at
+    ``detail="high"`` and the large one again at ``"original"``, and pass the
+    IMAGE tokens each cost (the call's input tokens less a text-only call's).
+    Ratios cancel whatever per-token multiplier a model applies:
+
+    * a TILE model shrinks both squares to 768 px — ratio about 1;
+    * a 2,500-patch model caps the large one (1,024 → 2,500 patches) — 2.4;
+    * a 6,144-patch model takes it whole (1,024 → 4,096) — 4.0;
+    * ``original`` honoured costs clearly more than ``high`` on the large
+      image; ignored (GPT-5.1) or unsupported costs the same.
+
+    Returns ``(any image, detail-bound image, the ratios)``.
+    """
+    if not small_high or small_high <= 0 or large_high is None:
+        raise ValueError("need positive image-token counts for both squares")
+    r_high = float(large_high) / float(small_high)
+    ratios = {"high": round(r_high, 3)}
+    if r_high < 1.3:
+        general = BUDGETS["gpt-4.1-high"]
+    elif r_high < 3.2:
+        general = BUDGETS["openai-high"]
+    else:
+        general = BUDGETS["gpt-5.2-high"]
+    detailed = general
+    if large_original is not None and large_original > 0:
+        r_orig = float(large_original) / float(small_high)
+        ratios["original"] = round(r_orig, 3)
+        if general.name == "openai-high" and r_orig >= 1.3 * r_high:
+            detailed = BUDGETS["openai-original"]
+    return general, detailed, ratios
+
+
+def legible_window(text_pt: float, budget: ImageBudget,
+                   min_px: float = 14.0) -> float:
+    """The side, in points, of the largest square window in which lettering
+    ``text_pt`` tall still arrives ``min_px`` tall under ``budget``."""
+    if text_pt <= 0:
+        raise ValueError("text_pt must be positive")
+    side_px = fit_size(1, 1, budget)[0]
+    return side_px * float(text_pt) / float(min_px)
 
 
 def fit_size(width: float, height: float, budget: ImageBudget) -> Tuple[int, int]:
@@ -177,5 +277,7 @@ def image_box_to_page(box: Sequence[float], clip: Sequence[float],
     return (cx0 + fx0 * cw, cy0 + fy0 * ch, cx0 + fx1 * cw, cy0 + fy1 * ch)
 
 
-__all__ = ["ImageBudget", "BUDGETS", "BOX_UNITS", "resolve_budget",
+__all__ = ["ImageBudget", "BUDGETS", "BOX_UNITS", "MODEL_BUDGETS",
+           "PROBE_SMALL_PX", "PROBE_LARGE_PX", "resolve_budget",
+           "budget_for_model", "budget_from_probe", "legible_window",
            "fit_size", "image_box_to_page"]
