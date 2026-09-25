@@ -29,6 +29,9 @@ Tools
                        earlier image
 ``render_page_thumbnails``  contact sheets of every page, like a viewer's
                        page panel, to take a long document in at a glance
+``find_like``          every copy of one mark (tag, code, symbol) on every
+                       page, from a box round one copy — callout / legend /
+                       unanchored — with numbered contact sheets to confirm
 
 Text first, eyes second — and the tools say when. Every result that touches a
 page the text cannot represent (a scan, a figure, a drawing sheet, a ruled form

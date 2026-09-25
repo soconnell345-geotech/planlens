@@ -71,7 +71,12 @@ located, attributed data:
   the largest that model reads without shrinking it, a zoom is re-drawn from
   the PDF to fill it, and `render_region` also takes a box read off an
   earlier image (in its pixels, or on a 0-999 grid) so the model can zoom on
-  what it saw. `budget_from_probe` reads the budget a deployment really
+  what it saw. `find_like` takes a box round ONE copy of a tag, code or
+  symbol and finds every other copy on every page — even where the
+  lettering is drawn as lines and there is no text to search — labelling
+  each one callout (with where its leader points), legend or unanchored,
+  with numbered contact sheets for a vision model to confirm the reading.
+  `budget_from_probe` reads the budget a deployment really
   applies off three blank test images, and each render reports how tall
   the page's lettering is in it (`text_px`), warning when it is too small
   to read. Image files open as one-page

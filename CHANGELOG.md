@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.10.0 — 2026-09-25
+
+- **Find every copy of one mark — `find_like`.** A reviewer asked a real
+  85-sheet security set where the "GCE" penetrations are. Its 0.06 in
+  lettering is drawn as strokes (AutoCAD SHX): no text layer to search, and 4
+  px tall in a whole-sheet image, where a vision model read GCE as QCE and
+  found none of 34. CAD draws its lettering the same way every time, so
+  `Document.find_like(page, bbox, pages)` (and the tool `find_like`, over
+  MCP with the rest) takes a box round ONE copy and image-matches it on every
+  page at 13 scales (0.5x-2x — a legend is often lettered larger) and four
+  rotations, peak-only and with fragment-aware merging, in about 2 s a sheet.
+  Each hit is labelled from the drawing's own geometry: **legend** (a ruled
+  row, or the same place on most same-size sheets), **callout** (a drawn path
+  with a vertex at the tag reaching away from it — `points_to` is its far
+  vertex, the place the tag is about) or **unanchored**. Matching cannot tell
+  GCE from GCG, so hits are candidates: `Document.like_sheets(hits)` makes
+  numbered, upright, enlarged contact sheets for a vision model to read. On
+  the new stroke-lettered fixture (`planlens.testing.tag_fixtures`): every
+  on-plan GCE found once, every leader tip within 0.07 pt, the legend set
+  apart, and a legend example drawn 40 % larger still finds the plan's tags.
+- **`original` whenever it is honoured.** `budget_from_probe` only offered
+  `original` for a patch-model `high`; Funhouse's GPT-5.4 caps `high` like a
+  tile model yet keeps the whole image at `original` (714 / 714 / 4,234
+  tokens, measured 2026-09-25), so it was sent 768 px images when 2,560 were
+  there for the asking.
+- **Lettering drawn as lines is said out loud.** `text_size` ignores text
+  under 2 pt and needs 40 characters of lettering (a stroked sheet's stray
+  microscopic text had reported "0.6 pt"); renders report `text_chars`; and a
+  render of a page whose lettering is not in its text layer says so and
+  points at `find_like` and zooming, instead of at a text layer it does not
+  have.
+
 ## 0.9.0 — 2026-09-24
 
 - **Which budget is a fact about the model, and a deployment name is an

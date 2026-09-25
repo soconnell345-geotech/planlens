@@ -745,7 +745,38 @@ budget off what three blank squares cost at `high` and `original`; ratios
 cancel each model's token multiplier. And `text_px` / `legible_window` turn
 "is it legible?" into a number every render carries, because the right answer
 on that sheet was never a bigger picture: its 75 rebar callouts were exact text
-in the text layer, and a 238 pt zoom reads them at 16 px. A host sets `ReviewToolkit(image_budget=...,
+in the text layer, and a 238 pt zoom reads them at 16 px.
+
+## find_like — every copy of one mark (0.10.0, 2026-09-25)
+
+The next real set had NO text layer on its drawings: 0.06 in lettering drawn
+as SHX strokes, a legend table on every sheet naming every penetration type,
+and the question "where are the GCE penetrations?" meant the CALLOUTS — tags
+on the plan with a leader — not the 85 legend rows. Whole-sheet vision at the
+768 px the deployment then got read GCE as QCE and found none. Three facts
+shape the answer:
+
+* **CAD letters the same way every time**, so one located copy finds the
+  rest by image correlation (OpenCV `TM_CCOEFF_NORMED` on the ink image,
+  13 scales x 4 rotations, peaks only, merged when overlapping by a third of
+  the smaller box or when a much weaker hit touches a stronger one — the
+  example shrunk and turned matches fragments of letters).
+* **Correlation cannot read.** GCG shares two of GCE's three letters and
+  scores up to ~0.85 against true copies' 0.64-1.0 (the low end is a tag
+  turned 90 degrees), so no threshold separates them. Hits are candidates,
+  and `like_sheets` presents them — cut out with their surroundings,
+  upright, lettering ~34 px, numbered — for a vision model to read at a size
+  it cannot misread. Verifying is the host's job; planlens calls no model.
+* **What a hit IS comes from the geometry.** A legend row is a hit with a
+  rule close above and below spanning well past it, or a hit at the same
+  place on most same-size sheets. A callout is a hit with a drawn path that
+  has a VERTEX at the tag (within one lettering height) and reaches at least
+  2.5 heights away — a wall passing by has no vertex there, and the strokes
+  of the lettering itself stay inside the tag. The path's far vertex is where
+  the leader points.
+
+The fixture (`planlens.testing.tag_fixtures`) draws that set with a small
+single-stroke font so the tests exercise stroke lettering, not a text layer. A host sets `ReviewToolkit(image_budget=...,
 image_format="auto")` for the model it runs.
 
 ## MCP (2026-09-16)
