@@ -182,7 +182,9 @@ def budget_from_probe(small_high: float, large_high: float,
     * a 2,500-patch model caps the large one (1,024 → 2,500 patches) — 2.4;
     * a 6,144-patch model takes it whole (1,024 → 4,096) — 4.0;
     * ``original`` honoured costs clearly more than ``high`` on the large
-      image; ignored (GPT-5.1) or unsupported costs the same.
+      image — on a patch model AND on a deployment whose ``high`` is capped
+      like a tile model (Funhouse GPT-5.4); ignored (GPT-5.1) or unsupported
+      costs the same.
 
     Returns ``(any image, detail-bound image, the ratios)``.
     """
@@ -200,7 +202,13 @@ def budget_from_probe(small_high: float, large_high: float,
     if large_original is not None and large_original > 0:
         r_orig = float(large_original) / float(small_high)
         ratios["original"] = round(r_orig, 3)
-        if general.name == "openai-high" and r_orig >= 1.3 * r_high:
+        # ``original`` honoured = the large square costs clearly more than at
+        # ``high`` — WHATEVER ``high`` does. Funhouse's GPT-5.4 (measured
+        # 2026-09-25: 714 / 714 / 4,234) caps ``high`` like a tile model yet
+        # keeps the whole 2048 px at ``original``; 0.9.0 only looked for
+        # ``original`` on a patch-model ``high`` and so sent that deployment
+        # 768 px images when 2,560 were there for the asking.
+        if r_orig >= 1.3 * r_high:
             detailed = BUDGETS["openai-original"]
     return general, detailed, ratios
 

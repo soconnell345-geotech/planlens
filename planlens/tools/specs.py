@@ -464,6 +464,40 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "find_like",
+        "description": (
+            "Find EVERY copy of one mark — a tag, a code, a symbol — across "
+            "the document, including drawing sheets whose lettering is drawn "
+            "as lines and cannot be searched as text. Give the box round ONE "
+            "copy (tight round its lettering; a legend row is fine): handle + "
+            "page + bbox in PDF points, or image + image_box from an earlier "
+            "render. Every page is image-matched at any scale and rotation in "
+            "seconds; each hit is labelled callout (a leader is drawn from it; "
+            "points_to is where it points), unanchored (on the plan, no "
+            "leader) or legend (a legend/schedule row, or the same place on "
+            "most sheets — left out unless include_legend). Hits are "
+            "CANDIDATES: read the numbered contact sheets it writes to keep "
+            "only exact matches. Use it to count or locate a tag across "
+            "sheets instead of paging through whole-sheet views."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "page": {"type": "integer", "minimum": 0},
+                "bbox": {"type": "array", "items": {"type": "number"},
+                         "minItems": 4, "maxItems": 4},
+                "image": {"type": "string"},
+                "image_box": {"type": "array", "items": {"type": "number"},
+                              "minItems": 4, "maxItems": 4},
+                "box_units": {"type": "string", "enum": ["px", "norm1000"]},
+                "pages": PAGES_SCHEMA,
+                "threshold": {"type": "number", "minimum": 0.3, "maximum": 0.95},
+                "include_legend": {"type": "boolean"},
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "render_region",
         "description": (
             "Render a zoomed-in region of a page to an image file — to read "

@@ -242,6 +242,11 @@ def test_budget_from_probe_reads_the_measured_patterns():
     # The same model with original ignored stays at high for charts too.
     g, d, _ = budget_from_probe(1024, 2500, 2500)
     assert (g.name, d.name) == ("openai-high", "openai-high")
+    # Funhouse GPT-5.4, measured 2026-09-25: high capped like tiles, original
+    # honoured — the detail-bound budget must be original.
+    g, d, r = budget_from_probe(714, 714, 4234)
+    assert (g.name, d.name) == ("gpt-4.1-high", "openai-original")
+    assert r["original"] == 5.93
     # A 6,144-patch model takes the 2048 square whole.
     g, d, _ = budget_from_probe(1024, 4096, None)
     assert (g.name, d.name) == ("gpt-5.2-high", "gpt-5.2-high")
@@ -259,10 +264,13 @@ def test_legible_window():
 
 
 def test_text_size_and_text_px(doc, gt):
-    size = doc.text_size(gt.sheet_page)
+    size = doc.text_size(gt.narrative_page)
     assert size is not None and size > 0
-    data, info = doc.render(gt.sheet_page, budget="gpt-4.1-high")
+    data, info = doc.render(gt.narrative_page, budget="gpt-4.1-high")
     assert info["text_px"] == pytest.approx(size * info["dpi"] / 72.0, abs=0.1)
+    assert info["text_chars"] > 40
+    # Three short labels on a drawing sheet do not describe its lettering.
+    assert doc.text_size(gt.sheet_page) is None
     # A scanned page has no text to measure: no text_px, not a zero.
     assert doc.text_size(gt.scanned_page) is None
     _, sinfo = doc.render(gt.scanned_page, budget="gpt-4.1-high")
@@ -278,6 +286,10 @@ def test_text_size_weights_lines_by_their_characters():
     for i in range(12):
         page.insert_text((72, 120 + 14 * i), "#5 BARS @ 12 IN. MAX. SPACING",
                          fontsize=5)
+    # Microscopic text objects (a stroked CAD sheet can carry some) are not
+    # lettering and must not drag the measure down.
+    for i in range(40):
+        page.insert_text((300, 120 + 5 * i), "x" * 30, fontsize=0.6)
     data = pdf.tobytes()
     pdf.close()
     d = Document(content=data)

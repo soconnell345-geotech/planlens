@@ -186,6 +186,13 @@ DEFAULT_JPEG_QUALITY = 92
 #: Image formats :meth:`Document.render` makes (``auto``: the smaller of the two).
 RENDER_FORMATS = ("png", "jpeg", "auto")
 
+#: Text shorter than this is not lettering anyone reads (see :meth:`Document.text_size`).
+MIN_LETTERING_PT = 2.0
+
+#: A text layer with fewer characters of real lettering than this does not
+#: describe the page's lettering: its size is not measured.
+MIN_TEXT_CHARS_FOR_SIZE = 40
+
 #: Lowest rapidfuzz partial-ratio score (0-100) a fuzzy search hit may have.
 #: MEASURED, not chosen — see "Forgiving search" in DESIGN.md: real drawing
 #: callouts from a submittal's sheets, each corrupted by one substituted
@@ -892,6 +899,22 @@ class Document:
         return out[:cap]
 
     # -- reading advice / rendering ------------------------------------------
+    def find_like(self, index: int, bbox: Sequence[float], pages: PageSpec = None,
+                  **kw) -> Dict[str, Any]:
+        """Every copy of the mark boxed at ``bbox`` on page ``index`` — a tag,
+        a code, a symbol — across ``pages``, each labelled callout / legend /
+        unanchored from the drawing's geometry. See
+        :func:`planlens.document.findlike.find_like`."""
+        from planlens.document.findlike import find_like
+        return find_like(self, index, bbox, pages, **kw)
+
+    def like_sheets(self, hits, **kw):
+        """Numbered, upright, enlarged contact sheets of ``find_like`` hits,
+        for a vision model to read. See
+        :func:`planlens.document.findlike.like_sheets`."""
+        from planlens.document.findlike import like_sheets
+        return like_sheets(self, hits, **kw)
+
     def text_size(self, index: int, quantile: float = 0.25) -> Optional[float]:
         """How tall the SMALL lettering on a page is, in points, or ``None``.
 
@@ -899,9 +922,12 @@ class Document:
         heights, each line weighted by its characters, so the notes and
         callouts a reader must read count and a few big titles do not. A
         line's font size is used where the text layer states one, otherwise
-        the short side of its box. ``None`` for a page with no text (a scan):
-        there is nothing to measure, not nothing to read. Paired with a render's
-        dpi this says whether the lettering will be legible in the image.
+        the short side of its box. ``None`` when the text layer holds fewer
+        than :data:`MIN_TEXT_CHARS_FOR_SIZE` characters of lettering at least
+        :data:`MIN_LETTERING_PT` tall — a scan, or a CAD sheet whose words are
+        drawn as strokes: there is nothing to measure, not nothing to read.
+        Paired with a render's dpi this says whether the lettering will be
+        legible in the image.
         """
         (index,) = parse_pages(index, self.n_pages)
         lines = self._page_text(index)[0]
@@ -915,9 +941,13 @@ class Document:
             else:
                 x0, y0, x1, y1 = ln.bbox
                 h = min(abs(x1 - x0), abs(y1 - y0))
-            if h > 0:
+            # Lettering nobody can read in print (under 2 pt) is not the
+            # page's lettering: a CAD sheet whose words are drawn as strokes
+            # can still carry a few microscopic text objects, and weighing
+            # those made a 0.06 in stroked sheet report "0.6 pt" (2026-09-25).
+            if h >= MIN_LETTERING_PT:
                 sized.append((h, n))
-        if not sized:
+        if sum(n for _, n in sized) < MIN_TEXT_CHARS_FOR_SIZE:
             return None
         sized.sort()
         total = sum(n for _, n in sized)
@@ -974,7 +1004,9 @@ class Document:
         dpi, the pixel size of the image as made, its format (``png`` or
         ``jpeg``, after ``auto``), the budget's name and ``text_px`` — how
         tall the page's small lettering (:meth:`text_size`) is in this image,
-        absent on a page with no text.
+        absent on a page with no text, and ``text_chars`` — how many
+        characters its text layer holds (near zero on a sheet whose lettering
+        is drawn as strokes).
         """
         import fitz
         from planlens.document.budget import fit_size, resolve_budget
@@ -1048,6 +1080,11 @@ class Document:
                 "height_px": height_px, "format": fmt}
         if bud is not None:
             info["budget"] = bud.name
+        # How much of the page's lettering is TEXT: a drawing sheet whose words
+        # are drawn as strokes has (almost) none, and then no text search and
+        # no text_px can speak for it.
+        info["text_chars"] = sum(
+            len(ln.text.strip()) for ln in self._page_text(index)[0])
         size = self.text_size(index)
         if size is not None:
             # How tall the page's small lettering is IN THIS IMAGE: the one

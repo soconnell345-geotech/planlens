@@ -448,6 +448,13 @@ class ReviewToolkit:
         this image — with the two ways round it: the text layer, and a zoom
         window small enough to bring the lettering up to size."""
         text_px = info.get("text_px")
+        if text_px is None and info.get("text_chars", 1 << 30) < 40:
+            return ("; ! this page's lettering is not in its text layer "
+                    "(drawn as lines by CAD, or scanned): text search cannot "
+                    "see it. To find a tag, code or symbol on it — and on "
+                    "every other sheet — box ONE copy and call find_like; to "
+                    "read a detail, zoom with render_region. Never conclude "
+                    "something is absent from a whole-sheet view")
         if not text_px or text_px >= LEGIBLE_TEXT_PX:
             return ""
         x0, y0, x1, y1 = info["clip"]
@@ -1171,6 +1178,84 @@ class ReviewToolkit:
         page_box = image_box_to_page(box, rec["clip"], rec["width_px"],
                                      rec["height_px"], units)
         return rec, [round(v, 2) for v in page_box]
+
+    def _tool_find_like(self, handle: Optional[str] = None,
+                        page: Optional[int] = None, bbox: Any = None,
+                        image: Optional[str] = None, image_box: Any = None,
+                        box_units: Optional[str] = None, pages: Any = None,
+                        threshold: Optional[float] = None,
+                        include_legend: bool = False) -> Dict[str, Any]:
+        from planlens.document.findlike import DEFAULT_THRESHOLD
+        if image is not None or image_box is not None:
+            if image is None or image_box is None:
+                raise ToolError("image and image_box go together")
+            rec, box = self._box_from_image(image, image_box, box_units)
+            handle, page = rec["handle"], rec["page"]
+        else:
+            if handle is None or page is None or bbox is None:
+                raise ToolError("find_like needs handle, page and bbox (the "
+                                "box round ONE copy of the mark) — or image + "
+                                "image_box")
+            try:
+                box = [float(v) for v in bbox]
+                if len(box) != 4:
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise ToolError("bbox must be [x0, y0, x1, y1] in PDF points")
+        entry = self._entry(handle)
+        with entry.lock:
+            try:
+                res = entry.doc.find_like(
+                    page, box, pages,
+                    threshold=threshold or DEFAULT_THRESHOLD)
+            except ValueError as exc:
+                raise ToolError(str(exc), hint="box just the mark's lettering, "
+                                "tight, with no leader or table rule inside")
+            hits = res["hits"]
+            shown = [h for h in hits
+                     if include_legend or h.context != "legend"]
+            sheets = entry.doc.like_sheets(shown) if shown else []
+        out_sheets = []
+        for n, (png, ids) in enumerate(sheets):
+            if self._output_dir is None:
+                self._output_dir = tempfile.mkdtemp(prefix="planlens_")
+            os.makedirs(self._output_dir, exist_ok=True)
+            path = os.path.join(self._output_dir,
+                                f"{handle}_like_p{res['example']['page']}_{n + 1}.png")
+            with open(path, "wb") as fh:
+                fh.write(png)
+            out_sheets.append({"image_path": path,
+                               "ids": compact_ranges(ids)})
+        items = []
+        for i, h in enumerate(shown, start=1):
+            d = h.to_dict()
+            d.pop("evidence", None)
+            d["id"] = i
+            items.append(d)
+        legend = [h for h in hits if h.context == "legend"]
+        placed, nxt = fit_items(items, self._budget(1400))
+        out = {"handle": handle, "example": res["example"],
+               "pages_searched": compact_ranges(res["pages"]),
+               "counts": res["counts"], "candidates": placed,
+               "sheets": out_sheets,
+               "legend_hits": {"n": len(legend),
+                               "pages": compact_ranges(
+                                   sorted({h.page for h in legend}))},
+               "note": ("CANDIDATES, not answers: image matching finds every "
+                        "copy of the example but cannot tell look-alikes "
+                        "apart (GCE vs GCG vs QCE). Read the numbered "
+                        "contact sheets — " + self.image_view_hint + " — "
+                        "and keep only the ids that read EXACTLY as the "
+                        "example. context: callout = a leader is drawn from "
+                        "it (points_to = where it points); unanchored = on "
+                        "the plan, no leader found; legend = a ruled "
+                        "legend/schedule row or the same place on most "
+                        "sheets (left out unless include_legend).")}
+        if nxt is not None:
+            out["candidates_truncated_after"] = nxt
+        if res["warnings"]:
+            out["warnings"] = res["warnings"]
+        return out
 
     def _tool_render_region(self, handle: Optional[str] = None,
                             page: Optional[int] = None, bbox: Any = None,
