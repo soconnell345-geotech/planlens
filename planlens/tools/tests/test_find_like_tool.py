@@ -85,4 +85,4 @@ def test_a_stroke_lettered_page_says_so_when_rendered(kit, gt):
     out = call(kit, "render_page", handle=handle, page=0)
     assert out["text_chars"] == 0 and "text_px" not in out
     assert "not in its text layer" in out["note"]
-    assert "find_like" in out["note"]
+    assert "find_like" not in out["note"]      # optional, not pushed

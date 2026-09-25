@@ -477,8 +477,8 @@ TOOL_SPECS = [
             "leader) or legend (a legend/schedule row, or the same place on "
             "most sheets — left out unless include_legend). Hits are "
             "CANDIDATES: read the numbered contact sheets it writes to keep "
-            "only exact matches. Use it to count or locate a tag across "
-            "sheets instead of paging through whole-sheet views."),
+            "only exact matches. Use it when every occurrence of one "
+            "repeated mark across many sheets is wanted."),
         "parameters": {
             "type": "object",
             "properties": {

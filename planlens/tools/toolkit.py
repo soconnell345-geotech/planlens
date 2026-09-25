@@ -454,10 +454,9 @@ class ReviewToolkit:
         if text_px is None and info.get("text_chars", 1 << 30) < 40:
             return ("; ! this page's lettering is not in its text layer "
                     "(drawn as lines by CAD, or scanned): text search cannot "
-                    "see it. To find a tag, code or symbol on it — and on "
-                    "every other sheet — box ONE copy and call find_like; to "
-                    "read a detail, zoom with render_region. Never conclude "
-                    "something is absent from a whole-sheet view")
+                    "see it. To read small lettering, zoom with "
+                    "render_region. Never conclude something is absent from "
+                    "a whole-sheet view")
         if not text_px or text_px >= LEGIBLE_TEXT_PX:
             return ""
         x0, y0, x1, y1 = info["clip"]
