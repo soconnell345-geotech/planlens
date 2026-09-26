@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.1 — 2026-09-26
+
+- **`find_like` is one optional tool, not a workflow.** 0.10.0's render note
+  for a page whose lettering is not in its text layer told the model to
+  "box ONE copy and call find_like" on every such sheet — a special-purpose
+  search pushed from every drawing render. The note now says only what is
+  true of the page (text search cannot see it; zoom to read small lettering;
+  never conclude absence from a whole-sheet view), and the tool's spec says
+  when it applies: when every occurrence of one repeated mark across many
+  sheets is wanted.
+
 ## 0.10.0 — 2026-09-25
 
 - **Find every copy of one mark — `find_like`.** A reviewer asked a real
