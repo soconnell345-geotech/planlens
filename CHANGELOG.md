@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **The drawing-sheet advice names no tool it cannot vouch for.** Every
+  `! look:` line on a drawing sheet ended "and use drawing-geometry tools for
+  measurements" — tools the toolkit does not offer and a host may not have
+  (the app's Document Review page has none), so the line sent a model after
+  a tool that was not there. It now says only what is true of the page: the
+  text lines are labels in drafting order; view the sheet or a region of it.
+
 ## 0.10.1 — 2026-09-26
 
 - **`find_like` is one optional tool, not a workflow.** 0.10.0's render note

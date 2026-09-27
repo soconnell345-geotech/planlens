@@ -43,10 +43,12 @@ def page_advice(summary: PageSummary,
                        "(confidence per line): view it to confirm anything "
                        "that matters")
     elif kind == "drawing_sheet":
+        # No tool is named for measuring: the host decides which it offers
+        # (the toolkit itself has none), and naming one it lacks sends the
+        # model after a tool that is not there.
         out.append("drawing sheet: the text lines are its labels in drafting "
                    "order, not a reading of the sheet — view the sheet (or a "
-                   "region of it), and use drawing-geometry tools for "
-                   "measurements")
+                   "region of it)")
         if not any(v.is_calibrated for v in summary.viewports):
             out.append("this sheet stores no calibrated scale in the PDF, so "
                        "nothing can be measured off it in feet or metres "
