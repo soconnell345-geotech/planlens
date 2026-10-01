@@ -210,9 +210,15 @@ TOOL_SPECS = [
             "anchor. Anchor by quote whenever the comment is about text on "
             "the page — pass the words as printed and they are found for you, "
             "even if a letter was read wrong; that is what puts the mark on "
-            "the right words. For a spot on a drawing use box or callout with "
-            "a bbox from read_document(with_locations=true), a markup, or the "
-            "region you rendered — same frame, no conversion. Reply to an "
+            "the right words. For a spot on a drawing use box, circle or "
+            "callout with a bbox from read_document(with_locations=true) or a "
+            "markup — same frame, no conversion — or, for something you found "
+            "by LOOKING, the rendered image's view plus the thing's image_box "
+            "(0-999 grid over that image), which is converted for you. Never "
+            "place a mark at a location you did not get from a tool result "
+            "for that page: a box written from memory or estimated by eye "
+            "lands in the wrong place. A box or circle can carry a short "
+            "label drawn on the page beside it. Reply to an "
             "existing comment with reply_to and its markup id from "
             "document_markups. Every comment is a DRAFT attributed to the AI "
             "author unless you are told to sign it otherwise, so say what is "
@@ -238,16 +244,19 @@ TOOL_SPECS = [
                         "properties": {
                             "kind": {
                                 "type": "string",
-                                "enum": ["note", "highlight", "box", "callout",
-                                         "reply"],
+                                "enum": ["note", "highlight", "box", "circle",
+                                         "callout", "reply"],
                                 "description": "note = a sticky note at a "
                                                "spot; highlight = over the "
-                                               "words quoted; box = a "
+                                               "words quoted; box = a red "
                                                "rectangle round a region; "
-                                               "callout = a text box with a "
-                                               "leader pointing at a spot; "
-                                               "reply = an answer threaded "
-                                               "onto an existing markup."},
+                                               "circle = a red ring round "
+                                               "it (drawn round the whole "
+                                               "box you give); callout = a "
+                                               "text box with a leader "
+                                               "pointing at a spot; reply = "
+                                               "an answer threaded onto an "
+                                               "existing markup."},
                             "page": {"type": "integer", "minimum": 0,
                                      "description": "0-based, as everywhere "
                                                     "else."},
@@ -267,6 +276,29 @@ TOOL_SPECS = [
                                                     "top-left origin. For a "
                                                     "callout this is where "
                                                     "its text box goes."},
+                            "view": {"type": "array",
+                                     "items": {"type": "number"},
+                                     "minItems": 4, "maxItems": 4,
+                                     "description": "With image_box, instead "
+                                                    "of bbox: the PDF-point "
+                                                    "rect a rendered image "
+                                                    "shows (its 'view')."},
+                            "image_box": {"type": "array",
+                                          "items": {"type": "number"},
+                                          "minItems": 4, "maxItems": 4,
+                                          "description": "With view: the "
+                                                         "thing's box on the "
+                                                         "0-999 grid over "
+                                                         "that image, as the "
+                                                         "look reported it."},
+                            "label": {"type": "string",
+                                      "description": "Box, circle or "
+                                                     "highlight only: a few "
+                                                     "words drawn ON the page "
+                                                     "beside the mark (the "
+                                                     "comment is what opens "
+                                                     "in the comments "
+                                                     "list)."},
                             "point": {"type": "array",
                                       "items": {"type": "number"},
                                       "minItems": 2, "maxItems": 2,

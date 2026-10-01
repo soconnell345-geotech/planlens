@@ -349,3 +349,121 @@ def test_a_per_markup_author_overrides_the_run_author(source, tmp_path):
     with open_document(out) as doc:
         assert [m.author for m in doc.markups(pages=0)][-2:] == [AI,
                                                                  "Reviewer C"]
+
+
+# -- circles, visible labels, and boxes read off an image (0.11.0) ------------
+
+def _inside_ellipse(ring, x, y):
+    x0, y0, x1, y1 = ring
+    cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    a, b = (x1 - x0) / 2.0, (y1 - y0) / 2.0
+    return ((x - cx) / a) ** 2 + ((y - cy) / b) ** 2 <= 1.0 + 1e-9
+
+
+@pytest.mark.parametrize("which", ["narrative_page", "sheet_page"])
+def test_a_circle_goes_round_its_whole_box_on_either_frame(source, gt,
+                                                           tmp_path, which):
+    """Portrait page and the /Rotate 90 sheet: the ring reads back as a red
+    Circle whose ellipse holds every corner of the box it was given, and the
+    box the report gives is the box the reader sees."""
+    page = getattr(gt, which)
+    box = (300.0, 200.0, 340.0, 214.0) if which == "narrative_page" \
+        else (1300.0, 760.0, 1330.0, 790.0)
+    out = str(tmp_path / "circle.pdf")
+    report = write_markups(source, out, [
+        {"kind": "circle", "page": page, "comment": "tag", "bbox": list(box)},
+    ], author=AI)
+    assert report.n_written == 1
+    w = report.written[0]
+    assert w.kind == "circle" and w.target == box
+    assert all(_inside_ellipse(w.bbox, x, y)
+               for x in (box[0], box[2]) for y in (box[1], box[3]))
+    with open_document(out) as doc:
+        ring = _one(doc, AI, "Circle")
+        assert ring.subject == "Circle" and ring.color == "#d92626"
+        assert bbox_iou(ring.bbox, w.bbox) > 0.97, (ring.bbox, w.bbox)
+
+
+def test_a_tiny_target_still_gets_a_ring_a_reader_can_see(source, gt,
+                                                          tmp_path):
+    out = str(tmp_path / "tiny.pdf")
+    report = write_markups(source, out, [
+        {"kind": "circle", "page": gt.narrative_page, "comment": "dot",
+         "bbox": [200.0, 200.0, 202.0, 202.0]}], author=AI)
+    x0, y0, x1, y1 = report.written[0].bbox
+    assert x1 - x0 >= 13.5 and y1 - y0 >= 13.5
+
+
+@pytest.mark.parametrize("kind", ["circle", "box", "highlight"])
+def test_a_label_is_drawn_beside_its_mark_and_tied_to_it(source, gt,
+                                                         tmp_path, kind):
+    out = str(tmp_path / f"label_{kind}.pdf")
+    report = write_markups(source, out, [
+        {"kind": kind, "page": gt.sheet_page, "comment": "penetration tag",
+         "label": "GCE", "bbox": [1300.0, 760.0, 1330.0, 790.0]}], author=AI)
+    w = report.written[0]
+    assert w.label == "GCE" and w.label_bbox is not None
+    with open_document(out) as doc:
+        mine = _written(doc, AI)
+        mark = next(m for m in mine if m.text == "penetration tag")
+        label = next(m for m in mine if m.subject == "Label")
+        assert label.kind == "FreeText" and label.text == "GCE"
+        assert label.in_reply_to == mark.id and label.id in mark.replies
+        # no stray leader: PyMuPDF's default /CL is stripped from a label
+        assert label.points_at is None and not label.vertices
+        assert bbox_iou(label.bbox, w.label_bbox) > 0.9
+        # the label sits next to the mark, not across the sheet
+        lx = (label.bbox[0] + label.bbox[2]) / 2.0
+        ly = (label.bbox[1] + label.bbox[3]) / 2.0
+        mx = (mark.bbox[0] + mark.bbox[2]) / 2.0
+        my = (mark.bbox[1] + mark.bbox[3]) / 2.0
+        assert abs(lx - mx) < 60 and abs(ly - my) < 60
+
+
+def test_a_label_on_a_note_is_refused(source, tmp_path):
+    with pytest.raises(ValueError, match="label is drawn beside"):
+        write_markups(source, str(tmp_path / "x.pdf"), [
+            {"kind": "note", "page": 0, "comment": "c", "label": "L",
+             "point": [90.0, 90.0]}])
+
+
+def test_a_box_read_off_an_image_is_converted_here(source, gt, tmp_path):
+    """view + image_box (0-999 over the rendered view) lands exactly where
+    image_box_to_page puts it — the field session's own numbers: a tag at
+    [671,109,722,161] on view [467,487,733,773] is [645.7,518.2,659.2,533.1]."""
+    from planlens.document.budget import image_box_to_page
+    view, ibox = [467.0, 487.0, 733.0, 773.0], [671, 109, 722, 161]
+    want = image_box_to_page(ibox, view, 1, 1, units="norm1000")
+    assert [round(v, 1) for v in want] == [645.7, 518.2, 659.2, 533.1]
+    out = str(tmp_path / "image_box.pdf")
+    report = write_markups(source, out, [
+        {"kind": "box", "page": gt.sheet_page, "comment": "c",
+         "view": view, "image_box": ibox}], author=AI)
+    w = report.written[0]
+    assert w.anchored_by == "bbox"
+    assert bbox_iou(w.bbox, want) > 0.97, (w.bbox, want)
+
+
+def test_box_and_page_bbox_are_names_for_bbox(source, gt, tmp_path):
+    out = str(tmp_path / "aliases.pdf")
+    box = [1300.0, 760.0, 1330.0, 790.0]
+    report = write_markups(source, out, [
+        {"kind": "box", "page": gt.sheet_page, "comment": "a", "box": box},
+        {"kind": "box", "page": gt.sheet_page, "comment": "b",
+         "page_bbox": box}], author=AI)
+    assert report.n_written == 2
+    assert bbox_iou(report.written[0].bbox, report.written[1].bbox) > 0.99
+
+
+@pytest.mark.parametrize("extra,match", [
+    ({"view": [0, 0, 100, 100]}, "view and image_box go together"),
+    ({"image_box": [0, 0, 10, 10]}, "view and image_box go together"),
+    ({"bbox": [1, 1, 5, 5], "box": [1, 1, 5, 5]}, "gives its box 2 ways"),
+    ({"bbox": [1, 1, 5, 5], "view": [0, 0, 100, 100],
+      "image_box": [0, 0, 10, 10]}, "gives its box 2 ways"),
+])
+def test_a_box_given_two_ways_or_half_given_is_refused(source, tmp_path,
+                                                      extra, match):
+    spec = {"kind": "box", "page": 0, "comment": "c", **extra}
+    with pytest.raises(ValueError, match=match):
+        write_markups(source, str(tmp_path / "x.pdf"), [spec])

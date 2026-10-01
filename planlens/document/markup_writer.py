@@ -19,6 +19,14 @@ highlights, boxes and callouts in the comments list like anybody else's.
     a box or a spot in the DISPLAYED frame (:mod:`planlens.document.frame`) —
     the frame everything in this package reports and ``render_region`` renders,
     so a box straight off ``read_document`` or a markup goes back on unchanged.
+    ``box`` and ``page_bbox`` are accepted as names for it.
+``view`` + ``image_box``
+    a box read off a rendered IMAGE: ``view`` is the displayed-frame rect the
+    image shows (what a render reports as its view or clip) and ``image_box``
+    the thing's box on a 0-999 grid over that image. It is converted here
+    (:func:`planlens.document.budget.image_box_to_page`), so a caller who found
+    something by LOOKING never does the arithmetic — the arithmetic is where
+    markups landed in empty paper (field report, 2026-10-01).
 ``reply_to``
     an existing markup's :attr:`~planlens.document.model.Markup.id`, which
     becomes a PDF reply link (``/IRT``) — the same link
@@ -66,6 +74,7 @@ ANNOT_SUBTYPE = {
     "note": "Text",
     "highlight": "Highlight",
     "box": "Square",
+    "circle": "Circle",
     "callout": "FreeText",
     "reply": "Text",
 }
@@ -79,6 +88,7 @@ KIND_COLOR = {
     "note": (1.0, 0.82, 0.25),
     "highlight": (1.0, 0.94, 0.30),
     "box": (0.85, 0.15, 0.15),
+    "circle": (0.85, 0.15, 0.15),
     "callout": (0.85, 0.15, 0.15),
     "reply": (0.15, 0.35, 0.80),
 }
@@ -88,9 +98,31 @@ KIND_SUBJECT = {
     "note": "Note",
     "highlight": "Highlight",
     "box": "Box",
+    "circle": "Circle",
     "callout": "Callout",
     "reply": "Reply",
 }
+
+#: Kinds that mark a REGION and so can carry a visible ``label`` beside it.
+LABELLED_KINDS = ("box", "circle", "highlight")
+
+#: A circle is the ellipse through the corners of the box it is given, grown
+#: by this much, so everything in the box is inside the ring with a little air
+#: (an ellipse inscribed in the box would cut its corners off).
+CIRCLE_MARGIN = 2.0
+
+#: A circle round something smaller than this (points) is drawn at least this
+#: wide, so a ring round a three-letter tag is still a ring a reader sees.
+CIRCLE_MIN_SIZE = 14.0
+
+#: A visible label's point size and the gap between it and its mark.
+LABEL_FONTSIZE = 9.0
+LABEL_GAP = 2.0
+
+#: Names accepted for ``bbox``: ``box`` is what a caller reaches for first (an
+#: agent sent it twice in one field session, losing a call each time), and
+#: ``page_bbox`` is what a located vision item carries.
+BBOX_ALIASES = ("box", "page_bbox")
 
 #: Author written on a markup whose caller named none.
 DEFAULT_AUTHOR = "planlens"
@@ -160,12 +192,16 @@ class MarkupSpec:
     """One markup a caller asks for: what it says, and what it is anchored to.
 
     ``kind`` is one of :data:`KINDS`. ``page`` is 0-based. Exactly one anchor
-    is given — ``quote``, ``bbox``, ``point`` or ``reply_to``. A ``callout`` is
-    the one kind that takes two things: ``points_at`` is where its leader
-    lands, and is an anchor on its own; a ``bbox`` beside it says where its
-    text box goes rather than what is being commented on. ``min_score`` is the
-    lowest fuzzy score a quote may match at when the exact search finds
-    nothing; it means what it means in :meth:`Document.search`.
+    is given — ``quote``, ``bbox``, ``point`` or ``reply_to``; a ``view`` +
+    ``image_box`` pair (a box read off a rendered image) is converted to a
+    ``bbox`` when the spec is built. A ``callout`` is the one kind that takes
+    two things: ``points_at`` is where its leader lands, and is an anchor on
+    its own; a ``bbox`` beside it says where its text box goes rather than what
+    is being commented on. ``label`` is short text drawn ON the page beside a
+    box, circle or highlight (``comment`` is what opens in the comments list).
+    ``min_score`` is the lowest fuzzy score a quote may match at when the
+    exact search finds nothing; it means what it means in
+    :meth:`Document.search`.
     """
     kind: str
     page: int
@@ -177,6 +213,11 @@ class MarkupSpec:
     reply_to: Optional[str] = None
     author: Optional[str] = None
     min_score: int = DEFAULT_FUZZY_MIN_SCORE
+    label: Optional[str] = None
+
+    #: Accepted in the JSON beside the fields (see :data:`BBOX_ALIASES` and
+    #: the ``view`` + ``image_box`` anchor); none is stored as given.
+    INPUT_ONLY = BBOX_ALIASES + ("view", "image_box")
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "MarkupSpec":
@@ -184,11 +225,12 @@ class MarkupSpec:
         if not isinstance(raw, dict):
             raise ValueError("each markup must be an object with kind, page "
                              "and comment")
-        unknown = set(raw) - {f for f in cls.__dataclass_fields__}
+        unknown = set(raw) - {f for f in cls.__dataclass_fields__} \
+            - set(cls.INPUT_ONLY)
         if unknown:
             raise ValueError(
                 f"unknown markup field(s) {sorted(unknown)}; the fields are "
-                f"{sorted(cls.__dataclass_fields__)}")
+                f"{sorted(set(cls.__dataclass_fields__) | set(cls.INPUT_ONLY))}")
         kind = str(raw.get("kind") or "").strip().lower()
         if kind not in ANNOT_SUBTYPE:
             raise ValueError(f"unknown markup kind '{raw.get('kind')}'; "
@@ -200,13 +242,38 @@ class MarkupSpec:
         except (TypeError, ValueError):
             raise ValueError(f"page must be a 0-based integer, not "
                              f"{raw['page']!r}")
+        boxes = {n: raw[n] for n in ("bbox",) + BBOX_ALIASES
+                 if raw.get(n) is not None}
+        has_image = raw.get("view") is not None or \
+            raw.get("image_box") is not None
+        if has_image:
+            if raw.get("view") is None or raw.get("image_box") is None:
+                raise ValueError(
+                    "view and image_box go together: view is the rect the "
+                    "rendered image shows (PDF points) and image_box the "
+                    "thing's box on the 0-999 grid over that image")
+            from planlens.document.budget import image_box_to_page
+            boxes["view+image_box"] = image_box_to_page(
+                _as_bbox(raw["image_box"], "image_box"),
+                _as_bbox(raw["view"], "view"), 1000, 1000, units="norm1000")
+        if len(boxes) > 1:
+            raise ValueError(
+                f"the {kind} markup gives its box {len(boxes)} ways "
+                f"({', '.join(sorted(boxes))}); give one")
+        label = str(raw.get("label") or "").strip() or None
+        if label and kind not in LABELLED_KINDS:
+            raise ValueError(f"label is drawn beside a box, circle or "
+                             f"highlight, not a {kind}; put the words in "
+                             f"comment")
+        bbox_raw = next(iter(boxes.values()), None)
         return cls(
             kind=kind,
             page=page,
             comment=str(raw.get("comment") or ""),
             quote=(str(raw["quote"]) if raw.get("quote") else None),
-            bbox=(_as_bbox(raw["bbox"], "bbox")
-                  if raw.get("bbox") is not None else None),
+            bbox=(_as_bbox(bbox_raw, "bbox")
+                  if bbox_raw is not None else None),
+            label=label,
             point=(_as_point(raw["point"], "point")
                    if raw.get("point") is not None else None),
             points_at=(_as_point(raw["points_at"], "points_at")
@@ -236,6 +303,12 @@ class WrittenMarkup:
     in_reply_to: Optional[str] = None
     score: Optional[float] = None
     xref: Optional[int] = None
+    #: The box the caller anchored on — what the mark is ABOUT. For a circle
+    #: it is smaller than ``bbox`` (the ring goes round it); a check of where a
+    #: markup landed looks here.
+    target: Optional[BBox] = None
+    label: Optional[str] = None
+    label_bbox: Optional[BBox] = None
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -244,6 +317,12 @@ class WrittenMarkup:
             "anchored_by": self.anchored_by,
             "bbox": [round(v, 1) for v in self.bbox],
         }
+        if self.target is not None and self.kind == "circle":
+            out["target"] = [round(v, 1) for v in self.target]
+        if self.label:
+            out["label"] = self.label
+            if self.label_bbox is not None:
+                out["label_bbox"] = [round(v, 1) for v in self.label_bbox]
         if self.points_at is not None:
             out["points_at"] = [round(v, 1) for v in self.points_at]
         if self.in_reply_to:
@@ -441,6 +520,60 @@ def _callout_box(tip: Point, comment: str, page_box: BBox) -> BBox:
     return (x0, y0, x0 + CALLOUT_BOX_WIDTH, y0 + height)
 
 
+def _circle_box(box: BBox, page_box: BBox) -> BBox:
+    """The rect of the ellipse through ``box``'s corners, grown by
+    :data:`CIRCLE_MARGIN`, at least :data:`CIRCLE_MIN_SIZE` across and kept on
+    the page. An ellipse with semi-axes ``a, b`` passes through a
+    ``w x h`` box's corners at ``a = w/sqrt(2), b = h/sqrt(2)``."""
+    x0, y0, x1, y1 = box
+    cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    a = max((x1 - x0) / 2.0 * 2 ** 0.5 + CIRCLE_MARGIN, CIRCLE_MIN_SIZE / 2.0)
+    b = max((y1 - y0) / 2.0 * 2 ** 0.5 + CIRCLE_MARGIN, CIRCLE_MIN_SIZE / 2.0)
+    px0, py0, px1, py1 = page_box
+    return (max(px0, cx - a), max(py0, cy - b),
+            min(px1, cx + a), min(py1, cy + b))
+
+
+def _label_box(text: str, near: BBox, page_box: BBox) -> BBox:
+    """Where a visible label goes: just above the mark's top-right corner,
+    pushed back onto the page (below the mark when there is no room above)."""
+    w = len(text) * LABEL_FONTSIZE * 0.62 + 6.0
+    h = LABEL_FONTSIZE * 1.45 + 4.0
+    px0, py0, px1, py1 = page_box
+    x0 = min(max(near[2] - w * 0.25, px0 + 2.0), px1 - w - 2.0)
+    y0 = near[1] - h - LABEL_GAP
+    if y0 < py0 + 2.0:
+        y0 = min(near[3] + LABEL_GAP, py1 - h - 2.0)
+    return (x0, y0, x0 + w, y0 + h)
+
+
+def _add_label(page, shape, text: str, near: BBox, author: str,
+               created: str):
+    """Draw ``text`` on the page beside a mark, as a borderless FreeText tied
+    to the mark by ``/IRT`` with ``/RT /Group`` — the PDF's way of saying the
+    two are one markup, which a viewer moves and deletes together and which
+    planlens' reader reports as reply-linked to the mark."""
+    import fitz
+
+    page_box = to_display_bbox(page, (page.rect.x0, page.rect.y0,
+                                      page.rect.x1, page.rect.y1))
+    box = _label_box(text, near, page_box)
+    annot = page.add_freetext_annot(
+        _rect(page, from_display_bbox(page, box)), text,
+        fontsize=LABEL_FONTSIZE, text_color=KIND_COLOR["circle"],
+        border_width=0, rotate=int(page.rotation) % 360)
+    annot.set_info(title=author, content=text, subject="Label",
+                   creationDate=created, modDate=created)
+    annot.update()
+    # PyMuPDF 1.27 writes a default /CL (a leader from the page corner) on
+    # every FreeText, callout or not. Nothing draws it, but a reader takes it
+    # for a callout aimed at (0, 0) — so a label carries none.
+    page.parent.xref_set_key(annot.xref, "CL", "null")
+    annot.set_irt_xref(shape.xref)
+    page.parent.xref_set_key(annot.xref, "RT", "/Group")
+    return annot, box
+
+
 def _finish(annot, spec: MarkupSpec, author: str, created: str) -> None:
     """The fields every viewer reads: who, when, what it says, what type."""
     annot.set_info(title=author, content=spec.comment,
@@ -505,6 +638,26 @@ def _place(page, spec: MarkupSpec, anchor: _Anchor, author: str, created: str
         _finish(annot, spec, author, created)
         annot.update()
         _add_popup(annot, page, box)
+        return annot, None
+
+    if spec.kind == "circle":
+        box = bbox_union(anchor.boxes)
+        if box is None:
+            return None, "a circle needs a bbox or a quote to go round"
+        ring = _circle_box(box, to_display_bbox(
+            page, (page.rect.x0, page.rect.y0, page.rect.x1, page.rect.y1)))
+        un = from_display_bbox(page, ring)
+        # MuPDF grows a Circle's /Rect by the same 1 pt a Square's grows by;
+        # compensated the same way, so the read-back box is the ring placed.
+        pad = SQUARE_RECT_PAD if min(un[2] - un[0], un[3] - un[1]) > \
+            4 * SQUARE_RECT_PAD else 0.0
+        annot = page.add_circle_annot(_rect(page, (un[0] + pad, un[1] + pad,
+                                                   un[2] - pad, un[3] - pad)))
+        annot.set_border(width=BORDER_WIDTH)
+        annot.set_colors(stroke=KIND_COLOR["circle"])
+        _finish(annot, spec, author, created)
+        annot.update()
+        _add_popup(annot, page, ring)
         return annot, None
 
     if spec.kind == "callout":
@@ -644,14 +797,23 @@ def write_markups(source: Union[str, bytes],
                     "index": index, "page": spec.page, "kind": spec.kind,
                     "reason": reason})
                 continue
+            shown = to_display_bbox(page, annot.rect)
+            label_box = None
+            if spec.label:
+                _lab, label_box = _add_label(page, annot, spec.label, shown,
+                                             who, created)
             report.written.append(WrittenMarkup(
                 page=spec.page, kind=spec.kind, anchored_by=anchor.how,
-                bbox=to_display_bbox(page, annot.rect), comment=spec.comment,
+                bbox=shown, comment=spec.comment,
                 author=who,
                 points_at=(spec.points_at or anchor.point
                            if spec.kind == "callout" else None),
                 in_reply_to=(anchor.parent.id if anchor.parent else None),
-                score=anchor.score, xref=annot.xref))
+                score=anchor.score, xref=annot.xref,
+                target=(bbox_union(anchor.boxes)
+                        if spec.kind in LABELLED_KINDS and anchor.boxes
+                        else None),
+                label=spec.label, label_bbox=label_box))
             # A page whose annotations were just added to must be re-read
             # before the next spec, or a reply naming a markup written in this
             # same call would not find it.

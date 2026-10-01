@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **A markup goes where the tool said the thing is, not where a model
+  guessed.** A field session (2026-10-01) asked for red circles round tags an
+  agent had found by looking; the circles went on at coordinates the agent
+  wrote from nothing, nowhere near the tags, and an earlier box was ~50 pt off
+  from the agent's own conversion of a vision result's 0-999 box. So:
+  - a markup can be anchored by **`view` + `image_box`** — the rect a rendered
+    image shows and the thing's box on the 0-999 grid over it, exactly as a
+    look reports them — and `write_markups` converts it
+    (`image_box_to_page`); no arithmetic is left to the caller;
+  - **`box`** and **`page_bbox`** are accepted as names for `bbox` (an agent
+    sent `box` twice and lost a call each time); a box given two ways, or a
+    `view` without its `image_box`, is refused with the reason;
+  - the tool description says never to place a mark at a location that did
+    not come from a tool result for that page.
+- **`circle` markups and visible labels.** `kind: "circle"` draws a red ring
+  (a PDF Circle annotation) through the corners of the box it is given, so
+  the whole box is inside it, at least 14 pt across. A box, circle or
+  highlight can carry a **`label`**: a few words drawn ON the page beside the
+  mark, as a borderless FreeText tied to it by `/IRT` + `/RT /Group` (the
+  PDF's "one markup" link; planlens reads it back as reply-linked to the
+  mark). PyMuPDF writes a default leader (`/CL`) on every FreeText it
+  creates; a label carries none, so it is not read back as a callout aimed at
+  the page corner. Written rows now report a circle's `target` (the box it
+  was drawn round) and a label's `label_bbox`.
 - **The drawing-sheet advice names no tool it cannot vouch for.** Every
   `! look:` line on a drawing sheet ended "and use drawing-geometry tools for
   measurements" — tools the toolkit does not offer and a host may not have
