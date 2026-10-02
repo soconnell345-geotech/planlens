@@ -124,10 +124,20 @@ def _leader(shape, start: Point, tip: Point, cap: float):
 
 def build_synthetic_tag_set(n_pages: int = 3, cap_in: float = 0.06,
                             seed: int = 11,
-                            legend_cap_in: float = None) -> TagSetGT:
+                            legend_cap_in: float = None,
+                            gce_growth: int = 3,
+                            extra_callouts: Dict[str, List[int]] = None
+                            ) -> TagSetGT:
     """The tag set described in the module docstring (11x17, landscape).
     ``legend_cap_in`` draws the legend's lettering at another height (a
-    legend is often lettered larger than the plan's tags)."""
+    legend is often lettered larger than the plan's tags).
+
+    ``gce_growth`` is how many more GCE tags each sheet carries than the one
+    before (8 on the first); 0 keeps every sheet alike, as a long set is.
+    ``extra_callouts`` maps a tag to the 0-based pages that get ONE callout of
+    it (with a leader), drawn after the sheet's own tags so the rest of the
+    layout is unchanged — a rare tag on a few sheets of a long set is what a
+    "which sheets have X" question has to find by looking at every sheet."""
     import fitz
 
     rnd = random.Random(seed)
@@ -177,7 +187,7 @@ def build_synthetic_tag_set(n_pages: int = 3, cap_in: float = 0.06,
                     return x, y
             raise RuntimeError("sheet too crowded")
 
-        plan = (["GCE"] * (8 + 3 * p) + ["GCG"] * 6 + ["GPE"] * 3 +
+        plan = (["GCE"] * (8 + gce_growth * p) + ["GCG"] * 6 + ["GPE"] * 3 +
                 ["QCE"] * 1 + ["FBG"] * 3)
         rnd.shuffle(plan)
         for i, t in enumerate(plan):
@@ -195,6 +205,15 @@ def build_synthetic_tag_set(n_pages: int = 3, cap_in: float = 0.06,
             tip = (start[0] - rnd.uniform(18, 40), start[1] + rnd.uniform(-25, 25))
             _leader(sh, start, tip, cap)
             gt.tags.append(TagTruth(p, t, box, rot, "callout", tip))
+        for t, pages in sorted((extra_callouts or {}).items()):
+            if p not in pages:
+                continue
+            x, y = spot()
+            box = draw_text(sh, t, x, y, cap)
+            start = (box[0] - 0.6 * cap, (box[1] + box[3]) / 2)
+            tip = (start[0] - rnd.uniform(18, 40), start[1] + rnd.uniform(-25, 25))
+            _leader(sh, start, tip, cap)
+            gt.tags.append(TagTruth(p, t, box, 0, "callout", tip))
         # a title block with stroked lettering
         sh.draw_rect(fitz.Rect(W - 300, H - 90, W - 40, H - 40))
         sh.finish(color=(0, 0, 0), width=0.8)
