@@ -40,13 +40,13 @@ CONF_OCR_TEXT = 0.4
 
 
 def _require_cv2():
+    from planlens.opencv import load
     try:
-        import cv2  # noqa: F401
-        return cv2
+        return load()
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise ImportError(
-            "opencv is required for the raster tracing leg. Install with: "
-            "pip install opencv-python-headless"
+            f"opencv is required for the raster tracing leg ({exc}). "
+            "Install with: pip install opencv-python-headless"
         ) from exc
 
 

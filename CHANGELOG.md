@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **OpenCV is test-loaded before it is loaded** (`planlens.opencv`). On a
+  host whose OpenSSL enforces FIPS mode, loading OpenCV's native library
+  aborts the interpreter (Palantir Foundry, 2026-10-03: exit -6 from
+  `find_like`), with no exception to catch. Before the first import in a
+  process, `planlens.opencv.available()` tries it in a child interpreter; if
+  the child dies, `find_like`, the raster IR leg and OCR raise `ImportError`
+  with the reason instead, and a host can leave those tools out.
+  `PLANLENS_CV2_PROBE=0` imports directly.
 - **A markup goes where the tool said the thing is, not where a model
   guessed.** A field session (2026-10-01) asked for red circles round tags an
   agent had found by looking; the circles went on at coordinates the agent

@@ -136,8 +136,9 @@ def _page_dpi(page, dpi: float) -> float:
 
 def _match(ink, tpl, dpi: float, scales, rotations, threshold: float,
            max_hits: int) -> List[Tuple[float, BBox, int, float]]:
-    import cv2
     import numpy as np
+    from planlens.opencv import load
+    cv2 = load()
     z = dpi / 72.0
     found = []
     for sc in scales:
@@ -358,7 +359,8 @@ def find_like(doc, page: int, bbox: Sequence[float], pages=None, *,
         d = _page_dpi(pg, want)
         t = tpl
         if d != want:
-            import cv2
+            from planlens.opencv import load
+            cv2 = load()
             f = d / want
             t = cv2.resize(tpl, None, fx=f, fy=f, interpolation=cv2.INTER_AREA)
         ink = _ink(pg, d)
@@ -394,8 +396,9 @@ def like_sheets(doc, hits: Sequence[LikeHit], per_sheet: int = 20,
     lettering is ``text_px`` tall — for a vision model to read each number
     at a size it cannot misread. Returns ``[(png_bytes, [hit indices])]``;
     labels count from ``start`` in ``hits`` order."""
-    import cv2
     import numpy as np
+    from planlens.opencv import load
+    cv2 = load()
     fz = getattr(doc, "_doc", doc)
     cell_w, cell_h, band = 460, 190, 30
     out: List[Tuple[bytes, List[int]]] = []

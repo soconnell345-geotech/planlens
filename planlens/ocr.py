@@ -172,7 +172,8 @@ def ocr_text_items(filepath: Optional[str] = None,
     """
     if (filepath is None) == (content is None):
         raise ValueError("pass exactly one of filepath / content")
-    import cv2  # dependency of rapidocr-onnxruntime, present with [ocr]
+    from planlens.opencv import load
+    cv2 = load()  # dependency of rapidocr-onnxruntime, present with [ocr]
     import numpy as np
 
     engine = _require_engine()
