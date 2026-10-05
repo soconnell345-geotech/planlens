@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 — 2026-10-04
 
 - **OpenCV is test-loaded before it is loaded** (`planlens.opencv`). On a
   host whose OpenSSL enforces FIPS mode, loading OpenCV's native library
