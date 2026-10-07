@@ -213,8 +213,12 @@ TOOL_SPECS = [
             "the right words. For a spot on a drawing use box, circle or "
             "callout with a bbox from read_document(with_locations=true) or a "
             "markup — same frame, no conversion — or, for something you found "
-            "by LOOKING, the rendered image's view plus the thing's image_box "
-            "(0-999 grid over that image), which is converted for you. Never "
+            "by LOOKING, the view and the thing's image_box (0-999 grid over "
+            "that image) of a ZOOMED look in which the thing is legible, "
+            "converted for you. A box read off a whole sheet can be tens of "
+            "points off, so a small mark from a view wider than 300 pt, or an "
+            "image_box that is the whole view, is skipped with the reason: "
+            "zoom on the thing and anchor on the zoom. Never "
             "place a mark at a location you did not get from a tool result "
             "for that page: a box written from memory or estimated by eye "
             "lands in the wrong place. A box or circle can carry a short "
@@ -282,7 +286,9 @@ TOOL_SPECS = [
                                      "description": "With image_box, instead "
                                                     "of bbox: the PDF-point "
                                                     "rect a rendered image "
-                                                    "shows (its 'view')."},
+                                                    "shows (its 'view') — "
+                                                    "the zoom in which the "
+                                                    "thing is legible."},
                             "image_box": {"type": "array",
                                           "items": {"type": "number"},
                                           "minItems": 4, "maxItems": 4,

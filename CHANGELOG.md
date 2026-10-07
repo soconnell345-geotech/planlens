@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **Marks land where the thing is (live check on Funhouse, 2026-10-07).**
+  - **A `view` + `image_box` anchor is judged by the view it came from.** A
+    box read off a rendered image is only as good as the view: boxes read
+    off whole-sheet images were measured 14-90 pt from 10 pt tags (GPT-5.4
+    and GPT-5.6), boxes read off views of 80-350 pt 0.2-5 pt. `write_markups`
+    now SKIPS, with the reason and what to do, a mark whose box was read off
+    a view wider than `VIEW_ANCHOR_MAX_PT` (300 pt) when the mark is under
+    `VIEW_ANCHOR_MIN_FRACTION` (a quarter) of the view's longer side, and a
+    mark whose `image_box` is the whole view (`WHOLE_VIEW_FRACTION`, 95 % both
+    ways — an agent passed `[0, 0, 999, 999]` of a zoom and got a ring round
+    the window). Per mark; the rest still go on. A callout's box beside its
+    `points_at` only places its text and is not judged. `MarkupSpec` keeps
+    `view` and `image_box` beside the converted `bbox`.
+  - **A quote on a multi-line CAD block lands on its own line.** A notes
+    column stored as ONE hidden SHX string has one box and no word boxes, so
+    a quote from note 4 was anchored at the column's left edge, half-way
+    down: 50-80 pt above the quoted line on sheet 10.31A. The rows of ink
+    inside the object's box (rendered grey, annotations off) now say where
+    the printed lines are, and the quote's place in the string, weighed by
+    how much lettering each row holds, says which it is on; AutoCAD's habit
+    of storing a hanging-indent paragraph's first line twice is undone first.
+    On 10.31A all eight test quotes land on their own row, and the 8.33 %
+    callout now points at (60, 227) on the line at y 224-230. A one-row
+    object, or lettering that does not run in rows across the box, keeps the
+    old anchor.
+  - **A sticky note hangs from its spot on a rotated page.** On `/Rotate`
+    90, 180 and 270 MuPDF hung the icon one icon size (16 pt) right, down or
+    both of the spot; the displayed box is now read back and corrected.
+  - The `annotate_document` description says to anchor a found thing by the
+    view and image_box of a ZOOMED look in which it is legible.
+
 - **`find_like` runs where OpenCV cannot load.** On every government host
   this runs on (Palantir Foundry, Funhouse/Databricks), the OpenCV wheel's
   bundled OpenSSL fails the FIPS self-test and aborts the interpreter, so

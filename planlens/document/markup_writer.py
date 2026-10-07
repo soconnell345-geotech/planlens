@@ -14,7 +14,11 @@ highlights, boxes and callouts in the comments list like anybody else's.
     a scan or on stroke-plotted lettering still lands on the words it is about.
     A quote nobody can find is REFUSED with a reason rather than dropped on an
     arbitrary spot — a comment in the wrong place is worse than a comment the
-    caller is told did not go on.
+    caller is told did not go on. Where the matched text is ONE object that
+    spans several printed lines with no word boxes (a CAD notes column stored
+    as one hidden string), the mark goes on the printed line the quote is on,
+    found from the rows of ink inside the object's box
+    (:func:`_quoted_rows`), not on the object's left edge.
 ``bbox`` / ``point``
     a box or a spot in the DISPLAYED frame (:mod:`planlens.document.frame`) —
     the frame everything in this package reports and ``render_region`` renders,
@@ -26,7 +30,10 @@ highlights, boxes and callouts in the comments list like anybody else's.
     the thing's box on a 0-999 grid over that image. It is converted here
     (:func:`planlens.document.budget.image_box_to_page`), so a caller who found
     something by LOOKING never does the arithmetic — the arithmetic is where
-    markups landed in empty paper (field report, 2026-10-01).
+    markups landed in empty paper (field report, 2026-10-01). A box is only as
+    good as the view it was read off, so one read off a view much wider than
+    the mark, or one that is the whole view, is REFUSED with a reason
+    (:func:`_view_anchor_problem`): zoom on the thing and anchor on the zoom.
 ``reply_to``
     an existing markup's :attr:`~planlens.document.model.Markup.id`, which
     becomes a PDF reply link (``/IRT``) — the same link
@@ -155,6 +162,25 @@ BORDER_WIDTH = 1.5
 
 _ID = re.compile(r"^p(\d+)\.m\d+$")
 
+#: A box read off a rendered image is only as good as the VIEW it was read
+#: off, because the error grows with the view, not with the thing. Measured
+#: 2026-10-07 on an 11 x 17 sheet of 10 x 4 pt tags (GPT-5.4 on one host,
+#: GPT-5.6 on another): boxes read off whole-sheet images (1224 pt across)
+#: were 14-90 pt from their tags, about a tenth of the view, while boxes read
+#: off views of 80-350 pt were 0.2-5 pt off. So a ``view`` + ``image_box``
+#: anchor from a view wider than this on its longer side is refused for a
+#: mark that is small next to the view (:data:`VIEW_ANCHOR_MIN_FRACTION`).
+VIEW_ANCHOR_MAX_PT = 300.0
+
+#: ... unless the mark is at least this fraction of the view's longer side:
+#: an error of about a tenth of the view is then under half the mark's own
+#: size, and the mark still lands on the thing.
+VIEW_ANCHOR_MIN_FRACTION = 0.25
+
+#: An ``image_box`` covering at least this fraction of its view on BOTH axes
+#: is the view itself (``[0, 0, 999, 999]``), not a thing in it.
+WHOLE_VIEW_FRACTION = 0.95
+
 
 def _pdf_date(when: Optional[datetime] = None) -> str:
     """``D:20260921160934-04'00'`` — a PDF date string for the local clock."""
@@ -214,9 +240,14 @@ class MarkupSpec:
     author: Optional[str] = None
     min_score: int = DEFAULT_FUZZY_MIN_SCORE
     label: Optional[str] = None
+    #: The rendered view a ``view`` + ``image_box`` anchor was read off and
+    #: the box on it, kept beside the converted ``bbox`` so the writer can
+    #: judge how far that box can be trusted (:func:`_view_anchor_problem`).
+    view: Optional[BBox] = None
+    image_box: Optional[BBox] = None
 
     #: Accepted in the JSON beside the fields (see :data:`BBOX_ALIASES` and
-    #: the ``view`` + ``image_box`` anchor); none is stored as given.
+    #: the ``view`` + ``image_box`` anchor).
     INPUT_ONLY = BBOX_ALIASES + ("view", "image_box")
 
     @classmethod
@@ -246,6 +277,7 @@ class MarkupSpec:
                  if raw.get(n) is not None}
         has_image = raw.get("view") is not None or \
             raw.get("image_box") is not None
+        view = image_box = None
         if has_image:
             if raw.get("view") is None or raw.get("image_box") is None:
                 raise ValueError(
@@ -253,9 +285,10 @@ class MarkupSpec:
                     "rendered image shows (PDF points) and image_box the "
                     "thing's box on the 0-999 grid over that image")
             from planlens.document.budget import image_box_to_page
+            view = _as_bbox(raw["view"], "view")
+            image_box = _as_bbox(raw["image_box"], "image_box")
             boxes["view+image_box"] = image_box_to_page(
-                _as_bbox(raw["image_box"], "image_box"),
-                _as_bbox(raw["view"], "view"), 1000, 1000, units="norm1000")
+                image_box, view, 1000, 1000, units="norm1000")
         if len(boxes) > 1:
             raise ValueError(
                 f"the {kind} markup gives its box {len(boxes)} ways "
@@ -281,6 +314,8 @@ class MarkupSpec:
             reply_to=(str(raw["reply_to"]) if raw.get("reply_to") else None),
             author=(str(raw["author"]) if raw.get("author") else None),
             min_score=int(raw.get("min_score") or DEFAULT_FUZZY_MIN_SCORE),
+            view=view,
+            image_box=image_box,
         )
 
 
@@ -426,14 +461,161 @@ def _quote_box_on_line(line, wanted: List[str]) -> Optional[BBox]:
                        line.words[best_at:best_at + best_len]])
 
 
-def _quote_anchor(reader: Document, spec: MarkupSpec
+#: Rows of lettering inside a text object are found on a grey render at this
+#: many pixels per point (a 4 pt letter is 16 px tall: enough to separate rows
+#: one line-gap apart), capped so a large object stays a small render.
+ROW_RENDER_PX_PER_PT = 4.0
+ROW_RENDER_MAX_PX = 2400
+
+#: A pixel darker than this (0-255 grey) is ink.
+INK_LEVEL = 128
+
+
+def _ink_rows(page, box: BBox) -> List[Tuple[BBox, float]]:
+    """The printed rows of lettering inside ``box`` (displayed frame), top
+    to bottom, as ``(row box, inked width in points)`` — from the page's own
+    ink, not from its text, so it works on lettering drawn as strokes.
+
+    The box is rendered grey WITHOUT annotations (a mark written earlier in
+    the same call is not ink of the page), pixel rows holding ink are grouped
+    into runs, and runs closer than a third of a typical row (the dot of an
+    i, an underline) are joined. The inked width — the pixel columns of the
+    row that carry ink — measures how much lettering the row holds, gaps and
+    indents left out. Empty when the box cannot be rendered.
+    """
+    import fitz
+    import numpy as np
+
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0:
+        return []
+    scale = min(ROW_RENDER_PX_PER_PT, ROW_RENDER_MAX_PX / max(w, h))
+    try:
+        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale),
+                              clip=fitz.Rect(*box), colorspace=fitz.csGRAY,
+                              alpha=False, annots=False)
+    except Exception:  # pragma: no cover - a render failure keeps the box
+        return []
+    if pix.width < 1 or pix.height < 1:
+        return []
+    grey = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+        pix.height, pix.stride)[:, :pix.width]
+    ink = grey < INK_LEVEL
+    has_ink = ink.any(axis=1)
+    runs: List[List[int]] = []
+    start = None
+    for i, flag in enumerate(has_ink):
+        if flag and start is None:
+            start = i
+        elif not flag and start is not None:
+            runs.append([start, i])
+            start = None
+    if start is not None:
+        runs.append([start, len(has_ink)])
+    if not runs:
+        return []
+    typical = float(np.median([b - a for a, b in runs]))
+    joined = [runs[0]]
+    for a, b in runs[1:]:
+        if a - joined[-1][1] < typical / 3.0:
+            joined[-1][1] = b
+        else:
+            joined.append([a, b])
+    rows = []
+    for a, b in joined:
+        cols = np.nonzero(ink[a:b].any(axis=0))[0]
+        rows.append(((float(x0 + int(cols[0]) / scale), float(y0 + a / scale),
+                      float(x0 + (int(cols[-1]) + 1) / scale),
+                      float(y0 + b / scale)),
+                     float(cols.size / scale)))
+    return rows
+
+
+def _undoubled(text: str) -> str:
+    """``text`` with any run of three or more words that is immediately
+    repeated written once. AutoCAD stores the first printed line of a
+    hanging-indent paragraph twice in its hidden SHX text ("1. ENSURE FLUSH
+    CONDITIONS AT CURB ENSURE FLUSH CONDITIONS AT CURB RAMP TO ...") — the
+    page prints it once — and real prose never repeats three words in a row,
+    so dropping the copy makes the string read the way the page does."""
+    toks = text.split()
+    low = [t.lower() for t in toks]
+    out: List[str] = []
+    i = 0
+    while i < len(toks):
+        for n in range(min(24, (len(toks) - i) // 2), 2, -1):
+            if low[i:i + n] == low[i + n:i + 2 * n]:
+                out.extend(toks[i:i + n])
+                i += 2 * n
+                break
+        else:
+            out.append(toks[i])
+            i += 1
+    return " ".join(out)
+
+
+def _quoted_rows(line, matched: str, page) -> List[BBox]:
+    """The printed rows of a multi-row text object that ``matched`` sits on.
+
+    A CAD drawing can store a whole notes column as ONE hidden string with
+    one box and no word boxes; a quote from note 4 then matched the column,
+    and the mark went on the column's left edge, half-way down — beside note
+    3, 50-80 pt from the quoted line (live check 2026-10-07). The rows of ink
+    inside the box say where the printed lines are; the quote's place in the
+    string, measured against how much lettering each row holds, says which
+    of them it is on. A row the quote only grazes (an estimate a few letters
+    over a row break) is left out. Empty when the object prints as one row
+    or the quote cannot be placed in it — the caller then keeps the box.
+    """
+    if page is None or not matched:
+        return []
+    rows = _ink_rows(page, line.bbox)
+    if len(rows) < 2:
+        return []
+    text = _undoubled(" ".join(str(line.text or "").split()))
+    want = " ".join(matched.split()).lower()
+    at = text.lower().find(want)
+    if at < 0 or not text:
+        return []
+    # Rows of lettering hold several letters each: more rows than a third of
+    # the characters, or rows whose ink is barely wider than they are tall,
+    # are slices of something else (lettering that reads up the page, a
+    # hatch) — keep the object's box rather than guess.
+    if len(rows) > len(text) / 3.0:
+        return []
+    heights = sorted(b[3] - b[1] for b, _n in rows)
+    widths = sorted(n for _b, n in rows)
+    typical_h = heights[len(heights) // 2]
+    typical_w = widths[len(widths) // 2]
+    if typical_h <= 0 or typical_w < 3.0 * typical_h:
+        return []
+    start, end = at / len(text), (at + len(want)) / len(text)
+    total = float(sum(n for _b, n in rows)) or 1.0
+    picked: List[Tuple[float, BBox]] = []
+    done = 0.0
+    for box, n in rows:
+        a, b = done / total, (done + n) / total
+        done += n
+        overlap = min(end, b) - max(start, a)
+        if overlap > 0:
+            picked.append((overlap / max(min(end - start, b - a), 1e-9), box))
+    if not picked:
+        return []
+    kept = [box for share, box in picked if share >= 0.35]
+    return kept or [max(picked)[1]]
+
+
+def _quote_anchor(reader: Document, spec: MarkupSpec, page=None
                   ) -> Tuple[Optional[_Anchor], Optional[str]]:
     """The boxes of the words ``spec.quote`` matches on its page.
 
     Exact first, then the fuzzy pass, because those are the two readings of an
     exact miss and a review tool must not treat the first as the only one. One
     box per line the match touches, narrowed to the matched words where the
-    page's own word boxes can say which those are.
+    page's own word boxes can say which those are, and to the printed row
+    the quote is on where a line with no word boxes spans several
+    (:func:`_quoted_rows`; ``page`` is the ``fitz.Page`` whose ink is read).
     """
     res = reader.search(spec.quote, pages=spec.page, include_markups=False,
                         max_hits=1)
@@ -458,7 +640,14 @@ def _quote_anchor(reader: Document, spec: MarkupSpec
         line = content.line(line_id)
         if line is None:
             continue
-        boxes.append(_quote_box_on_line(line, wanted) or line.bbox)
+        narrowed = _quote_box_on_line(line, wanted)
+        if narrowed is not None:
+            boxes.append(narrowed)
+        elif not line.words:
+            boxes.extend(_quoted_rows(line, str(hit.get("match") or ""), page)
+                         or [line.bbox])
+        else:
+            boxes.append(line.bbox)
     if not boxes:
         boxes = [_as_bbox(hit["bbox"], "hit bbox")]
     first = boxes[0]
@@ -467,9 +656,53 @@ def _quote_anchor(reader: Document, spec: MarkupSpec
                    score=hit.get("score")), None
 
 
-def _resolve_anchor(spec: MarkupSpec, reader_for_quote, markups_on_page
-                    ) -> Tuple[Optional[_Anchor], Optional[str]]:
-    """The one anchor a spec names, or the reason it could not be used."""
+def _view_anchor_problem(spec: MarkupSpec) -> Optional[str]:
+    """Why a ``view`` + ``image_box`` anchor cannot place this mark, or None.
+
+    Two cases, both from the live checks of 2026-10-07: the box is the whole
+    view (an agent passed ``[0, 0, 999, 999]`` of a zoom and got a ring round
+    the whole window), or the view is much wider than the mark (rings placed
+    from whole-sheet looks landed 20-90 pt from 10 pt tags). See
+    :data:`VIEW_ANCHOR_MAX_PT`. A callout's box beside its ``points_at`` only
+    says where its text goes, so it is never judged.
+    """
+    if spec.view is None or spec.bbox is None:
+        return None
+    if spec.kind == "callout" and spec.points_at is not None:
+        return None
+    vx0, vy0, vx1, vy1 = spec.view
+    vw, vh = vx1 - vx0, vy1 - vy0
+    if vw <= 0 or vh <= 0:
+        return None
+    bx0, by0, bx1, by1 = spec.bbox
+    bw, bh = bx1 - bx0, by1 - by0
+    if bw >= WHOLE_VIEW_FRACTION * vw and bh >= WHOLE_VIEW_FRACTION * vh:
+        return (f"image_box is the whole {vw:.0f} x {vh:.0f} pt view, not a "
+                f"thing in it: a {spec.kind} round a whole view does not say "
+                f"which thing it means. Box the thing itself in that view "
+                f"(its own image_box), or zoom on it with render_region and "
+                f"anchor on the zoom's view + the thing's image_box; to mark "
+                f"the whole region on purpose, pass its rect as bbox")
+    side = max(vw, vh)
+    if side > VIEW_ANCHOR_MAX_PT and \
+            max(bw, bh) < VIEW_ANCHOR_MIN_FRACTION * side:
+        return (f"this {bw:.0f} x {bh:.0f} pt box was read off a "
+                f"{vw:.0f} x {vh:.0f} pt view, and a box read off a view that "
+                f"wide can be off by about a tenth of it (~{0.1 * side:.0f} "
+                f"pt) — more than the {spec.kind} itself, so it would land "
+                f"beside the thing. Zoom on the thing first (render_region "
+                f"with this view + image_box) and anchor on the ZOOM's view + "
+                f"the thing's image_box in it: a view of "
+                f"{VIEW_ANCHOR_MAX_PT:.0f} pt or less in which the thing is "
+                f"legible")
+    return None
+
+
+def _resolve_anchor(spec: MarkupSpec, reader_for_quote, markups_on_page,
+                    page=None) -> Tuple[Optional[_Anchor], Optional[str]]:
+    """The one anchor a spec names, or the reason it could not be used.
+    ``page`` (the ``fitz.Page`` being written) lets a quote on a multi-row
+    text object find its printed row."""
     named = [n for n, v in (("quote", spec.quote), ("bbox", spec.bbox),
                             ("point", spec.point),
                             ("reply_to", spec.reply_to)) if v is not None]
@@ -500,7 +733,7 @@ def _resolve_anchor(spec: MarkupSpec, reader_for_quote, markups_on_page
         return None, (f"a {spec.kind} names {len(named)} anchors "
                       f"({', '.join(named)}); give exactly one")
     if spec.quote is not None:
-        return _quote_anchor(reader_for_quote(), spec)
+        return _quote_anchor(reader_for_quote(), spec, page)
     if spec.bbox is not None:
         x0, y0, x1, y1 = spec.bbox
         return _Anchor(how="bbox", boxes=[spec.bbox],
@@ -714,6 +947,17 @@ def _place(page, spec: MarkupSpec, anchor: _Anchor, author: str, created: str
     w, h = probe.rect.width, probe.rect.height
     probe.set_rect(_rect(page, from_display_bbox(
         page, (spot[0], spot[1], spot[0] + w, spot[1] + h))))
+    # MuPDF still hangs a sticky-note icon from a different corner on a
+    # /Rotate 90, 180 or 270 page — measured: one icon size (16 pt) right,
+    # down, or both of the spot. So the DISPLAYED box is read back and the
+    # icon moved by what it missed by, which puts its displayed top-left on
+    # the spot at every rotation.
+    shown = to_display_bbox(page, probe.rect)
+    dx, dy = spot[0] - shown[0], spot[1] - shown[1]
+    if abs(dx) > 0.05 or abs(dy) > 0.05:
+        probe.set_rect(_rect(page, from_display_bbox(
+            page, (spot[0] + dx, spot[1] + dy,
+                   spot[0] + dx + w, spot[1] + dy + h))))
     annot = probe
     annot.set_colors(stroke=KIND_COLOR[spec.kind])
     _finish(annot, spec, author, created)
@@ -783,8 +1027,14 @@ def write_markups(source: Union[str, bytes],
                                                                 index)[0]
                 return annots_by_page[index]
 
+            problem = _view_anchor_problem(spec)
+            if problem is not None:
+                report.skipped.append({
+                    "index": index, "page": spec.page, "kind": spec.kind,
+                    "reason": problem})
+                continue
             anchor, reason = _resolve_anchor(spec, reader_for_quote,
-                                             markups_on_page)
+                                             markups_on_page, page)
             if anchor is None:
                 report.skipped.append({
                     "index": index, "page": spec.page, "kind": spec.kind,
