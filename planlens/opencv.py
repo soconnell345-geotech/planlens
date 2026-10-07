@@ -1,7 +1,8 @@
 """Loading OpenCV without risking the process.
 
-planlens needs OpenCV only for raster work: ``find_like``, the raster leg of
-the drawing IR, and OCR. On some hosts loading OpenCV's native library does
+planlens uses OpenCV only for raster work: the raster leg of the drawing IR
+and OCR need it, and ``find_like`` uses it where it loads (a numpy matcher
+serves everywhere else). On some hosts loading OpenCV's native library does
 not raise, it KILLS the interpreter: on a host whose OpenSSL enforces FIPS
 mode, the bundled crypto library fails its self-test and aborts the process
 (SIGABRT, exit -6 — Palantir Foundry, 2026-10-03). There is no exception to

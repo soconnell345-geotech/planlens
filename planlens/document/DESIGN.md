@@ -775,6 +775,21 @@ shape the answer:
   of the lettering itself stay inside the tag. The path's far vertex is where
   the leader points.
 
+**Two matchers (after 0.11.0).** OpenCV cannot be loaded on the hosts the
+users are on — its wheel's OpenSSL fails the FIPS self-test and aborts the
+process (Foundry, Funhouse) — so the correlation also exists in numpy alone,
+computing the same score: the page in square FFT tiles overlapping by a
+template plus a peak window (so the hill-top test never needs another tile),
+each tile correlated with the ZERO-MEAN example (the numerator outright),
+window sums and sums of squares from integral images (exact, the ink is
+integer), flat windows scored 0, a half turn as convolution with the quarter
+turn's spectrum, and one tile size per scale (memory: two template spectra
+and one tile at a time). The scales come from a port of `cv2.resize`. Same
+hits on the tag fixtures; the only differences are which of several EXACTLY
+tied positions counts as a hill's top (float32 against float64 rounding),
+which the default threshold never meets there. `PLANLENS_FINDLIKE_BACKEND`
+or `backend=` chooses; `auto` takes OpenCV where it loads.
+
 The fixture (`planlens.testing.tag_fixtures`) draws that set with a small
 single-stroke font so the tests exercise stroke lettering, not a text layer. A host sets `ReviewToolkit(image_budget=...,
 image_format="auto")` for the model it runs.

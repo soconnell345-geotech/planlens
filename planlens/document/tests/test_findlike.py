@@ -7,6 +7,11 @@ look-alikes (GCG, GPE, QCE), bare tags and tags turned 90 degrees. Pinned:
 every on-plan GCE is found once, each callout's leader tip is located, the
 legend is set apart, a larger legend example still finds the plan's tags, and
 the contact sheets come out numbered in hit order.
+
+Every search runs on BOTH matchers — OpenCV where it loads, numpy anywhere
+(the FIPS hosts, where loading OpenCV aborts the process) — and the two are
+held to the same hits: the matcher itself to OpenCV's ``matchTemplate``, the
+numpy resize to ``cv2.resize``.
 """
 
 import math
@@ -14,10 +19,27 @@ import math
 import pytest
 
 fitz = pytest.importorskip("fitz")
-pytest.importorskip("cv2")
+np = pytest.importorskip("numpy")
 
+from planlens import opencv  # noqa: E402
 from planlens.document import Document  # noqa: E402
+from planlens.document import findlike as fl  # noqa: E402
 from planlens.testing.tag_fixtures import build_synthetic_tag_set  # noqa: E402
+
+
+def _need_opencv():
+    ok, why = opencv.available()
+    if not ok:
+        pytest.skip(why)
+    import cv2
+    return cv2
+
+
+@pytest.fixture(scope="module", params=fl.BACKENDS)
+def backend(request):
+    if request.param == "opencv":
+        _need_opencv()
+    return request.param
 
 
 @pytest.fixture(scope="module")
@@ -26,11 +48,25 @@ def gt():
 
 
 @pytest.fixture(scope="module")
-def result(gt):
-    d = Document(content=gt.pdf)
-    res = d.find_like(0, gt.example_bbox)
-    yield d, res
-    d.close()
+def searches(gt):
+    """One search of the fixture per matcher, shared by the module."""
+    done, docs = {}, []
+
+    def run(backend):
+        if backend not in done:
+            d = Document(content=gt.pdf)
+            docs.append(d)
+            done[backend] = (d, d.find_like(0, gt.example_bbox, backend=backend))
+        return done[backend]
+
+    yield run
+    for d in docs:
+        d.close()
+
+
+@pytest.fixture(scope="module")
+def result(searches, backend):
+    return searches(backend)
 
 
 def _tag_of(gt, hit, tol=6.0):
@@ -93,19 +129,20 @@ def test_look_alikes_are_candidates_not_answers(gt, result):
     assert max(h.score for h in res["hits"]) > 0.95
 
 
-def test_the_example_and_the_counts(gt, result):
+def test_the_example_and_the_counts(gt, result, backend):
     _, res = result
     ex = res["example"]
     assert ex["page"] == 0 and 4.0 < ex["height_pt"] < 5.5
     assert set(res["counts"]) == {"callout", "legend", "unanchored"}
     assert res["pages"] == [0, 1, 2]
+    assert res["backend"] == backend
 
 
-def test_a_larger_legend_example_still_finds_the_plan_tags():
+def test_a_larger_legend_example_still_finds_the_plan_tags(backend):
     gt2 = build_synthetic_tag_set(legend_cap_in=0.085, n_pages=2)
     d = Document(content=gt2.pdf)
     try:
-        res = d.find_like(0, gt2.example_bbox)
+        res = d.find_like(0, gt2.example_bbox, backend=backend)
         for t in [t for t in gt2.of("GCE") if t.kind != "legend"]:
             hits = _hits_on(gt2, res, t)
             assert len(hits) == 1 and hits[0].scale < 0.85, (t, hits)
@@ -113,21 +150,215 @@ def test_a_larger_legend_example_still_finds_the_plan_tags():
         d.close()
 
 
-def test_an_empty_box_is_refused(gt, result):
+def test_an_empty_box_is_refused(gt, result, backend):
     d, _ = result
     with pytest.raises(ValueError, match="no ink"):
-        d.find_like(0, (5, 5, 20, 12))
+        d.find_like(0, (5, 5, 20, 12), backend=backend)
     with pytest.raises(ValueError, match="bbox"):
-        d.find_like(0, (20, 5, 5, 12))
+        d.find_like(0, (20, 5, 5, 12), backend=backend)
 
 
-def test_contact_sheets_are_numbered_in_hit_order(gt, result):
+def test_a_box_inside_solid_ink_is_refused():
+    doc = fitz.open()
+    page = doc.new_page(width=200, height=200)
+    page.draw_rect(fitz.Rect(20, 20, 120, 120), color=(0, 0, 0), fill=(0, 0, 0))
+    d = Document(content=doc.tobytes())
+    doc.close()
+    try:
+        with pytest.raises(ValueError, match="solid ink"):
+            d.find_like(0, (40, 40, 60, 60), backend="numpy")
+    finally:
+        d.close()
+
+
+def test_contact_sheets_are_numbered_in_hit_order(gt, result, backend):
     d, res = result
     cand = [h for h in res["hits"] if h.context != "legend"]
-    sheets = d.like_sheets(cand, per_sheet=20, cols=4)
+    sheets = d.like_sheets(cand, per_sheet=20, cols=4, backend=backend)
     assert len(sheets) == math.ceil(len(cand) / 20)
     assert sheets[0][1][:3] == [1, 2, 3]
     assert sheets[-1][1][-1] == len(cand)
     png, _ = sheets[0]
     pix = fitz.Pixmap(png)
     assert pix.width == 4 * 460
+    assert pix.height == 5 * (190 + 30)
+
+
+# -- the two matchers are one answer ---------------------------------------------
+
+def _hit_key(h):
+    return (h.page, tuple(round(v, 3) for v in h.bbox), h.rotation, h.scale,
+            h.context, h.points_to)
+
+
+def test_the_two_matchers_find_the_same_hits(searches):
+    """Same hits (page, box, turn, scale, context, leader tip), scores within
+    1e-4. Only the ORDER of hits whose scores tie may differ: the legend
+    repeats the same strokes, and float32 (OpenCV) and float64 (numpy) break
+    a tie of equal scores differently."""
+    _need_opencv()
+    _, a = searches("opencv")
+    _, b = searches("numpy")
+    sa = {_hit_key(h): h.score for h in a["hits"]}
+    sb = {_hit_key(h): h.score for h in b["hits"]}
+    assert len(sa) == len(a["hits"]) and len(sb) == len(b["hits"])
+    assert sa.keys() == sb.keys()
+    assert max(abs(sa[k] - sb[k]) for k in sa) < 1e-4
+    assert a["counts"] == b["counts"]
+    for x, y in zip(a["hits"], b["hits"]):          # order: up to ties
+        assert x.page == y.page and abs(x.score - y.score) < 1e-4
+
+
+def _passes(cv2, tpl, scales=(0.5, 1.0, 1.948)):
+    out = []
+    for sc in scales:
+        t = tpl if sc == 1 else cv2.resize(
+            tpl, None, fx=sc, fy=sc,
+            interpolation=cv2.INTER_AREA if sc < 1 else cv2.INTER_LINEAR)
+        out.append(t)
+    return out
+
+
+@pytest.mark.parametrize("threshold", [fl.DEFAULT_THRESHOLD, 0.4])
+def test_the_numpy_matcher_is_opencvs_matchtemplate(gt, threshold):
+    """Same template in, same hill tops out, scores within 1e-5 (OpenCV
+    correlates in float32, numpy in float64). At the default threshold the
+    positions are identical. Lower, a small template sliding along a wall
+    scores EXACTLY the same at neighbouring positions, and which of those
+    tied positions counts as the top is decided by rounding: every position
+    the two disagree on must be such a tie."""
+    cv2 = _need_opencv()
+    d = Document(content=gt.pdf)
+    try:
+        tpl, _ = fl._example(d._doc[0], gt.example_bbox, fl.DEFAULT_DPI)
+        ink = fl._ink(d._doc[1], fl.DEFAULT_DPI)
+    finally:
+        d.close()
+    turns = [0, 1, 2, 3]
+    n = 0
+    for t in _passes(cv2, tpl):
+        a = fl._peaks_opencv(ink, t, turns, threshold)
+        b = fl._peaks_numpy(ink, t, turns, threshold)
+        for k, (ya, xa, va), (yb, xb, vb) in zip(turns, a, b):
+            pa = dict(zip(zip(ya.tolist(), xa.tolist()), va.tolist()))
+            pb = dict(zip(zip(yb.tolist(), xb.tolist()), vb.tolist()))
+            both = pa.keys() & pb.keys()
+            assert all(abs(pa[p] - pb[p]) < 1e-5 for p in both)
+            n += len(both)
+            if threshold == fl.DEFAULT_THRESHOLD:
+                assert pa.keys() == pb.keys()
+                continue
+            tr = np.ascontiguousarray(np.rot90(t, k))
+            res = cv2.matchTemplate(ink, tr, cv2.TM_CCOEFF_NORMED)
+            ry, rx = fl._peak_radii(*tr.shape)
+            for y, x in pa.keys() ^ pb.keys():
+                win = res[max(0, y - ry):y + ry + 1, max(0, x - rx):x + rx + 1]
+                assert win.max() - res[y, x] < 1e-6, (k, y, x)
+    assert n > 50
+
+
+@pytest.mark.parametrize("threshold", [0.3, 0.0, -0.5])
+def test_the_numpy_matcher_at_any_threshold(threshold):
+    """On noise (no tied scores) every window can be a candidate: the dense
+    peak filter and a threshold at or below zero agree with OpenCV too."""
+    _need_opencv()
+    rng = np.random.default_rng(7)
+    ink = rng.integers(0, 256, (180, 260)).astype(np.uint8)
+    ink[60:120, 90:170] = 0                       # flat paper scores 0
+    t = ink[20:31, 30:47].copy()
+    a = fl._peaks_opencv(ink, t, [0, 1, 2, 3], threshold)
+    b = fl._peaks_numpy(ink, t, [0, 1, 2, 3], threshold)
+    for (ya, xa, va), (yb, xb, vb) in zip(a, b):
+        assert np.array_equal(ya, yb) and np.array_equal(xa, xb)
+        if len(ya):
+            assert np.abs(va - vb).max() < 1e-5
+    assert len(a[0][0])                           # the template's own place
+
+
+def test_the_hill_top_filters_agree():
+    """The per-candidate window test and the dense max filter are the same
+    rule (the dense one takes over when nearly everything is a candidate)."""
+    rng = np.random.default_rng(3)
+    num = rng.normal(size=(40, 70))
+    den = np.ones_like(num) * 3.0
+    den[5:9, 10:20] = np.inf
+    cy, cx = np.nonzero(num / den > -0.2)
+    m1, v1 = fl._hill_tops(num, den, cy, cx, 2, 4, -0.2)
+    r = fl._clamp(num / den)
+    m2 = (r[cy, cx] >= -0.2) & (r[cy, cx] >= fl._max_filter(r, 2, 4)[cy, cx])
+    assert np.array_equal(m1, m2) and m1.any() and not m1.all()
+    sub = slice(None, None, 37)                   # few candidates: gathered
+    m3, _ = fl._hill_tops(num, den, cy[sub], cx[sub], 2, 4, -0.2)
+    assert np.array_equal(m3, m2[sub])
+
+
+def test_the_numpy_resize_is_cv2s(gt):
+    """Area shrink pixel for pixel; bilinear enlargement within one grey
+    level on under 1 % of pixels."""
+    cv2 = _need_opencv()
+    d = Document(content=gt.pdf)
+    try:
+        tpl, _ = fl._example(d._doc[0], gt.example_bbox, fl.DEFAULT_DPI)
+    finally:
+        d.close()
+    rng = np.random.default_rng(1)
+    imgs = [tpl, rng.integers(0, 256, (37, 81)).astype(np.uint8),
+            rng.integers(0, 256, (11, 9)).astype(np.uint8)]
+    lin_diff = lin_px = 0
+    for img in imgs:
+        for f in list(fl.DEFAULT_SCALES) + [0.25, 0.333, 0.62, 0.73, 2.5]:
+            a = cv2.resize(img, None, fx=f, fy=f, interpolation=(
+                cv2.INTER_AREA if f < 1 else cv2.INTER_LINEAR))
+            b = fl._np_resize(img, f)
+            assert a.shape == b.shape, (img.shape, f)
+            dd = np.abs(a.astype(int) - b.astype(int))
+            if f < 1:
+                assert not dd.any(), (img.shape, f)
+            else:
+                assert dd.max() <= 1, (img.shape, f)
+                lin_diff += int((dd > 0).sum())
+                lin_px += dd.size
+    assert lin_diff < 0.01 * lin_px
+
+
+# -- choosing the matcher ----------------------------------------------------------
+
+@pytest.fixture
+def no_opencv(monkeypatch):
+    monkeypatch.setattr(opencv, "available",
+                        lambda: (False, "OpenCV cannot load on this host"))
+    monkeypatch.delenv(fl.BACKEND_ENV, raising=False)
+
+
+def test_auto_falls_back_to_numpy_where_opencv_cannot_load(no_opencv):
+    assert fl.resolve_backend() == "numpy"
+    assert fl.available() == (True, "")
+    with pytest.raises(ImportError, match="cannot load"):
+        fl.resolve_backend("opencv")
+
+
+def test_the_switch_and_the_argument(no_opencv, monkeypatch):
+    monkeypatch.setenv(fl.BACKEND_ENV, "opencv")
+    ok, why = fl.available()
+    assert not ok and "cannot load" in why
+    assert fl.resolve_backend("numpy") == "numpy"   # the argument wins
+    monkeypatch.setenv(fl.BACKEND_ENV, "numpy")
+    monkeypatch.setattr(opencv, "available", lambda: pytest.fail("probed"))
+    assert fl.resolve_backend() == "numpy" and fl.available() == (True, "")
+    monkeypatch.setenv(fl.BACKEND_ENV, "gpu")
+    ok, why = fl.available()
+    assert not ok and fl.BACKEND_ENV in why
+    with pytest.raises(ValueError, match="auto, numpy or opencv"):
+        fl.resolve_backend()
+
+
+def test_the_numpy_path_never_loads_opencv(gt, no_opencv, monkeypatch):
+    monkeypatch.setattr(opencv, "load", lambda: pytest.fail("OpenCV loaded"))
+    d = Document(content=gt.pdf)
+    try:
+        res = d.find_like(0, gt.example_bbox, pages="0", scales=(0.5, 1.0, 1.5))
+        assert res["backend"] == "numpy" and res["counts"]["callout"] >= 5
+        sheets = d.like_sheets(res["hits"][:3])
+        assert fitz.Pixmap(sheets[0][0]).width == 4 * 460
+    finally:
+        d.close()

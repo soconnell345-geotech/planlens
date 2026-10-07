@@ -76,17 +76,24 @@ def test_not_installed_says_so(monkeypatch):
     assert not ok and "not installed" in why
 
 
-def test_find_like_raises_instead_of_dying(monkeypatch):
-    fitz = pytest.importorskip("fitz")
+def test_find_like_searches_without_opencv_instead_of_dying(monkeypatch):
+    """Where OpenCV cannot load, find_like uses its numpy matcher (it used to
+    raise ImportError here, which on a FIPS host meant no find_like at all);
+    OpenCV asked for by name still refuses with the reason."""
+    pytest.importorskip("fitz")
     from planlens.document import Document
+    from planlens.document import findlike
     from planlens.testing.tag_fixtures import build_synthetic_tag_set
-    gt = build_synthetic_tag_set()
+    gt = build_synthetic_tag_set(n_pages=1)
     monkeypatch.setattr(opencv, "available",
                         lambda: (False, "OpenCV cannot load on this host"))
+    monkeypatch.delenv(findlike.BACKEND_ENV, raising=False)
     d = Document(content=gt.pdf)
     try:
+        res = d.find_like(0, gt.example_bbox, scales=(1.0,))
+        assert res["backend"] == "numpy" and res["hits"]
         with pytest.raises(ImportError, match="cannot load"):
-            d.find_like(0, gt.example_bbox)
+            d.find_like(0, gt.example_bbox, backend="opencv")
     finally:
         d.close()
 

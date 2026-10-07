@@ -1,4 +1,6 @@
-"""The find_like tool: one example box in, candidates + contact sheets out."""
+"""The find_like tool: one example box in, candidates + contact sheets out —
+on both matchers (OpenCV where it loads, numpy anywhere), chosen the way a
+host chooses: by PLANLENS_FINDLIKE_BACKEND."""
 
 import json
 import os
@@ -6,8 +8,9 @@ import os
 import pytest
 
 fitz = pytest.importorskip("fitz")
-pytest.importorskip("cv2")
 
+from planlens import opencv  # noqa: E402
+from planlens.document import findlike  # noqa: E402
 from planlens.testing.tag_fixtures import build_synthetic_tag_set  # noqa: E402
 from planlens.tools import ReviewToolkit  # noqa: E402
 
@@ -17,8 +20,18 @@ def gt():
     return build_synthetic_tag_set(n_pages=2)
 
 
+@pytest.fixture(params=findlike.BACKENDS)
+def backend(request, monkeypatch):
+    if request.param == "opencv":
+        ok, why = opencv.available()
+        if not ok:
+            pytest.skip(why)
+    monkeypatch.setenv(findlike.BACKEND_ENV, request.param)
+    return request.param
+
+
 @pytest.fixture
-def kit(gt, tmp_path):
+def kit(gt, tmp_path, backend):
     k = ReviewToolkit(resolve_source=lambda key: gt.pdf,
                       output_dir=str(tmp_path / "img"), max_chars=60000)
     yield k

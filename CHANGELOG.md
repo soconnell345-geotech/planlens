@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased
+
+- **`find_like` runs where OpenCV cannot load.** On every government host
+  this runs on (Palantir Foundry, Funhouse/Databricks), the OpenCV wheel's
+  bundled OpenSSL fails the FIPS self-test and aborts the interpreter, so
+  since 0.11.0 `find_like` raised `ImportError` there and hosts hid it: it had
+  never run where its users are (a live check on 2026-10-07 had GPT-5.4
+  placing circles 40-80 pt off tags it could have had exact boxes for). It
+  now has a second matcher in numpy alone that computes the same score as
+  OpenCV's `matchTemplate(TM_CCOEFF_NORMED)`: the page in overlapping FFT
+  tiles correlated with the zero-mean example (the numerator outright),
+  window sums and sums of squares from integral images (exact integers),
+  windows with no contrast scored 0, OpenCV's hill-top rule inside each tile,
+  and a half turn as a convolution with the quarter turn's spectrum. The
+  example's scales come from a numpy port of `cv2.resize` (area shrink
+  pixel-exact, bilinear enlargement within one grey level on under 1 % of
+  pixels), and the contact sheets are drawn with numpy and PyMuPDF.
+  **Measured against OpenCV** (2026-10-07, every search at the defaults: 13
+  scales x 4 turns, 150 dpi): the same hits and the same callout / legend /
+  unanchored counts on the 3-sheet tag fixture (219 hits), the app suite's
+  24-sheet set (1,705) and a 34x22 in sheet of four tiled fixtures (294);
+  scores within 3.9e-5 (mean 6e-7). Only hits whose scores TIE exactly (the
+  legend repeats the same strokes) can come back in another order: float32
+  and float64 break a tie differently. Seconds a page, best of rounds on one
+  laptop:
+
+  | set | OpenCV, 1 worker | numpy, 1 worker | OpenCV, 4 workers | numpy, 4 workers |
+  |---|---|---|---|---|
+  | 3 sheets 11x17 (4.2 MP) | 6.2 | 8.2 | 4.4 | 7.0 |
+  | 24 sheets 11x17 | 7.6 | 7.9 | 3.4 | 5.4 |
+  | 1 sheet 34x22 in (16.8 MP) | 24.6 | 30.3 | — | — |
+
+  Beyond the page raster itself, the numpy matcher's working memory is one
+  FFT tile and the template spectra of one scale per page worker, whatever
+  the page size.
+  - **Choosing:** `PLANLENS_FINDLIKE_BACKEND` = `auto` (default: OpenCV where
+    `planlens.opencv.available()` says it loads, numpy otherwise) | `numpy` |
+    `opencv`; `find_like(..., backend=)` and `like_sheets(..., backend=)`
+    override it, and the result carries `"backend"`. OpenCV asked for by name
+    where it cannot load raises `ImportError` with the reason.
+  - **Asking:** `planlens.document.findlike.available() -> (ok, reason)` says
+    whether a search can run here at all: true wherever numpy and PyMuPDF
+    are; false only when the switch asks for OpenCV by name and it cannot
+    load, or names no matcher. It does not test-load OpenCV unless asked for
+    it by name. `resolve_backend()` names the matcher a search would use.
+  - A box inside solid ink (no paper in the example) is refused with a
+    `ValueError`; OpenCV scored such a template 1 against every window.
+  - The OpenCV path returns exactly what 0.11.0 returned (checked hit for
+    hit). Only `find_like` changed: the raster drawing-IR leg and OCR still
+    need OpenCV and still raise `ImportError` on those hosts.
+
 ## 0.11.0 — 2026-10-04
 
 - **OpenCV is test-loaded before it is loaded** (`planlens.opencv`). On a
