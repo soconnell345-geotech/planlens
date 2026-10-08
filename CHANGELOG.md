@@ -78,6 +78,15 @@
     refused; twelve grading sheets read, every plotted point within 0.4 % of
     its printed table value and 0.01 of a decade in size.
 
+## 0.12.0 — 2026-10-08
+
+Released from branch `release/0.12.0` (cut from 08a1d53). Measured before
+release on Palantir Foundry (the app's brief 4, GPT-5.4 and GPT-5.6 Sol,
+0.12.0rc1): marks placed from zooms landed 0.1-3.8 pt from their tags,
+quote anchors on a CAD notes column landed on their line, and `find_like`
+on the numpy matcher gave the same hits as OpenCV. The visual-scales work
+above came after it and is not in 0.12.0.
+
 - **Marks land where the thing is (live check on Funhouse, 2026-10-07).**
   - **A `view` + `image_box` anchor is judged by the view it came from.** A
     box read off a rendered image is only as good as the view: boxes read
