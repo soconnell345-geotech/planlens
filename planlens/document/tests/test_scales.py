@@ -129,6 +129,64 @@ def test_an_even_grid_is_not_a_log_decade():
     assert S.log_decades([10.0 * k for k in range(12)]) is None
 
 
+def _pairs_reference(ps, tol):
+    """The plain-loop pair search as it was before it was vectorised
+    (2026-10-08): the vectorised one must give the same answer to the bit."""
+    n = len(ps)
+    mant = [math.log10(k) for k in range(1, 10)] + [1.0]
+    min_gap = min((b - a for a, b in zip(ps, ps[1:]) if b - a > 1e-6),
+                  default=0.0)
+    min_dec = max(20.0, 0.8 * min_gap / 0.0458)
+    best = None
+    for i in range(n):
+        for j in range(i + 1, n):
+            dec = ps[j] - ps[i]
+            if dec < min_dec:
+                continue
+            for falling in (False, True):
+                major = ps[j] if falling else ps[i]
+                sign = -1.0 if falling else 1.0
+                hits = 0
+                worst = 0.0
+                for p in ps:
+                    x = sign * (p - major) / dec
+                    d = math.floor(x)
+                    frac = x - d
+                    dist = min(abs(frac - m) for m in mant)
+                    if dist * dec <= max(0.6, tol * dec):
+                        hits += 1
+                        worst = max(worst, dist)
+                if best is None or hits > best[0] or (
+                        hits == best[0] and worst < best[1]):
+                    best = (hits, worst, (j if falling else i), dec, falling)
+    if best is None or best[0] < 10 or best[0] < 0.85 * n:
+        return None
+    hits, worst, mi, dec, falling = best
+    return (worst, mi, dec, falling)
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_the_pair_search_is_the_plain_loop_vectorised(seed):
+    import random
+    rng = random.Random(seed)
+    kind = seed % 4
+    if kind == 0:      # a log grid with lines lost and jitter
+        pos = _log_lines(50.0 + rng.uniform(0, 80), rng.uniform(60, 140),
+                         rng.randint(2, 4),
+                         drop=tuple(rng.sample(range(30), 4)),
+                         falling=bool(seed % 2))
+        pos = [p + rng.gauss(0, 0.2) for p in pos]
+    elif kind == 1:    # an even grid
+        pos = [20.0 + 13.7 * k + rng.gauss(0, 0.3) for k in range(14)]
+    elif kind == 2:    # rows of text projected as lines: irregular
+        pos = sorted(rng.uniform(0, 600) for _ in range(rng.randint(10, 30)))
+    else:              # a clean log grid
+        pos = _log_lines(100.0, rng.uniform(70, 120), rng.randint(2, 3))
+    pos = sorted(pos)
+    for tol in (0.015, 0.035):
+        assert S._log_decades_by_pairs(pos, tol) == _pairs_reference(pos, tol)
+
+
 # -- uncertainty, confidence, display --------------------------------------------------
 
 def _scale(**kw):

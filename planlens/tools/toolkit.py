@@ -1060,12 +1060,18 @@ class ReviewToolkit:
         return out
 
     def _tool_log_grid(self, handle: str, pages: Any = None,
-                       rows: bool = True, offset: int = 0) -> Dict[str, Any]:
+                       rows: bool = True, offset: int = 0,
+                       values: Any = None) -> Dict[str, Any]:
         from planlens.document.loggrid import log_grid
 
+        if values is not None and not isinstance(values, (dict, list)):
+            raise ToolError("values is {page: [label values, ...]}",
+                            hint="one value per label box listed under "
+                                 "needs_values, in that order, null for one "
+                                 "that cannot be read")
         entry = self._entry(handle)
         with entry.lock:
-            grid = log_grid(entry.doc, pages)
+            grid = log_grid(entry.doc, pages, values=values)
         payload = grid.to_dict(rows=False)
         out: Dict[str, Any] = {
             "handle": handle,
@@ -1080,6 +1086,17 @@ class ReviewToolkit:
                      "\"5-9-12\". Depths are in depth_unit. Anything the "
                      "geometry could not settle is in warnings"),
         }
+        if payload.get("needs_values"):
+            # A scan with no text: the depth labels were found in the pixels
+            # and their values are the caller's to read (planlens calls no
+            # model). Said first, because until then nothing carries a depth.
+            out["needs_values"] = payload["needs_values"]
+            out["needs_values_note"] = (
+                "the depth labels of these pages were found in the pixels "
+                "but have no text: read each label box and call again with "
+                "values={page: [value, ...]} (one per box, in the order "
+                "listed, null for one that cannot be read; the label as "
+                "printed, e.g. \"1.0\", keeps its resolution)")
         if grid.warnings:
             out["warnings"] = payload["warnings"]
             out["look"] = self._look([

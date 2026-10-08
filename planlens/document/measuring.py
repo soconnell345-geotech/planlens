@@ -663,13 +663,18 @@ def measure(doc, page: int, where: Any = None, kind: str = "line", *,
     from planlens.document.scalefinder import find_scales
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {list(KINDS)}")
-    ps = find_scales(doc, page, values=values, dpi=dpi)
     box = _norm_box(where)
     if box is None:
+        ps = find_scales(doc, page, values=values, dpi=dpi)
         return {"page": ps.page, "scales": inventory(ps)}
-    facts = ps.extra["facts"]
     p = float(pad) if pad is not None else default_pad(box)
     window = (box[0] - p, box[1] - p, box[2] + p, box[3] + p)
+    # Only the frames that can hold the box are looked for (a whole-page
+    # analysis already made serves too): the speed of a measure on a dense
+    # scanned page is then the speed of its pixels, not of its hundreds of
+    # ruled boxes.
+    ps = find_scales(doc, page, values=values, dpi=dpi, near=window)
+    facts = ps.extra["facts"]
     centre = ((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0)
     warnings: List[str] = []
     list_only = False

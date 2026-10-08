@@ -127,3 +127,40 @@ def test_the_existing_vector_logs_read_exactly_as_before(builder):
                                                r0.ticks)
     assert r.evidence.get("anchor_rule_kind") in ("frames", "centred_assumed")
     assert [ly.top for ly in g.layers] == [ly.top for ly in g0.layers]
+
+
+def _printed(fx, boxes):
+    """The labels as PRINTED for each box (the text a reader of the crops
+    would write), so the print's resolution travels with the values."""
+    out = []
+    for v in fx.values_for(boxes):
+        if v is None:
+            out.append(None)
+            continue
+        lab = next(lb for lb in fx.labels if lb.value == v)
+        out.append(lab.text)
+    return out
+
+
+def test_values_given_as_printed_labels_read_the_same_page():
+    fx = build_log(LogVariant("lg_printed", skew_deg=0.3, seed=67))
+    doc = fx.open()
+    g = log_grid(doc, [0])
+    boxes = g.needs_values[0]["labels"]
+    by_number = log_grid(doc, [0], values={0: fx.values_for(boxes)})
+    by_text = log_grid(doc, [0], values={0: _printed(fx, boxes)})
+    assert not by_text.needs_values and by_text.rulers
+    assert [round(ly.top, 4) for ly in _tops(by_text)] == \
+        [round(ly.top, 4) for ly in _tops(by_number)]
+
+
+def test_values_of_the_wrong_count_are_refused_and_said_so():
+    fx = build_log(LogVariant("lg_count", skew_deg=0.3, seed=68))
+    doc = fx.open()
+    boxes = log_grid(doc, [0]).needs_values[0]["labels"]
+    short = fx.values_for(boxes)[:-2]
+    g = log_grid(doc, [0], values={0: short})
+    assert 0 in g.needs_values and not g.rulers
+    said = " ".join(g.warnings)
+    assert f"{len(short)} value(s) given" in said
+    assert f"for {len(boxes)} label box(es)" in said

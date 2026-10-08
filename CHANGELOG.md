@@ -103,6 +103,26 @@
     (labels 0.12 pt off them, layer tops moved 0.002 m); two pit sketches
     refused; twelve grading sheets read, every plotted point within 0.4 % of
     its printed table value and 0.01 of a decade in size.
+  - **For the app's side (steps 6-8, 2026-10-08):**
+    - `log_grid` the TOOL takes `values={page: [...]}` and says
+      `needs_values` (with a note) first, so a scanned log's labels can be
+      read by the caller and the call repeated; its spec says so.
+    - Label values may be given **as printed** (`"1.0"`, `"12+50"`): they
+      are parsed (`scalefinder.label_values`) and the print's resolution
+      kept, so a reading read through them is never written finer than the
+      print. A plain number still works.
+    - A `values` list of the wrong length is refused with the counts
+      ("8 value(s) for 10 label box(es)"), on the scale and in `log_grid`'s
+      warnings, instead of looking as if none had been given.
+    - **Speed** (worst private scanned page 13.7 s -> 6.9 s for the whole
+      page; a second box on a page 0.3-0.6 s): the decade-pattern fallback
+      (`scales._log_decades_by_pairs`) is vectorised with numpy and gives
+      the same answer to the bit (pinned against the old loop); the page's
+      closed frames, the ink projected across each, the ticks on each and
+      each run's axis model are remembered on the page; and `measure`
+      looks for plot frames only among those holding its box
+      (`find_scales(near=...)`; a whole-page result already made serves
+      any box).
 
 ## 0.12.0 — 2026-10-08
 

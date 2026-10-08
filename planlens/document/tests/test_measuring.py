@@ -223,3 +223,48 @@ def test_the_top_edge_of_a_mark():
                   pad=2)
     assert res["snapped_to"]["kind"] == "edge"
     assert res["snapped_to"]["at_pt"][1] < rd.at_pt[1]
+
+
+def test_label_values_given_as_printed_keep_the_print_resolution():
+    """Values read off a scan's label crops as PRINTED ("4.0") carry the
+    print's resolution: the reading is never written finer than it."""
+    fx = build_log(LogVariant("m_printed", skew_deg=0.4, seed=57))
+    doc = fx.open()
+    pend = find_scales(doc, 0).needing_values()[0]
+    texts = []
+    for v in fx.values_for(pend.label_boxes):
+        texts.append(next(lb.text for lb in fx.labels if lb.value == v))
+    assert all("." in t for t in texts)            # printed as "4.0"
+    rd = fx.readings[1]
+    res = measure(doc, 0, where=list(rd.box_pt), kind="line", pad=4,
+                  values={pend.id: texts})
+    v = res["value"]
+    assert abs(_num(v) - rd.value) <= v["plus_minus"]
+    shown = v["display"].split(" ")[0]
+    assert len(shown.split(".")[1]) <= 1           # never finer than 0.1
+
+
+def test_a_box_restricts_the_frame_search_and_reads_the_same():
+    """``near``: only the frames holding the box are looked for, and the
+    reading is the one a whole-page analysis gives."""
+    fx = build_plot(PlotVariant("m_near", "dotted", raster=True,
+                                skew_deg=0.2, seed=58))
+    whole = fx.open()
+    vals = _values(fx, whole)
+    find_scales(whole, 0, values=vals)             # the whole page, cached
+    fresh = fx.open()
+    compared = 0
+    for rd in fx.readings:
+        if rd.kind != "point":
+            continue
+        a = measure(whole, 0, where=list(rd.box_pt), kind="point", pad=2,
+                    values=vals)
+        b = measure(fresh, 0, where=list(rd.box_pt), kind="point", pad=2,
+                    values=vals)
+        assert a.get("value") == b.get("value")
+        compared += 1
+    assert compared >= 3
+    near = find_scales(fresh, 0, values=vals,
+                       near=list(fx.readings[0].box_pt))
+    assert len(near.frames) <= len(find_scales(whole, 0,
+                                               values=vals).frames)

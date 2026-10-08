@@ -60,7 +60,7 @@ from planlens.document.scales import (
 BBox = Tuple[float, float, float, float]
 Point = Tuple[float, float]
 
-__all__ = ["find_scales", "page_facts", "PageFacts", "Label",
+__all__ = ["find_scales", "page_facts", "PageFacts", "Label", "label_values",
            "RECONCILE_AGREE", "parse_label_value"]
 
 #: Two scales of one sheet agree within this relative difference.
@@ -176,6 +176,14 @@ class PageFacts:
     text_source: str = "pdf_text"
     warnings: List[str] = field(default_factory=list)
     _nolines: Any = None
+    #: ``_rectangles`` per ``min_side``: the plot finders each ask for the
+    #: page's closed frames, and on a dense scanned form there are hundreds.
+    _rects_cache: Dict[float, Any] = field(default_factory=dict)
+    #: Per-frame work the plot finders repeat for every box measured on the
+    #: page: ink projected across a frame, ticks on a frame, the axis model
+    #: of a run of positions. Pure functions of the page, so a second box
+    #: on the same page costs dictionary lookups (HANDOFF 8a(viii)).
+    _memo: Dict[Any, Any] = field(default_factory=dict)
 
     @property
     def pixel_pt(self) -> float:
@@ -986,6 +994,19 @@ def _families(facts: PageFacts, orient: str, min_len: float = 40.0,
     return out
 
 
+def _axis_model_on(facts: PageFacts, positions: List[float]
+                   ) -> Optional[Dict[str, Any]]:
+    """:func:`_axis_model`, remembered on the page for a run of positions
+    already modelled (a copy, so a caller cannot change the remembered one).
+    """
+    import copy
+    key = ("axis_model", tuple(round(float(p), 6) for p in positions))
+    if key not in facts._memo:
+        facts._memo[key] = _axis_model(positions)
+    got = facts._memo[key]
+    return None if got is None else copy.deepcopy(got)
+
+
 def _axis_model(positions: List[float]) -> Optional[Dict[str, Any]]:
     """Linear (even steps) or log10 (decade pattern) gridline positions.
 
@@ -1516,7 +1537,19 @@ def _rectangles(facts: PageFacts, min_side: float = 60.0
 
     Each side may be drawn in pieces (a scan breaks rules where markers or
     labels touch them): a side is there when its pieces cover most of it.
+    Found once per page and minimum side (:attr:`PageFacts._rects_cache`).
     """
+    key = round(float(min_side), 3)
+    cached = facts._rects_cache.get(key)
+    if cached is not None:
+        return list(cached)
+    out = _find_rectangles(facts, min_side)
+    facts._rects_cache[key] = list(out)
+    return out
+
+
+def _find_rectangles(facts: PageFacts, min_side: float
+                     ) -> List[Tuple[float, float, float, float]]:
     hs = _collinear([facts.line_span(L) for L in facts.hlines()
                      if not L.dashed])
     vs = [facts.line_span(L) for L in facts.vlines() if not L.dashed]
@@ -1554,8 +1587,16 @@ def _projected_lines(facts: PageFacts, rect, axis: str) -> List[float]:
 
     A faint or dotted gridline that the line finder sees only in pieces still
     adds up over the whole width of the plot: the rows (or columns) where a
-    fifth or more of the interior is ink are gridlines.
+    fifth or more of the interior is ink are gridlines. Remembered on the
+    page per frame and axis.
     """
+    key = ("projected", tuple(round(float(v), 4) for v in rect), axis)
+    if key not in facts._memo:
+        facts._memo[key] = _project_lines(facts, rect, axis)
+    return list(facts._memo[key])
+
+
+def _project_lines(facts: PageFacts, rect, axis: str) -> List[float]:
     import numpy as np
     from planlens.document.raster import _shear_rows
     ras = facts.raster
@@ -1609,9 +1650,25 @@ def _projected_lines(facts: PageFacts, rect, axis: str) -> List[float]:
     return sorted(out)
 
 
+def _holds_near(ext: BBox, near: Optional[BBox], slack: float = 6.0
+                ) -> bool:
+    """Whether a candidate frame ``ext`` can govern a box ``near``: it holds
+    the box's centre. ``None`` (no box known) holds everything."""
+    if near is None:
+        return True
+    cx = (near[0] + near[2]) / 2.0
+    cy = (near[1] + near[3]) / 2.0
+    return (ext[0] - slack <= cx <= ext[2] + slack
+            and ext[1] - slack <= cy <= ext[3] + slack)
+
+
 def _projected_grids(facts: PageFacts, values: Dict[str, Any],
-                     frames: List[Frame]) -> None:
-    """Plots whose gridlines the line finder saw only in part (dotted, faint)."""
+                     frames: List[Frame], near: Optional[BBox] = None
+                     ) -> None:
+    """Plots whose gridlines the line finder saw only in part (dotted, faint).
+
+    ``near``: a box known to be measured; only the closed frames holding it
+    are tried (a dense scanned form has hundreds, 2026-10-08)."""
     if facts.raster is None:
         return
     taken = [f.extent for f in frames]
@@ -1620,6 +1677,8 @@ def _projected_grids(facts: PageFacts, values: Dict[str, Any],
                for u in (rect[0], rect[2]) for v in (rect[1], rect[3])]
         ext = (min(p[0] for p in pts), min(p[1] for p in pts),
                max(p[0] for p in pts), max(p[1] for p in pts))
+        if not _holds_near(ext, near):
+            continue
         if any(_overlap_frac(t, ext) > 0.5 for t in taken):
             continue
         ys = _projected_lines(facts, rect, "y")
@@ -1629,8 +1688,8 @@ def _projected_grids(facts: PageFacts, values: Dict[str, Any],
         xs = _with_edges(xs, rect[0], rect[2])
         # A plot's grid runs both ways: a ruled form's boxes (a log's
         # columns between two stratum lines) do not make a plot.
-        my = _axis_model(ys) if len(ys) >= 5 else None
-        mx = _axis_model(xs) if len(xs) >= 5 else None
+        my = _axis_model_on(facts, ys) if len(ys) >= 5 else None
+        mx = _axis_model_on(facts, xs) if len(xs) >= 5 else None
         if my is None or mx is None:
             continue
         fid = _next_plot_id(facts, frames)
@@ -1680,9 +1739,15 @@ def _values_for(values: Dict[str, Any], sid: str, run: _Run
     v = values.get(sid)
     if v is None:
         return None
-    vals = [None if x is None else float(x) for x in v]
+    vals, texts = label_values(v)
     if len(vals) != len(run.boxes):
         return None
+    if any(texts):
+        # The labels as printed travel on the run: the scale takes the
+        # print's resolution from them (never finer than the print).
+        old = list(run.texts or [])
+        run.texts = [t or (old[i] if i < len(old) else "")
+                     for i, t in enumerate(texts)]
     return vals
 
 
@@ -1691,14 +1756,17 @@ def _values_for(values: Dict[str, Any], sid: str, run: _Run
 # ---------------------------------------------------------------------------
 
 def _tick_plots(facts: PageFacts, values: Dict[str, Any],
-                frames: List[Frame]) -> None:
-    """A plot drawn with ticks only: a closed frame, labelled ticks on it."""
+                frames: List[Frame], near: Optional[BBox] = None) -> None:
+    """A plot drawn with ticks only: a closed frame, labelled ticks on it.
+    ``near`` as for :func:`_projected_grids`."""
     taken = [f.extent for f in frames]
     for rect in _rectangles(facts, min_side=60.0):
         pts = [unrotate_point(u, v, facts.angle_deg)
                for u in (rect[0], rect[2]) for v in (rect[1], rect[3])]
         ext = (min(p[0] for p in pts), min(p[1] for p in pts),
                max(p[0] for p in pts), max(p[1] for p in pts))
+        if not _holds_near(ext, near):
+            continue
         if any(_overlap_frac(t, ext) > 0.5 for t in taken):
             continue
         fid = _next_plot_id(facts, frames)
@@ -1708,7 +1776,7 @@ def _tick_plots(facts: PageFacts, values: Dict[str, Any],
         # with ticks down one side (a log's depth column) is not a plot.
         tick_sets = {axis: _frame_ticks(facts, axis, rect)
                      for axis in ("x", "y")}
-        models = {axis: (_axis_model(t) if len(t) >= 4 else None)
+        models = {axis: (_axis_model_on(facts, t) if len(t) >= 4 else None)
                   for axis, t in tick_sets.items()}
         if any(m is None or m["transform"] != "linear"
                for m in models.values()):
@@ -1735,7 +1803,16 @@ def _contains(a: BBox, b: BBox, tol: float = 4.0) -> bool:
 
 
 def _frame_ticks(facts: PageFacts, axis: str, frame: BBox) -> List[float]:
-    """Positions of the short ticks standing on a frame's bottom / left edge."""
+    """Positions of the short ticks standing on a frame's bottom / left edge
+    (remembered on the page per frame and axis)."""
+    key = ("ticks", tuple(round(float(v), 4) for v in frame), axis)
+    if key not in facts._memo:
+        facts._memo[key] = _find_frame_ticks(facts, axis, frame)
+    return list(facts._memo[key])
+
+
+def _find_frame_ticks(facts: PageFacts, axis: str, frame: BBox
+                      ) -> List[float]:
     hlo, hp, hhi, hp2 = frame
     out: List[float] = []
     if axis == "x":
@@ -2218,11 +2295,17 @@ def _blob_extent(facts: PageFacts, run: _Run, ruled: Tuple[float, float],
 
 
 def _refit_pending(facts: PageFacts, sc: Scale,
-                   values: List[Optional[float]]) -> Optional[Scale]:
-    """Fit a pending scale once its label values are known."""
+                   values: List[Optional[float]],
+                   texts: Optional[List[str]] = None) -> Optional[Scale]:
+    """Fit a pending scale once its label values are known. ``texts`` are
+    the labels as printed, where the caller gave them (their resolution is
+    the reading's)."""
+    import dataclasses
     run = sc.provenance.get("_run")
     if run is None or len(values) != len(run.boxes):
         return None
+    if texts and any(texts) and len(texts) == len(run.boxes):
+        run = dataclasses.replace(run, texts=list(texts))
     anchor = sc.provenance.get("_anchor")
     note = sc.provenance.get("note", "")
     new = _build_scale(facts, sc.id, run, sc.transform, sc.quantity, sc.unit,
@@ -2750,14 +2833,52 @@ def _normalise_values(values: Any) -> Tuple[Dict[str, Any], Optional[list]]:
     return {}, list(values)
 
 
+def label_values(given: Sequence[Any]
+                 ) -> Tuple[List[Optional[float]], List[str]]:
+    """Values a caller supplied for label boxes, as ``(values, texts)``.
+
+    Each item is a number, ``None`` (not readable), or the label AS PRINTED
+    (``"1.0"``, ``"12+50"``, ``"N 2,100"``): a printed label is parsed and
+    its text kept, so the scale knows the print's resolution and a reading
+    is never written finer than it (owner's rule, 2026-10-08). A text that
+    does not parse counts as not readable.
+    """
+    vals: List[Optional[float]] = []
+    texts: List[str] = []
+    for v in given:
+        if v is None:
+            vals.append(None)
+            texts.append("")
+        elif isinstance(v, str):
+            got = parse_label_value(v)
+            vals.append(None if got is None else float(got[0]))
+            texts.append(v.strip() if got is not None else "")
+        else:
+            try:
+                vals.append(float(v))
+            except (TypeError, ValueError):
+                vals.append(None)
+            texts.append("")
+    return vals, texts
+
+
 def find_scales(doc, page: int, values: Any = None, *,
-                dpi: float = 200.0, use_cache: bool = True) -> PageScales:
+                dpi: float = 200.0, use_cache: bool = True,
+                near: Optional[Sequence[float]] = None) -> PageScales:
     """Every scale on one page (0-based), found and fitted.
 
     ``values`` supplies label values for scales found without them (a scan
     with no text): a dict ``{scale_id: [v, ...]}`` or, for the one scale
     waiting, a plain list — one value per label box, in the order the
-    pending scale lists them, ``None`` where a label cannot be read.
+    pending scale lists them, ``None`` where a label cannot be read. A value
+    may be the label as printed (``"1.0"``; see :func:`label_values`).
+
+    ``near`` is a box (displayed frame) about to be measured: the plot
+    finders then try only the closed frames holding it, which on a dense
+    scanned form is a handful of hundreds. A whole-page result already
+    cached serves any ``near``. Scale ids are those of the analysis that
+    made the result, so a caller passing ``values`` by id passes the same
+    ``near`` again.
     """
     from planlens.document.document import parse_pages
     fz = getattr(doc, "_doc", doc)
@@ -2765,9 +2886,15 @@ def find_scales(doc, page: int, values: Any = None, *,
     vdict, vlist = _normalise_values(values)
     key = (page, round(float(dpi), 1),
            repr(sorted(vdict.items())), repr(vlist))
+    near_box = (None if near is None else
+                tuple(float(v) for v in near))
     cache = getattr(doc, "_visual_scales", None)
     if use_cache and cache is not None and key in cache:
         return cache[key]
+    if near_box is not None:
+        key = key + (tuple(round(v, 1) for v in near_box),)
+        if use_cache and cache is not None and key in cache:
+            return cache[key]
     facts_cache = getattr(doc, "_visual_facts", None)
     if facts_cache is not None and (page, dpi) in facts_cache:
         facts = facts_cache[(page, dpi)]
@@ -2785,8 +2912,8 @@ def find_scales(doc, page: int, values: Any = None, *,
     frames: List[Frame] = []
     counter: Dict[str, int] = {}
     _gridded(facts, vdict, frames, counter)
-    _projected_grids(facts, vdict, frames)
-    _tick_plots(facts, vdict, frames)
+    _projected_grids(facts, vdict, frames, near=near_box)
+    _tick_plots(facts, vdict, frames, near=near_box)
     _plan_scales(doc, facts, vdict, frames)
     _label_runs(facts, vdict, frames)
     if not any(f.kind == "log" for f in frames):
@@ -2804,27 +2931,33 @@ def find_scales(doc, page: int, values: Any = None, *,
         for f in out.frames:
             for k, sc in list(f.scales.items()):
                 if sc.needs_values and sc.id in vdict:
-                    vals = [None if v is None else float(v)
-                            for v in vdict[sc.id]]
+                    vals, texts = label_values(vdict[sc.id])
                     new = None
+                    n_boxes = len(sc.label_boxes)
                     if sc.axis == "distance" and "_marks" in sc.provenance:
                         run = sc.provenance["_run"]
+                        n_boxes = len(run.boxes)
                         if len(vals) == len(run.boxes):
                             new = _bar_scale(facts, run,
                                              sc.provenance["_marks"],
                                              _bar_unit(facts, run), vals,
                                              "caller")
                     elif len(vals) == len(sc.label_boxes):
-                        new = _refit_pending(facts, sc, vals)
+                        new = _refit_pending(facts, sc, vals, texts)
                     if new is not None:
                         if new.b < 0 and new.quantity == "depth":
                             new.quantity = "elevation"
                         f.scales[k] = new
+                    elif len(vals) != n_boxes:
+                        sc.warnings.append(
+                            f"the values supplied were refused: {len(vals)} "
+                            f"value(s) for {n_boxes} label box(es); give one "
+                            f"per box, in the order listed, null for one "
+                            f"that cannot be read")
                     else:
                         sc.warnings.append(
                             "the values supplied were refused: they do not "
-                            "make an even run (or their count does not "
-                            "match the label boxes)")
+                            "make an even run (a label misread, or two)")
         if any(f.kind == "plan" for f in out.frames):
             for f in out.frames:
                 if f.kind == "plan":

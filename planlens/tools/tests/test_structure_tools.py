@@ -220,8 +220,41 @@ def test_log_grid_is_published_and_budgeted(log_kit):
     spec = next(s for s in log_kit.specs("plain") if s["name"] == "log_grid")
     assert "boring log" in spec["description"]
     assert set(spec["parameters"]["properties"]) == {"handle", "pages",
-                                                     "rows", "offset"}
+                                                     "rows", "offset",
+                                                     "values"}
     handle = log_kit.open("log.pdf").handle
     text = log_kit.call_json("log_grid", {"handle": handle, "pages": "0"},
                              max_chars=1500)
     assert len(text) <= 1500
+
+
+def test_log_grid_tool_asks_for_and_takes_label_values(tmp_path):
+    """A scan with no text: the tool says which label boxes to read, and a
+    second call with their values (as printed) gives depths with +/-."""
+    from planlens.testing.visual_scale_fixtures import LogVariant, build_log
+    fx = build_log(LogVariant("tool_lg", skew_deg=0.3, seed=69))
+    kit = ReviewToolkit(resolve_source=lambda key: fx.pdf,
+                        output_dir=str(tmp_path), image_view_hint=IMG_HINT)
+    try:
+        handle = kit.open("scan.pdf").handle
+        first = call(kit, "log_grid", handle=handle, pages="0", rows=False)
+        assert "needs_values_note" in first
+        boxes = first["needs_values"]["0"]["labels"]
+        assert len(boxes) == len(fx.labels)
+        texts = []
+        for v in fx.values_for(boxes):
+            lab = next(lb for lb in fx.labels if lb.value == v)
+            texts.append(lab.text)
+        second = call(kit, "log_grid", handle=handle, pages="0", rows=False,
+                      values={"0": texts})
+        assert "needs_values" not in second
+        tops = [ly for ly in second["layers"]
+                if ly.get("source") == "stratum_rule"]
+        assert len(tops) == len(fx.readings)
+        assert all(ly.get("plus_minus") for ly in tops)
+        bad = call(kit, "log_grid", handle=handle, pages="0", rows=False,
+                   values={"0": texts[:-1]})
+        assert "needs_values" in bad
+        assert any("label box(es)" in w for w in bad["warnings"])
+    finally:
+        kit.close()

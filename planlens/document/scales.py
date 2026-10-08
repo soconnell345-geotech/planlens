@@ -1001,39 +1001,59 @@ def _log_decades_by_pairs(ps: Sequence[float], tol: float):
     least ten and 80 % of them. Returns ``(error, major_index, decade,
     falling)`` or ``None``.
     """
+    import numpy as np
     n = len(ps)
-    mant = [math.log10(k) for k in range(1, 10)] + [1.0]
+    mant = np.array([math.log10(k) for k in range(1, 10)] + [1.0])
     # The closest two lines of a decade are log10(10/9) = 0.046 of it apart:
     # a decade shorter than the grid's own closest gap allows is not one.
     min_gap = min((b - a for a, b in zip(ps, ps[1:]) if b - a > 1e-6),
                   default=0.0)
     min_dec = max(20.0, 0.8 * min_gap / 0.0458)
-    best = None
-    for i in range(n):
-        for j in range(i + 1, n):
-            dec = ps[j] - ps[i]
-            if dec < min_dec:
-                continue
-            for falling in (False, True):
-                major = ps[j] if falling else ps[i]
-                sign = -1.0 if falling else 1.0
-                hits = 0
-                worst = 0.0
-                for p in ps:
-                    x = sign * (p - major) / dec
-                    d = math.floor(x)
-                    frac = x - d
-                    dist = min(abs(frac - m) for m in mant)
-                    if dist * dec <= max(0.6, tol * dec):
-                        hits += 1
-                        worst = max(worst, dist)
-                if best is None or hits > best[0] or (
-                        hits == best[0] and worst < best[1]):
-                    best = (hits, worst, (j if falling else i), dec, falling)
-    if best is None or best[0] < 10 or best[0] < 0.85 * n:
+    # Every (i, j, falling) trial at once, in the order the plain loops took
+    # them (i, then j, rising before falling), so a tie on hits and on the
+    # worst distance goes to the first trial exactly as it did. The element
+    # arithmetic is the loops' own, so the result is the same to the bit; on
+    # a dense scanned page this was the whole of find_scales' time (2026-10-08:
+    # 656 calls, 9 of the page's 13 s).
+    p = np.asarray(ps, dtype=float)
+    ii, jj = np.triu_indices(n, k=1)
+    dec_ij = p[jj] - p[ii]
+    keep = dec_ij >= min_dec
+    ii, jj, dec_ij = ii[keep], jj[keep], dec_ij[keep]
+    if ii.size == 0:
         return None
-    hits, worst, mi, dec, falling = best
-    return (worst, mi, dec, falling)
+    # interleave rising (major = i) and falling (major = j) per pair
+    t_major = np.empty(2 * ii.size, dtype=int)
+    t_major[0::2], t_major[1::2] = ii, jj
+    t_dec = np.repeat(dec_ij, 2)
+    t_sign = np.tile(np.array([1.0, -1.0]), ii.size)
+    t_falling = np.tile(np.array([False, True]), ii.size)
+    best = None
+    chunk = max(1, 200000 // max(1, n * mant.size))
+    for s0 in range(0, t_major.size, chunk):
+        s1 = min(t_major.size, s0 + chunk)
+        maj = p[t_major[s0:s1]][:, None]
+        dec = t_dec[s0:s1][:, None]
+        sign = t_sign[s0:s1][:, None]
+        x = sign * (p[None, :] - maj) / dec
+        frac = x - np.floor(x)
+        dist = np.abs(frac[:, :, None] - mant[None, None, :]).min(axis=2)
+        ok = dist * dec <= np.maximum(0.6, tol * dec)
+        hits = ok.sum(axis=1)
+        worst = np.where(ok, dist, 0.0).max(axis=1)
+        # the first trial with the most hits, then the smallest worst
+        top = hits.max()
+        cand = np.flatnonzero(hits == top)
+        k = int(cand[np.argmin(worst[cand])])
+        trial = (int(top), float(worst[k]), s0 + k)
+        if best is None or trial[0] > best[0] or (
+                trial[0] == best[0] and trial[1] < best[1]):
+            best = trial
+    hits, worst, t = best
+    if hits < 10 or hits < 0.85 * n:
+        return None
+    falling = bool(t_falling[t])
+    return (worst, int(t_major[t]), float(t_dec[t]), falling)
 
 
 # ---------------------------------------------------------------------------

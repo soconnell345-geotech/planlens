@@ -2515,6 +2515,14 @@ def _raster_leg(doc, pg: "_PageGrid", page_values) -> None:
     if sc.needs_values:
         pg.needs_values = {"scale": sc.id, "labels": list(sc.label_boxes)}
         pg.ruler = None
+        if page_values is not None:
+            # Values were given and did not fit: said, with why, rather
+            # than looking as if none had been given (HANDOFF 8a(viii)).
+            why = [w for w in sc.warnings if "refused" in w]
+            pg.warnings.append(
+                f"page {pg.page}: the {len(list(page_values))} value(s) "
+                f"given for its {len(sc.label_boxes)} depth labels were not "
+                f"used" + (f" ({why[-1]})" if why else ""))
         pg.warnings.append(
             f"page {pg.page}: {len(sc.label_boxes)} depth labels were found "
             f"in the pixels but their values are not known (no text): read "

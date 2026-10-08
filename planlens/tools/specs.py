@@ -407,7 +407,11 @@ TOOL_SPECS = [
             "warnings before using anything. This is data with boxes, not a "
             "reading of the log; look at the page for what the geometry "
             "cannot say (sample symbols, water-level symbols, refusal "
-            "notation)."),
+            "notation). A scanned log is read from its pixels: its ruled "
+            "columns and every stratum line, each layer top with its +/-; "
+            "where the scan has no text the depth labels are found but not "
+            "read, the result carries needs_values with their boxes, and "
+            "the call is repeated with values."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -425,6 +429,13 @@ TOOL_SPECS = [
                                         "columns, the ruler, the layers and "
                                         "the fields."},
                 "offset": {"type": "integer", "minimum": 0},
+                "values": {"type": "object",
+                           "description": "For needs_values: {page: [label "
+                                          "value, ...]}, one per label box "
+                                          "in the order listed, null for one "
+                                          "that cannot be read (the label "
+                                          "as printed, e.g. \"1.0\", or a "
+                                          "number)."},
             },
             "required": ["handle"],
         },
@@ -603,7 +614,9 @@ TOOL_SPECS = [
                                           "for them: a list in the order its "
                                           "label boxes are given, or "
                                           "{scale_id: [...]}; null for one "
-                                          "that cannot be read.",
+                                          "that cannot be read. The label "
+                                          "as printed (\"1.0\") keeps the "
+                                          "print's resolution.",
                            "anyOf": [{"type": "array"}, {"type": "object"}]},
                 "pad": {"type": "number", "minimum": 0,
                         "description": "How far the box may be off, in "
