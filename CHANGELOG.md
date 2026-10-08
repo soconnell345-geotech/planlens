@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 — 2026-10-08
+
+Measured before release on Palantir Foundry (the app's brief 4, GPT-5.4 and
+GPT-5.6 Sol, 0.12.0rc1): marks placed from zooms landed 0.1-3.8 pt from
+their tags, quote anchors on a CAD notes column landed on their line, and
+`find_like` on the numpy matcher gave the same hits as OpenCV.
 
 - **Marks land where the thing is (live check on Funhouse, 2026-10-07).**
   - **A `view` + `image_box` anchor is judged by the view it came from.** A
