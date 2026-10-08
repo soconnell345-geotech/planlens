@@ -32,6 +32,11 @@ Tools
 ``find_like``          every copy of one mark (tag, code, symbol) on every
                        page, from a box round one copy — callout / legend /
                        unanchored — with numbered contact sheets to confirm
+``measure``            a position read through the page's own scale (depth
+                       ruler, plot axes, profile, plan bar or stored scale):
+                       snaps to the drawn line, marker or curve near a rough
+                       box and returns the value +/- its uncertainty; with
+                       no box, the page's scales
 
 Text first, eyes second — and the tools say when. Every result that touches a
 page the text cannot represent (a scan, a figure, a drawing sheet, a ruled form
@@ -1258,6 +1263,142 @@ class ReviewToolkit:
         if res["warnings"]:
             out["warnings"] = res["warnings"]
         return out
+
+    def _tool_measure(self, handle: str, page: int, bbox: Any = None,
+                      image: Optional[str] = None, image_box: Any = None,
+                      box_units: Optional[str] = None,
+                      kind: str = "line", at: Any = None, to: Any = None,
+                      scale: Optional[str] = None, values: Any = None,
+                      pad: Optional[float] = None,
+                      side: str = "top") -> Dict[str, Any]:
+        from planlens.document.measuring import KINDS, measure
+        if kind not in KINDS:
+            raise ToolError(f"kind must be one of {list(KINDS)}")
+        where = None
+        to_box = None
+        if image is not None or image_box is not None:
+            if image is None or image_box is None:
+                raise ToolError("image and image_box go together",
+                                hint="image = the image_path of an earlier "
+                                     "render; image_box = the box on it")
+            rec, where = self._box_from_image(image, image_box, box_units)
+            if rec["handle"] != handle or rec["page"] != int(page):
+                raise ToolError("that image shows another page or document",
+                                hint=f"it shows handle {rec['handle']!r} "
+                                     f"page {rec['page']}")
+            if to is not None:
+                _rec, to_box = self._box_from_image(image, to, box_units)
+            if pad is None:
+                # A box read off an image is as good as the image is fine:
+                # about 0.8 % of the view's longer side (measured: 1-6 pt
+                # off a whole sheet, about 1 pt in a zoom), at least 2 pt.
+                clip = rec["clip"]
+                side_pt = max(clip[2] - clip[0], clip[3] - clip[1])
+                pad = max(2.0, 0.008 * side_pt)
+        elif bbox is not None:
+            try:
+                where = [float(v) for v in bbox]
+                if len(where) != 4:
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise ToolError("bbox must be [x0, y0, x1, y1] in PDF points")
+            if to is not None:
+                try:
+                    to_box = [float(v) for v in to]
+                    if len(to_box) != 4:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    raise ToolError("to must be [x0, y0, x1, y1]")
+        if kind == "distance" and where is not None and to_box is None:
+            raise ToolError("distance needs to= (the second box)")
+        if kind == "curve" and where is not None and not isinstance(at, dict):
+            raise ToolError("curve needs at={axis: value}",
+                            hint="e.g. at={'x': 0.3}: read the curve where "
+                                 "the x axis reads 0.3")
+        entry = self._entry(handle)
+        with entry.lock:
+            try:
+                res = measure(entry.doc, int(page), where=where, kind=kind,
+                              at=at, to=to_box, scale=scale, values=values,
+                              pad=pad, side=side)
+            except ValueError as exc:
+                raise ToolError(str(exc))
+        res["handle"] = handle
+        budget = self._budget(400)
+        if json_len(res) <= budget:
+            return res
+        # Too long: first the scale summaries go down to what identifies
+        # them (the listing call gives the rest), then the echoes of the call.
+        def brief(sc):
+            if not isinstance(sc, dict):
+                return sc
+            return {k: sc[k] for k in ("id", "quantity", "unit", "confidence")
+                    if k in sc}
+        if isinstance(res.get("scale"), dict):
+            res["scale"] = brief(res["scale"])
+        if isinstance(res.get("scales"), list):
+            res["scales"] = [brief(x) for x in res["scales"]]
+        for key in ("where", "region", "pad_pt"):
+            if json_len(res) > budget:
+                res.pop(key, None)
+        if json_len(res) <= budget:
+            return res
+        # Long listings (every line in a tall box, every candidate in a wide
+        # window) keep each item's value, its +/- and where it is, and are
+        # cut to fit, with how many there were.
+        def compact(item):
+            if not isinstance(item, dict):
+                return item
+            out = {k: item[k] for k in ("bbox", "at_pt", "moved_pt", "dashed")
+                   if k in item}
+            v = item.get("value") or item.get("values")
+            if isinstance(v, dict):
+                out["value"] = {k: x for k, x in v.items()
+                                if k not in ("display", "plus_minus_pt",
+                                             "warnings", "confidence")}
+            return out
+        for key in ("lines", "alternatives"):
+            if key in res and isinstance(res[key], list):
+                res[key] = [compact(x) for x in res[key]]
+                room = max(150, budget - json_len({**res, key: []}))
+                items, nxt = fit_items(res[key], room)
+                res[key] = items
+                if nxt is not None:
+                    res[f"{key}_truncated_after"] = nxt
+        listing = res.get("scales")
+        if isinstance(listing, dict) and json_len(res) > budget:
+            keep = ("id", "quantity", "unit", "axis", "transform",
+                    "per_point", "decade_pt", "residual_pt", "plus_minus_pt",
+                    "anchor_rule", "confidence", "needs_values",
+                    "labels_to_read")
+            for fr in listing.get("frames", []):
+                fr.pop("found_by", None)
+                fr.pop("warnings", None)
+                fr["scales"] = [{k: sc[k] for k in keep if k in sc}
+                                for sc in fr.get("scales", [])]
+            listing.pop("warnings", None)
+        if isinstance(listing, dict) and json_len(res) > budget:
+            for fr in listing.get("frames", []):
+                for sc in fr.get("scales", []):
+                    sc.pop("anchor_rule", None)
+                    if "labels_to_read" in sc:
+                        sc["labels_to_read"] = len(sc["labels_to_read"])
+            if json_len(res) > budget:
+                listing.pop("needs_values", None)
+                res["hint"] = ("the listing was cut to fit; measure with a "
+                               "box, or raise the size limit, for the label "
+                               "boxes")
+        if isinstance(listing, dict) and json_len(res) > budget:
+            frames = listing.get("frames", [])
+            room = max(150, budget - json_len({**res, "scales": {}}))
+            items, nxt = fit_items(frames, room)
+            listing["frames"] = items
+            if nxt is not None:
+                listing["frames_truncated_after"] = nxt
+        if json_len(res) > budget:
+            res.pop("warnings", None)
+            res["note"] = "cut to fit the size limit; narrow the box"
+        return res
 
     def _tool_render_region(self, handle: Optional[str] = None,
                             page: Optional[int] = None, bbox: Any = None,

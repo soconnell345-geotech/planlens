@@ -134,17 +134,9 @@ class LikeHit:
 
 # -- rendering -------------------------------------------------------------------
 
-def _ink(page, dpi: float, clip=None):
-    """The page (or ``clip``) as an ink image: 0 = paper, 255 = black."""
-    import fitz
-    import numpy as np
-    z = dpi / 72.0
-    pix = page.get_pixmap(matrix=fitz.Matrix(z, z), colorspace=fitz.csGRAY,
-                          clip=fitz.Rect(clip) if clip is not None else None,
-                          alpha=False)
-    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
-        pix.height, pix.stride)[:, :pix.width]
-    return 255 - img
+# The page (or a clip) as an ink image, 0 = paper, 255 = black. It lives in
+# planlens.document.raster now, beside the rest of the numpy page analysis.
+from planlens.document.raster import ink as _ink  # noqa: E402
 
 
 def _example(page, bbox: BBox, dpi: float):

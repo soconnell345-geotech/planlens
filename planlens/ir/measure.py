@@ -41,6 +41,13 @@ Relative uncertainty propagates in quadrature for independent sources
 (:func:`combine_rel_uncertainty`), which is the standard treatment and is
 appropriate here because the dominant terms — scale error and measurement
 error — genuinely are independent.
+
+An ABSOLUTE uncertainty (``plus_minus``) may ride beside the relative one. A
+position read through a fitted scale is "depth 0.30 m +/- 0.02 m": its
+uncertainty comes from where the line was found and how well the scale fits,
+not from a fraction of the value, and a relative figure cannot say that (it
+would claim a depth of zero is exact). When both are set, the half-width of
+:meth:`Quantity.range` is the two in quadrature.
 """
 
 from __future__ import annotations
@@ -158,6 +165,9 @@ class Quantity:
     basis: str = ""
     scale_known: bool = True
     notes: Tuple[str, ...] = field(default_factory=tuple)
+    #: Absolute uncertainty, in ``units`` (a 95 % half-width when it comes
+    #: from :mod:`planlens.document.scales`). ``None`` when not stated.
+    plus_minus: Optional[float] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "units", normalize_unit(self.units))
@@ -166,6 +176,9 @@ class Quantity:
         object.__setattr__(self, "rel_uncertainty",
                            max(0.0, float(self.rel_uncertainty)))
         object.__setattr__(self, "value", float(self.value))
+        if self.plus_minus is not None:
+            object.__setattr__(self, "plus_minus",
+                               abs(float(self.plus_minus)))
 
     # -- reading ---------------------------------------------------------
 
@@ -181,8 +194,16 @@ class Quantity:
         says more than ``87.4 ft (confidence 0.9)``, because it is in the
         units of the decision being made.
         """
-        d = abs(self.value) * self.rel_uncertainty
+        d = self.half_width
         return (self.value - d, self.value + d)
+
+    @property
+    def half_width(self) -> float:
+        """The uncertainty either side, in ``units``: the relative one and
+        the absolute ``plus_minus`` in quadrature (independent sources)."""
+        rel = abs(self.value) * self.rel_uncertainty
+        pm = self.plus_minus or 0.0
+        return math.sqrt(rel * rel + pm * pm)
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -193,7 +214,9 @@ class Quantity:
             "scale_known": self.scale_known,
         }
         lo, hi = self.range()
-        if self.rel_uncertainty > 0.0:
+        if self.plus_minus is not None:
+            out["plus_minus"] = round(self.plus_minus, 6)
+        if self.rel_uncertainty > 0.0 or self.plus_minus:
             out["range"] = [round(lo, 6), round(hi, 6)]
         if self.basis:
             out["basis"] = self.basis
@@ -202,7 +225,9 @@ class Quantity:
         return out
 
     def __str__(self) -> str:
-        if self.rel_uncertainty > 0.0:
+        if self.plus_minus is not None and not self.rel_uncertainty:
+            return f"{self.value:.4g} +/- {self.plus_minus:.2g} {self.units}"
+        if self.rel_uncertainty > 0.0 or self.plus_minus:
             lo, hi = self.range()
             return (f"{self.value:.4g} {self.units} "
                     f"[{lo:.4g}, {hi:.4g}]")
@@ -214,7 +239,7 @@ class Quantity:
         """Copy carrying one more note."""
         return Quantity(self.value, self.units, self.confidence,
                         self.rel_uncertainty, self.basis, self.scale_known,
-                        tuple(self.notes) + (note,))
+                        tuple(self.notes) + (note,), self.plus_minus)
 
     def scaled(self, factor: float, units: str, *,
                factor_confidence: float = 1.0,
@@ -242,6 +267,8 @@ class Quantity:
             basis=basis or self.basis,
             scale_known=True,
             notes=self.notes,
+            plus_minus=(None if self.plus_minus is None
+                        else self.plus_minus * abs(float(factor))),
         )
 
     def to(self, units: str) -> "Quantity":
@@ -264,7 +291,8 @@ class Quantity:
         f = LENGTH_IN_METRES[self.units] / LENGTH_IN_METRES[target]
         return Quantity(self.value * f, target, self.confidence,
                         self.rel_uncertainty, self.basis, self.scale_known,
-                        self.notes)
+                        self.notes,
+                        None if self.plus_minus is None else self.plus_minus * f)
 
 
 def convert_length(value: float, frm: str, to: str) -> float:

@@ -4,6 +4,10 @@ The builders here plant known constructs (leaders, dimensions, title blocks,
 bubble callouts, revision clouds) on a programmatic PyMuPDF sheet and return
 ground truth in the IR ``bottom_left`` frame, so a *consuming* package can
 test its own wiring against planlens' constructs without shipping drawings.
+:mod:`planlens.testing.visual_scale_fixtures` adds pages with known SCALES —
+scanned-looking boring logs, plots, plans, profiles and chart families — with
+every contact, marker, curve and distance stated, for the visual-scales code
+and the app's measurement harness.
 
 They live in a shipped package on purpose. They were born under
 ``planlens.ir.tests``, which ``[tool.setuptools.packages.find]`` excludes
@@ -54,6 +58,25 @@ from planlens.testing.scale_fixtures import (
     build_synthetic_scaled_sheet_pdf,
     build_synthetic_uncalibrated_sheet_pdf,
 )
+from planlens.testing.visual_scale_fixtures import (
+    LogVariant,
+    OcrLines,
+    PlanVariant,
+    PlotVariant,
+    ScaleFixture,
+    TruthLabel,
+    TruthReading,
+    all_fixtures as all_scale_fixtures,
+    build_chart_family,
+    build_log,
+    build_pit_sketch,
+    build_plan,
+    build_plot,
+    build_profile,
+    log_variants,
+    plan_variants,
+    plot_variants,
+)
 from planlens.testing.leader_fixtures import (
     ARROW_HALF_WIDTH,
     ARROW_LENGTH,
@@ -64,6 +87,23 @@ from planlens.testing.leader_fixtures import (
 )
 
 __all__ = [
+    "LogVariant",
+    "OcrLines",
+    "PlanVariant",
+    "PlotVariant",
+    "ScaleFixture",
+    "TruthLabel",
+    "TruthReading",
+    "all_scale_fixtures",
+    "build_chart_family",
+    "build_log",
+    "build_pit_sketch",
+    "build_plan",
+    "build_plot",
+    "build_profile",
+    "log_variants",
+    "plan_variants",
+    "plot_variants",
     "DocumentGT",
     "LogGridGT",
     "ReportGT",

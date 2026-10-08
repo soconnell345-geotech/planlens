@@ -28,6 +28,23 @@ is that a scanned page carries no vector ruling lines and the columns have to
 come from the header labels alone — which is said in the warnings, because the
 column edges are then softer.
 
+**The raster leg.** A scanned log is a picture, and before the visual-scales
+work nothing on it was placed: no columns, no ruler, no layers ("no text to
+place"), and even with OCR text no stratum line, because rules were read from
+vector drawings only. Now a page that is a picture is also read from its
+PIXELS (:mod:`planlens.document.raster`, :mod:`planlens.document.scalefinder`):
+the column rules and the body frame, the depth ruler from the label blobs in
+whichever column holds an even run of them (OCR / Azure text gives the label
+values; with no text the values come back as ``needs_values`` with the label
+boxes, and ``log_grid(..., values=...)`` reads the page again with them), the
+labels tied to the frame lines or ticks they mark (a scanned form's labels sit
+about 0.1 m above their depth, and a fit's residual cannot see a constant
+offset), the page's skew, and every stratum line across the description
+column, each layer top with its +/-. On a VECTOR log the depth labels are now
+also snapped to the drawn ticks beside them where the form draws ticks, and a
+consistent offset from the frame lines is taken out where there is one; the
+ruler's evidence records which rule was used.
+
 Output is data with boxes, never a claim.
 """
 
@@ -501,6 +518,9 @@ class Ruler:
     unit_source: Optional[str] = None
     confidence: float = 0.5
     evidence: Dict[str, Any] = field(default_factory=dict)
+    #: The 95 % uncertainty of a depth read through this ruler at the middle
+    #: of its ticks, in the ruler's units (``None`` where not measured).
+    plus_minus: Optional[float] = None
 
     def value_at(self, y: float) -> float:
         return self.intercept + self.slope * float(y)
@@ -519,6 +539,7 @@ class Ruler:
             "residual": _r(self.residual, 3),
             "step": _r(self.step, 3),
             "n_ticks": len(self.ticks),
+            "plus_minus": _r(self.plus_minus, 3),
             "confidence": round(float(self.confidence), 2),
             "evidence": dict(self.evidence) or None,
         })
@@ -581,15 +602,23 @@ class Layer:
     source: str = "stratum_rule"
     bbox: Optional[BBox] = None
     confidence: float = 0.5
+    #: The 95 % uncertainty of ``top``, in the depth unit, where it was
+    #: measured (a stratum line found in pixels and read through the scale).
+    plus_minus: Optional[float] = None
+    #: How the top was found when that is worth saying: ``found_in`` pixels,
+    #: ``dashed`` for a contact drawn dashed.
+    evidence: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return _compact({
             "top": _r(self.top, 2), "bottom": _r(self.bottom, 2),
+            "plus_minus": _r(self.plus_minus, 3),
             "description": self.description,
             "pages": list(self.pages),
             "source": self.source,
             "bbox": _rb(self.bbox),
             "confidence": round(float(self.confidence), 2),
+            "evidence": dict(self.evidence) or None,
         })
 
 
@@ -607,6 +636,13 @@ class LogGrid:
     fields: Dict[str, str] = field(default_factory=dict)
     field_boxes: Dict[str, Tuple[int, BBox]] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
+    #: Pages read from their pixels whose depth labels need their VALUES read
+    #: (a scan with no text): page -> ``{"scale", "labels"}``, the label boxes
+    #: in run order. Read them and call again with ``values={page: [...]}``.
+    needs_values: Dict[int, Dict[str, Any]] = field(default_factory=dict)
+    #: The fitted :class:`~planlens.document.scales.Scale` behind each page's
+    #: ruler where the page was measured (skew, anchor rule, +/-).
+    scales: Dict[int, Any] = field(default_factory=dict)
 
     # -- convenience ---------------------------------------------------------
     def columns_on(self, page: int) -> List[Column]:
@@ -660,6 +696,11 @@ class LogGrid:
                                        for r in self.elevation_rulers.values()]
         if rows:
             out["rows"] = [c.to_dict() for c in self.rows]
+        if self.needs_values:
+            out["needs_values"] = {
+                str(p): {"scale": v["scale"],
+                         "labels": [_rb(b) for b in v["labels"]]}
+                for p, v in self.needs_values.items()}
         if self.warnings:
             out["warnings"] = list(self.warnings)
         return out
@@ -950,6 +991,13 @@ class _PageGrid:
     #: below it. A point of leading on an embedded text layer; a quarter of a
     #: line on an optically read page, whose boxes wander by that much.
     slack: float = BOUNDARY_SLACK_PT
+    #: The raster leg: the page read from its pixels, its fitted scale, and
+    #: the stratum lines found there as ``(y, depth, plus_minus, dashed)``.
+    raster: bool = False
+    scale: Any = None
+    strata: List[Tuple[float, float, Optional[float], bool]] = field(
+        default_factory=list)
+    needs_values: Optional[Dict[str, Any]] = None
 
 
 def _grid_columns(v_runs: Sequence[Tuple[float, float, float]],
@@ -1741,6 +1789,14 @@ def _page_boundaries(pg: _PageGrid, desc: Column
         return out, ticks
     desc_cells = [c for c in pg.cells if c.column_id == desc.id]
     width = max(1.0, desc.width)
+    # Stratum lines found in the pixels, already read through the page's
+    # fitted scale (skew taken out); an underline under a line of text is
+    # not one.
+    for y, depth, _pm, _dashed in pg.strata:
+        probe = _Rule(y, desc.x0, desc.x1)
+        if desc_cells and _is_underline(probe, desc_cells):
+            continue
+        out.append((y, depth, "stratum_rule"))
     for rule in pg.horizontal:
         if rule.a < (pg.body_top or 0.0) - 1.0:
             continue
@@ -1896,6 +1952,10 @@ def _build_layers(grids: Sequence[_PageGrid], unit: Optional[str]
         return [], warnings
 
     marks.sort(key=lambda m: (m[0], m[1]))
+    pixel_marks: Dict[Tuple[int, float], Tuple[Optional[float], bool]] = {}
+    for pg in grids:
+        for y, _d, pm, dashed in pg.strata:
+            pixel_marks[(pg.page, round(y, 3))] = (pm, dashed)
     steps = [pg.ruler.step for pg in grids if pg.ruler is not None]
     same_depth = 0.05 * (min(steps) if steps else 1.0)
     kept: List[Tuple[int, float, float, str]] = []
@@ -1959,13 +2019,28 @@ def _build_layers(grids: Sequence[_PageGrid], unit: Optional[str]
         pages = tuple(sorted({t[0] for t in texts})) or (page,)
         conf = {"stratum_rule": 0.85, "depth_tick": 0.85,
                 "uscs_change": 0.7}.get(source, 0.5)
+        pm = None
+        ev: Dict[str, Any] = {}
+        pix = pixel_marks.get((page, round(y, 3)))
+        if pix is not None and source == "stratum_rule":
+            pm = pix[0]
+            ev["found_in"] = "pixels"
+            if pix[1]:
+                ev["dashed"] = True
         layers.append(Layer(top=depth, bottom=bottom, description=description,
                             pages=pages, source=source, bbox=box,
-                            confidence=conf))
+                            confidence=conf, plus_minus=pm, evidence=ev))
     # A boundary at the foot of the last sheet opens nothing: it closes the
-    # layer above it, which already carries it as its bottom.
-    while layers and not layers[-1].description:
-        layers.pop()
+    # layer above it, which already carries it as its bottom. On a page read
+    # from its pixels with no text, every layer is empty of words and is
+    # still a layer (its top was measured); only the foot is dropped there.
+    textless = all(pg.raster and not pg.cells for pg in grids if pg.ruler)
+    if textless and any(pg.raster for pg in grids):
+        if layers and layers[-1].source == "page_top" and len(layers) > 1:
+            layers.pop()
+    else:
+        while layers and not layers[-1].description:
+            layers.pop()
     # A layer opened only because a new sheet started, carrying text that
     # continues the layer above, is that same layer.
     merged: List[Layer] = []
@@ -1980,7 +2055,8 @@ def _build_layers(grids: Sequence[_PageGrid], unit: Optional[str]
                                                ly.description),
                 pages=tuple(sorted(set(prev.pages) | set(ly.pages))),
                 source=prev.source, bbox=prev.bbox,
-                confidence=min(prev.confidence, ly.confidence))
+                confidence=min(prev.confidence, ly.confidence),
+                plus_minus=prev.plus_minus, evidence=prev.evidence)
             continue
         merged.append(ly)
     return merged, warnings
@@ -2187,22 +2263,421 @@ def _unit_from_text(grids: Sequence[_PageGrid]) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# The raster leg, and ticks on vector logs
+# ---------------------------------------------------------------------------
+
+def _page_values(values, indexes) -> Dict[int, Any]:
+    """``values`` as given -> page -> list of label values (or None)."""
+    if values is None:
+        return {}
+    if isinstance(values, dict):
+        out = {}
+        for k, v in values.items():
+            try:
+                out[int(k)] = v
+            except (TypeError, ValueError):
+                continue
+        return out
+    # a bare list: for the first page of the log
+    return {indexes[0]: list(values)} if indexes else {}
+
+
+def _ruler_from_scale(sc, pg: "_PageGrid", x_ref: float,
+                      column_id: Optional[str], unit: Optional[str]) -> Ruler:
+    """A displayed-frame Ruler for a skewed page, read at ``x_ref``.
+
+    The scale reads ``a + b * s`` with ``s = -x sin(t) + y cos(t)``; at a
+    fixed x that is ``(a - b x sin t) + (b cos t) y``. Exact along the column
+    at ``x_ref`` (the description column's middle, where layers are read);
+    elsewhere the page's skew moves it, which is why layer depths and cell
+    depths on such a page are read through the scale itself.
+    """
+    import math
+    t = math.radians(sc.angle_deg)
+    slope = sc.b * math.cos(t)
+    intercept = sc.a - sc.b * x_ref * math.sin(t)
+    labels = [a for a in sc.anchors if a.kind != "frame_line"]
+    ticks = []
+    for a in labels:
+        y = (a.position + x_ref * math.sin(t)) / math.cos(t)
+        ticks.append((round(y, 3), float(a.value)))
+    ticks.sort()
+    vals = [v for _, v in ticks]
+    steps = [abs(b - a) for a, b in zip(vals, vals[1:]) if b != a]
+    step = min(steps) if steps else 1.0
+    mid = (ticks[0][0] + ticks[-1][0]) / 2.0 if ticks else 0.0
+    s_mid = -x_ref * math.sin(t) + mid * math.cos(t)
+    pm_pt = sc.plus_minus_pt_at(s_mid)
+    dropped = sc.provenance.get("dropped")
+    ev = _compact({
+        "anchor_rule": str(sc.anchor_rule),
+        "anchor_rule_kind": str(sc.anchor_rule_kind),
+        "anchor_pt": round(float(sc.anchor_pt), 3),
+        "positions_from": "pixels",
+        "values_from": sc.provenance.get("values_from"),
+        "skew_deg": (round(float(sc.angle_deg), 3)
+                     if abs(sc.angle_deg) >= 0.005 else None),
+        "scale_id": sc.id,
+        "plus_minus_pt": round(float(pm_pt), 3),
+        "dropped": ([str(d) for d in dropped] if dropped else None),
+    })
+    return Ruler(page=pg.page, kind="depth" if sc.b > 0 else "elevation",
+                 column_id=column_id, slope=slope, intercept=intercept,
+                 residual=sc.residual_value, step=step, ticks=tuple(ticks),
+                 unit=unit, unit_source=("header" if unit else None),
+                 confidence=float(sc.confidence), evidence=ev,
+                 plus_minus=abs(sc.b) * pm_pt)
+
+
+def _raster_columns(facts, ps_frame, body: Tuple[float, float]
+                    ) -> List[Tuple[float, float]]:
+    """Column bands (displayed x at the body's middle) from the pixels."""
+    from planlens.document.scalefinder import _columns
+    from planlens.document.scales import unrotate_point
+    bands, _ruled = _columns(facts)
+    mid = (body[0] + body[1]) / 2.0
+    out = []
+    for a, b in bands:
+        xa = unrotate_point(a, mid, facts.angle_deg)[0]
+        xb = unrotate_point(b, mid, facts.angle_deg)[0]
+        out.append((min(xa, xb), max(xa, xb)))
+    return out
+
+
+def _description_band(facts, bands: Sequence[Tuple[float, float]],
+                      body: Tuple[float, float], exclude: Sequence[int]
+                      ) -> Optional[int]:
+    """The band that holds prose: the most wide, text-height ink blobs."""
+    from planlens.document.raster import text_blobs
+    best = None
+    mask = facts.mask_without_lines()
+    for i, (a, b) in enumerate(bands):
+        if i in exclude or b - a < 40.0:
+            continue
+        blobs = text_blobs(facts.raster, mask=mask,
+                           region=(a + 1.5, body[0] + 1.0, b - 1.5,
+                                   body[1] - 1.0), merge_pt=2.6, min_px=8)
+        lines = [bl for bl in blobs if 2.5 <= bl.height <= 14.0
+                 and bl.width >= 15.0]
+        score = sum(bl.width for bl in lines)
+        if lines and (best is None or score > best[0]):
+            best = (score, i)
+    return best[1] if best else None
+
+
+def _body_from_rules(facts, sc) -> Tuple[float, float]:
+    """The log's body in the scale's own (deskewed) coordinate."""
+    run_pos = sorted(sc.label_positions or [a.position for a in sc.anchors])
+    if len(run_pos) >= 2:
+        step = (run_pos[-1] - run_pos[0]) / max(1, len(run_pos) - 1)
+    else:
+        step = 40.0
+    if sc.label_boxes:
+        xs = [(b[0] + b[2]) / 2.0 for b in sc.label_boxes]
+        band = (min(xs) - 2.0, max(xs) + 2.0)
+    else:
+        band = None
+    cands = []
+    for L in facts.hlines():
+        if L.dashed:
+            continue
+        pos, lo, hi = facts.line_span(L)
+        if band is not None:
+            a = facts.deskew(band[0], pos)[0]
+            b = facts.deskew(band[1], pos)[0]
+            if not (lo <= a and hi >= b):
+                continue
+        cands.append(pos)
+    above = [p for p in cands if run_pos[0] - 1.5 * step <= p
+             <= run_pos[0] + 0.3 * step]
+    below = [p for p in cands if run_pos[-1] - 0.3 * step <= p
+             <= run_pos[-1] + 1.5 * step]
+    lo_s = min(above, key=lambda p: run_pos[0] - p if p <= run_pos[0]
+               else 99.0) if above else run_pos[0] - 0.5 * step
+    hi_s = min(below, key=lambda p: p - run_pos[-1] if p >= run_pos[-1]
+               else 99.0) if below else run_pos[-1] + 0.5 * step
+    return lo_s, hi_s
+
+
+def _raster_leg(doc, pg: "_PageGrid", page_values) -> None:
+    """Read a picture page from its pixels: columns, ruler, stratum lines."""
+    import math
+    from planlens.document.scalefinder import find_scales
+    from planlens.document.scales import rotate_point
+    pg.raster = True
+    values = None
+    if page_values is not None:
+        values = {f"p{pg.page}.depth": list(page_values)}
+    try:
+        ps = find_scales(doc, pg.page, values=values)
+    except Exception as exc:                    # pragma: no cover - defensive
+        pg.warnings.append(f"page {pg.page}: the pixels could not be read "
+                           f"({type(exc).__name__}: {exc})")
+        return
+    facts = ps.extra["facts"]
+    sc = None
+    for f in ps.frames:
+        if f.kind == "log":
+            for s_ in f.scales.values():
+                if s_.axis == "y" and s_.quantity in ("depth", "elevation"):
+                    sc = s_
+                    break
+        if sc is not None:
+            break
+    pg.warnings = [w for w in pg.warnings if "no text to place" not in w]
+    skew = ps.skew_deg or 0.0
+    note = (f"page {pg.page}: the page is a picture; its rules, ruler and "
+            f"stratum lines were read from the pixels"
+            + (f" (skew {skew:+.2f} deg taken out)" if abs(skew) >= 0.01
+               else ""))
+    pg.warnings.append(note)
+    if sc is None:
+        if not any(NO_RULER in w for w in pg.warnings):
+            pg.warnings.append(
+                f"page {pg.page}: {NO_RULER} in the pixels either — no "
+                f"column holds an even run of label-sized marks; if the page "
+                f"is a sketch not drawn to scale, use the depths it prints")
+        return
+    # the body: between the full-width rules nearest above the first label
+    # and below the last (within a step and a half), else the label run
+    lo_s, hi_s = _body_from_rules(facts, sc)
+    # displayed y of the body at the page's middle
+    x_mid = facts.width / 2.0
+    t = math.radians(facts.angle_deg)
+    body = ((lo_s + x_mid * math.sin(t)) / math.cos(t),
+            (hi_s + x_mid * math.sin(t)) / math.cos(t))
+    if not pg.columns:
+        bands = _raster_columns(facts, None, body)
+        if bands:
+            label_x = sum((b[0] + b[2]) / 2.0 for b in sc.label_boxes) / max(
+                1, len(sc.label_boxes))
+            depth_i = next((i for i, (a, b) in enumerate(bands)
+                            if a <= label_x <= b), None)
+            desc_i = _description_band(facts, bands, body,
+                                       [depth_i] if depth_i is not None
+                                       else [])
+            cols = []
+            for i, (a, b) in enumerate(bands):
+                if i == depth_i:
+                    name, names = "depth", ("depth",)
+                elif i == desc_i:
+                    name, names = "description", ("description",)
+                else:
+                    name, names = "other", ()
+                cols.append(Column(
+                    id=f"p{pg.page}c{i}", page=pg.page, x0=a, x1=b,
+                    name=name, names=names, header="",
+                    confidence=(CONF_HEADER_VALUES if names
+                                else CONF_COLUMN_UNNAMED),
+                    evidence={"edges": "pixels",
+                              "named_by": ("the ruler's labels" if name
+                                           == "depth" else "its prose"
+                                           if name == "description"
+                                           else None)}))
+            pg.columns = [Column(**{**c.__dict__,
+                                    "evidence": _compact(c.evidence)})
+                          for c in cols]
+            pg.warnings.append(
+                f"page {pg.page}: {len(cols)} columns from the ruled lines "
+                f"in the pixels; with no text their headers are not read — "
+                f"the depth column is named from its labels and the "
+                f"description column from its prose")
+    elif all((c.evidence or {}).get("edges") == "header_text"
+             for c in pg.columns):
+        # Columns laid out from the header labels alone (optical text, no
+        # vector rules): the rules ARE drawn, in the pixels. Each column
+        # takes the ruled band its header stands in.
+        bands = _raster_columns(facts, None, body)
+        if bands:
+            snapped = []
+            for c in pg.columns:
+                mid = (c.x0 + c.x1) / 2.0
+                band = next(((a, b) for a, b in bands if a <= mid <= b),
+                            None)
+                if band is None:
+                    snapped.append(c)
+                    continue
+                ev = dict(c.evidence)
+                ev["edges"] = "pixels"
+                snapped.append(Column(**{**c.__dict__, "x0": band[0],
+                                         "x1": band[1], "evidence": ev}))
+            pg.columns = snapped
+            pg.warnings = [w for w in pg.warnings
+                           if "no ruled column edges were found" not in w]
+            pg.warnings.append(
+                f"page {pg.page}: the column edges were taken from the rules "
+                f"in the pixels, the names from the header text")
+    pg.body_top, pg.body_bottom = body
+    desc = _description_column(pg)
+    depth_col = next((c for c in pg.columns if c.name == "depth"
+                      and c.x0 <= (sc.label_boxes[0][0] + sc.label_boxes[0][2])
+                      / 2.0 <= c.x1), None) if sc.label_boxes else None
+    if sc.needs_values:
+        pg.needs_values = {"scale": sc.id, "labels": list(sc.label_boxes)}
+        pg.ruler = None
+        pg.warnings.append(
+            f"page {pg.page}: {len(sc.label_boxes)} depth labels were found "
+            f"in the pixels but their values are not known (no text): read "
+            f"them and call log_grid again with values={{{pg.page}: [...]}}"
+            f" — until then nothing on this page carries a depth")
+        return
+    pg.scale = sc
+    x_ref = ((desc.x0 + desc.x1) / 2.0) if desc is not None else x_mid
+    unit = pg.ruler.unit if pg.ruler is not None else None
+    if unit is None:
+        unit = next((c.unit for c in pg.columns
+                     if "depth" in c.names and c.unit), None)
+    pg.ruler = _ruler_from_scale(sc, pg, x_ref,
+                                 depth_col.id if depth_col else
+                                 (pg.ruler.column_id if pg.ruler else None),
+                                 unit)
+    # every cell's depth through the scale (skew taken out)
+    if pg.cells:
+        new_cells = []
+        for c in pg.cells:
+            b = c.bbox
+            mid = sc.value_at(sc.along((b[0] + b[2]) / 2.0,
+                                       (b[1] + b[3]) / 2.0))
+            top = sc.value_at(sc.along((b[0] + b[2]) / 2.0, b[1]))
+            bot = sc.value_at(sc.along((b[0] + b[2]) / 2.0, b[3]))
+            new_cells.append(Cell(**{**c.__dict__, "depth": mid,
+                                     "depth_top": top, "depth_bottom": bot,
+                                     "confidence": min(c.confidence,
+                                                       sc.confidence)}))
+        pg.cells = new_cells
+    # the stratum lines across the description column
+    if desc is None:
+        pg.warnings.append(f"page {pg.page}: no description column was "
+                           f"identified in the pixels, so no stratum line "
+                           f"was read")
+        return
+    width = max(1.0, desc.x1 - desc.x0)
+    a_d = rotate_point(desc.x0, body[0], facts.angle_deg)[0]
+    b_d = rotate_point(desc.x1, body[0], facts.angle_deg)[0]
+    for L in facts.hlines():
+        if L.source != "pixels":
+            continue
+        pos, lo, hi = facts.line_span(L)
+        if pos <= lo_s + 2.0 or pos >= hi_s - 2.0:
+            continue                      # the frame itself
+        if min(hi, b_d) - max(lo, a_d) < STRATUM_COVER_FRAC * width:
+            continue
+        y = L.at(x_ref)
+        s_ = sc.along(x_ref, y)
+        depth = sc.value_at(s_)
+        pm_pt = math.hypot(sc.plus_minus_pt_at(s_),
+                           L.plus_minus_pt(facts.pixel_pt))
+        pg.strata.append((y, depth, abs(sc.b) * pm_pt, bool(L.dashed)))
+    pg.strata.sort()
+
+
+def _vector_anchor(doc, pg: "_PageGrid") -> None:
+    """On a vector log, tie the ruler's labels to the drawn ticks beside them.
+
+    The ruler is fitted through label centres. Where the form draws a tick
+    beside most labels, the ticks are what the labels mark: the ruler is
+    refitted through the ticks. Where frame lines fall on round depths and
+    put the labels consistently off-centre by three-quarters of a point or
+    more, that offset is taken out. Otherwise the ruler is left exactly as
+    it was, with the anchor rule recorded in its evidence.
+    """
+    from planlens.document.scalefinder import (
+        _Run, _anchor_rule, page_facts,
+    )
+    ruler = pg.ruler
+    if ruler is None or len(ruler.ticks) < MIN_RULER_TICKS:
+        return
+    col = next((c for c in pg.columns if c.id == ruler.column_id), None)
+    try:
+        facts = page_facts(doc, pg.page)
+    except Exception:                           # pragma: no cover
+        return
+    ticks = sorted(ruler.ticks)
+    # the label boxes behind the ticks, from the cells of the ruler column
+    boxes = []
+    heights = []
+    for y, v in ticks:
+        cell = min((c for c in pg.cells if c.column_id == ruler.column_id
+                    and _single_number(c.text) == v),
+                   key=lambda c: abs((c.bbox[1] + c.bbox[3]) / 2.0 - y),
+                   default=None)
+        if cell is None:
+            boxes.append((col.x0 if col else 0, y - 3, col.x1 if col else 0,
+                          y + 3))
+            heights.append(6.0)
+        else:
+            boxes.append(tuple(cell.bbox))
+            heights.append(cell.bbox[3] - cell.bbox[1])
+    lo = col.x0 if col else min(b[0] for b in boxes)
+    hi = col.x1 if col else max(b[2] for b in boxes)
+    run = _Run(axis="y", positions=[y for y, _ in ticks], boxes=boxes,
+               values=[v for _, v in ticks], texts=[], kinds=[],
+               heights=heights, across=(lo + hi) / 2.0, band=(lo, hi),
+               source="text", positioned_by="text_box")
+    rule = _anchor_rule(facts, run, run.positions, run.values, "linear")
+    ev = dict(ruler.evidence)
+    ev["anchor_rule"] = rule["text"]
+    ev["anchor_rule_kind"] = rule["kind"]
+    apply = (rule["kind"] == "ticks"
+             or (rule["kind"] == "frames"
+                 and abs(rule.get("offset", 0.0)) >= 0.75))
+    if not apply:
+        pg.ruler = Ruler(**{**ruler.__dict__, "evidence": ev})
+        return
+    new_ticks = [(round(p, 3), v) for p, (_y, v) in zip(rule["positions"],
+                                                        ticks)]
+    slope, intercept, resid = _fit(new_ticks)
+    if not slope or resid > MAX_RULER_RESIDUAL_FRAC * ruler.step:
+        pg.ruler = Ruler(**{**ruler.__dict__, "evidence": ev})
+        return
+    ev["moved_by_pt"] = round(sum(abs(a[0] - b[0]) for a, b in
+                                  zip(new_ticks, ticks)) / len(ticks), 3)
+    pg.ruler = Ruler(**{**ruler.__dict__, "slope": slope,
+                        "intercept": intercept, "residual": resid,
+                        "ticks": tuple(new_ticks), "evidence": ev})
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def log_grid(doc, pages=None) -> LogGrid:
+def log_grid(doc, pages=None, values=None) -> LogGrid:
     """Read one boring or test-pit log — its pages together — as a grid.
 
     ``pages`` takes anything :func:`planlens.document.document.parse_pages`
     takes: a page number, a list, a ``"4-6,9"`` range string, or ``None`` for
     the whole document. Pass the pages of ONE log, continuation sheets
     included; the depths and the layers are joined across them in page order.
+
+    A page that is a picture is read from its pixels too (the raster leg; see
+    the module docstring). Where its depth labels have no text, the result's
+    ``needs_values`` lists their boxes per page; ``values={page: [v, ...]}``
+    (one value per box, in that order, ``None`` for one that cannot be read)
+    reads the page again with them.
     """
     from planlens.document.document import parse_pages
 
     indexes = parse_pages(pages, doc.n_pages)
     grid = LogGrid(pages=list(indexes))
     grids = [_read_page(doc, i) for i in indexes]
+    vals = _page_values(values, indexes)
+    for pg in grids:
+        try:
+            fitz_page = doc._doc[pg.page]
+        except Exception:                       # pragma: no cover
+            fitz_page = None
+        if fitz_page is None:
+            continue
+        from planlens.document.raster import is_raster_page
+        if is_raster_page(fitz_page):
+            _raster_leg(doc, pg, vals.get(pg.page))
+        elif pg.ruler is not None and pg.horizontal:
+            _vector_anchor(doc, pg)
+    for pg in grids:
+        if pg.needs_values:
+            grid.needs_values[pg.page] = pg.needs_values
+        if pg.scale is not None:
+            grid.scales[pg.page] = pg.scale
     for pg in grids:
         if pg.ruler is None and not any(NO_RULER in w for w in pg.warnings):
             # Said on every page that has none, however early the reading

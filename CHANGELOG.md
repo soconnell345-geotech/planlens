@@ -2,6 +2,82 @@
 
 ## Unreleased
 
+- **Visual scales: geometry says where, the caller says what.** A page's own
+  scales are found from its drawing, so a position read off a scan, a chart
+  or a plan comes back as a value with its +/-, its provenance and what it
+  snapped to. numpy and PyMuPDF only (no OpenCV, no scipy); planlens still
+  never calls a model.
+  - **`planlens.document.scales`** — the `Scale` primitive: a fitted map from
+    a position along a (deskewed) axis to a quantity, linear or log10, with
+    its anchors, residual, anchor rule, confidence and a 95 % +/- (the fit's
+    prediction error at the point, the anchor rule's allowance and the
+    position's own error). `Reading` carries value, +/-, unit, confidence and
+    a display rounded no finer than the print. Adapters from a ruler, a PDF
+    viewport, a stated scale and two points; `fit_points` / `fit_labels`
+    refuse uneven runs, drop ONE misread label and name it, and refuse two.
+  - **`planlens.document.raster`** — page pixels as geometry: render with a
+    megapixel cap, Otsu and a permissive line mask, skew from the long rules,
+    solid and dashed lines to a fraction of a pixel (dashes must be regular
+    and stand alone: a row of text is not a dashed rule), components, text
+    blobs, solid markers by eroded cores, column runs. `findlike`'s `_ink`
+    moved here.
+  - **`planlens.document.scalefinder.find_scales(doc, page, values=None)`** —
+    every scale on a page as a `PageScales` of frames: depth rulers on logs
+    (from text, OCR / Azure DI text, or label BLOBS on a scan with no text);
+    gridded, dotted (by projection) and tick-only plots, log axes found from
+    the decade pattern of their gridlines alone; profiles (stations and
+    elevations as separate scales); plans (stored /VP viewports, graphic
+    bars, stated notes, N/E grids) compared with each other, stored > bar >
+    stated, agreeing within 2 % or flagged. Labels are tied to what they mark
+    by an anchor rule — ticks beside the labels, else frame lines on round
+    values (the labels' constant offset measured and taken out), else the
+    label centre with an allowance — and the rule is recorded. A scan with no
+    text comes back with `needs_values` and the label boxes; the caller reads
+    them and passes `values`. A sketch not drawn to scale is refused.
+    The finders do not assume where a column sits: the depth column is the
+    one whose blobs step evenly down the body of the form.
+  - **`planlens.document.measuring.measure(doc, page, where, kind, ...)`** —
+    snap a rough box to the drawn thing near it (`line`, `lines`, `point`,
+    `edge`, `curve` at an axis value, `distance` to a second box, `text`) and
+    read it through the page's scale. One candidate is taken; two or more are
+    listed and none chosen; a window of 25 pt or more (or a small mark asked
+    of a wide view) lists and never snaps; nothing to snap to reads the box
+    itself with its location error; no scale means page points, said plainly.
+  - **`log_grid` reads scanned logs.** Its raster leg finds the columns from
+    the rules, the ruler from the label blobs (`needs_values` /
+    `values={page: [...]}`), the anchor rule and every stratum line, solid or
+    dashed, each layer top with its +/- and evidence; OCR or DI text is
+    placed through the fitted scale. On vector logs a ruler whose labels have
+    ticks beside them is refitted through the ticks, and one whose labels sit
+    consistently off the frame lines by 0.75 pt or more has that offset taken
+    out; otherwise it is left exactly as it was. `LogGrid.needs_values`,
+    `.scales`, `Ruler.plus_minus`, `Layer.plus_minus` / `.evidence`.
+  - **`Quantity.plus_minus`** (absolute, 95 %), carried through `scaled`,
+    `to`, `range`, `to_dict` and `__str__`.
+  - **A `measure` tool** in `ReviewToolkit` and the MCP server: no box lists
+    the page's scales and what they wait for; a `bbox` or a `view` +
+    `image_box` (pad defaulting to the view's location error) measures;
+    mistakes come back as instructions; every result fits the size limit.
+  - **`planlens.testing.visual_scale_fixtures`** — synthetic pages with every
+    answer stated: 20 log variants (vector, scan, OCR, Azure DI, rotated 270,
+    feet, continuation, unframed, dashed, ticks, regular sample numbers), a
+    pit sketch not to scale, 12 plot variants (grading, ticks only, dotted,
+    reversed, log y, two charts, a broken gridline; vector and scan), a
+    profile, semilog / log-log chart families and 7 plan variants (note and
+    bar, ticks bar, stored viewport, N/E grid, re-plotted at half size,
+    scans).
+  - **Measured.** The no-model harness (in the app repository,
+    `module_work/scales_harness/`) over 48 fixtures and four rough-box
+    regimes: 4,404 readings, 99.93 % inside their +/-, 0 wrong snaps without
+    alternatives, 2 of 2 sketches refused, a single misread label dropped 6
+    of 6 and two refused 6 of 6. On a private scanned report (counts and
+    error sizes only): ten log sheets, 10 of 10 labels found on each, 32 of
+    32 stratum lines found with no extra, error median 0.007 m and largest
+    0.018 m against +/- about 0.018 m; four vector sheets tied to their ticks
+    (labels 0.12 pt off them, layer tops moved 0.002 m); two pit sketches
+    refused; twelve grading sheets read, every plotted point within 0.4 % of
+    its printed table value and 0.01 of a decade in size.
+
 - **Marks land where the thing is (live check on Funhouse, 2026-10-07).**
   - **A `view` + `image_box` anchor is judged by the view it came from.** A
     box read off a rendered image is only as good as the view: boxes read

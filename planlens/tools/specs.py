@@ -536,6 +536,71 @@ TOOL_SPECS = [
         },
     },
     {
+        "name": "measure",
+        "description": (
+            "Measure a position on a page through the page's own scale: a "
+            "log's depth or elevation ruler, a plot's axes (linear or log), "
+            "a profile's stations and elevations, a plan's scale bar, stated "
+            "scale or the scale stored in the PDF. A position read off an "
+            "image by eye is approximate; this finds the drawn thing itself "
+            "(a line, a symbol, a curve) and converts its position, "
+            "returning the value +/- its uncertainty, the scale it used and "
+            "what it snapped to. Call it with only handle and page to list "
+            "the scales on the page. To measure, give where the thing is: "
+            "bbox in PDF points, or image + image_box from an earlier render "
+            "(a zoom, so the box is close); and kind: line (a drawn "
+            "boundary), lines (every line in the box, e.g. all layer "
+            "boundaries in a log's description column), point (a symbol or "
+            "marker), edge, curve with at (a curve's value at an axis "
+            "value, e.g. {'x': 0.3}), or distance with to (a second box). "
+            "When two things fit the box it lists both instead of choosing; "
+            "with no scale on the page it returns points and says so. On a "
+            "scan with no text layer the label values may be needed: the "
+            "result then carries needs_values and the label boxes, and the "
+            "call is repeated with values (one per box, in that order)."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "page": {"type": "integer", "minimum": 0},
+                "bbox": {"type": "array", "items": {"type": "number"},
+                         "minItems": 4, "maxItems": 4,
+                         "description": "Round the thing, PDF points, "
+                                        "displayed page, top-left origin."},
+                "image": {"type": "string",
+                          "description": "image_path of an earlier render"},
+                "image_box": {"type": "array", "items": {"type": "number"},
+                              "minItems": 4, "maxItems": 4},
+                "box_units": {"type": "string", "enum": ["px", "norm1000"]},
+                "kind": {"type": "string",
+                         "enum": ["line", "lines", "point", "edge", "curve",
+                                  "distance", "text"]},
+                "at": {"type": "object",
+                       "description": "For curve: {axis: value}; axis is x, "
+                                      "y, a scale id or a quantity."},
+                "to": {"type": "array", "items": {"type": "number"},
+                       "minItems": 4, "maxItems": 4,
+                       "description": "For distance: the second box (PDF "
+                                      "points), or with image, a second "
+                                      "image_box on the same image."},
+                "scale": {"type": "string",
+                          "description": "A scale id from the listing."},
+                "values": {"description": "Label values for a scale waiting "
+                                          "for them: a list in the order its "
+                                          "label boxes are given, or "
+                                          "{scale_id: [...]}; null for one "
+                                          "that cannot be read.",
+                           "anyOf": [{"type": "array"}, {"type": "object"}]},
+                "pad": {"type": "number", "minimum": 0,
+                        "description": "How far the box may be off, in "
+                                       "points (default from the view)."},
+                "side": {"type": "string",
+                         "enum": ["top", "bottom", "left", "right"]},
+            },
+            "required": ["handle", "page"],
+        },
+    },
+    {
         "name": "render_region",
         "description": (
             "Render a zoomed-in region of a page to an image file — to read "
