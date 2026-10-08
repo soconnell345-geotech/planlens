@@ -668,3 +668,29 @@ def test_annotate_document_fits_the_limit(gt, tmp_path):
         assert len(out["written"]) < 40 and "written_truncated_after" in out
     finally:
         kit.close()
+
+
+def test_annotate_document_says_what_it_read_differently_and_what_repeats(
+        gt, tmp_path):
+    """Foundry brief 4 (2026-10-07): a ``color`` cost one round trip in most
+    marking runs, and a tag ringed twice went out as two things. The guess is
+    read (and said), the repeat is flagged with what to do."""
+    kit = _kit_writing_to(gt, tmp_path)
+    try:
+        handle = _open(kit)
+        out = call(kit, "annotate_document", handle=handle,
+                   output_path="guesses.pdf", markups=[
+                       {"kind": "circle", "page": gt.sheet_page, "comment": "t",
+                        "label": "GCE", "bbox": [1200, 700, 1210, 704],
+                        "color": "red"},
+                       {"kind": "circle", "page": gt.sheet_page, "comment": "t",
+                        "label": "GCE", "bbox": [1200.5, 700.3, 1211, 704.6]},
+                   ])
+        assert out["n_written"] == 2 and "error" not in out
+        assert out["adjusted"][0]["index"] == 0
+        assert "color" in out["adjusted"][0]["notes"][0]
+        assert out["duplicates"][0]["index"] == 1
+        assert out["duplicates"][0]["same_as"] == 0
+        assert "append=false" in out["duplicates_note"]
+    finally:
+        kit.close()

@@ -222,7 +222,11 @@ TOOL_SPECS = [
             "place a mark at a location you did not get from a tool result "
             "for that page: a box written from memory or estimated by eye "
             "lands in the wrong place. A box or circle can carry a short "
-            "label drawn on the page beside it. Reply to an "
+            "label drawn on the page beside it. Each kind has a fixed "
+            "colour (box, circle and callout red; highlight and note "
+            "yellow); there is no colour field. Give target — what the mark "
+            "is on, in a few words or as printed — whenever the comment is a "
+            "request or a remark rather than the thing's name. Reply to an "
             "existing comment with reply_to and its markup id from "
             "document_markups. Every comment is a DRAFT attributed to the AI "
             "author unless you are told to sign it otherwise, so say what is "
@@ -305,6 +309,15 @@ TOOL_SPECS = [
                                                      "comment is what opens "
                                                      "in the comments "
                                                      "list)."},
+                            "target": {"type": "string",
+                                       "description": "What the mark is ON, "
+                                                      "in a few words or as "
+                                                      "printed (the tag, the "
+                                                      "line of text, the "
+                                                      "dimension). Not drawn; "
+                                                      "it is what a check of "
+                                                      "the mark's place "
+                                                      "compares with."},
                             "point": {"type": "array",
                                       "items": {"type": "number"},
                                       "minItems": 2, "maxItems": 2,
@@ -488,8 +501,9 @@ TOOL_SPECS = [
             "text or table result looks incomplete or wrong. The image is in "
             "the displayed-page frame: boxes from read_document and markups "
             "map onto it directly. Resolution is chosen automatically (the "
-            "largest your vision model reads without shrinking); pass dpi to "
-            "change it. The result gives the image's pixel size; to zoom on "
+            "largest your vision model reads without shrinking); leave dpi out "
+            "unless you want a smaller, less legible image. The result gives "
+            "the image's pixel size; to zoom on "
             "something you see in it, pass its image_path to render_region."),
         "parameters": {
             "type": "object",
@@ -631,7 +645,10 @@ TOOL_SPECS = [
                 "marks": {"type": "array",
                           "items": {"type": "array", "minItems": 2,
                                     "maxItems": 3}},
-                "dpi": {"type": "number", "minimum": 36, "maximum": 1200},
+                "dpi": {"type": "number", "minimum": 36, "maximum": 1200,
+                        "description": "Leave out: the region is drawn as "
+                                       "large as your vision model reads; "
+                                       "a dpi only makes it smaller."},
                 "pad_frac": {"type": "number", "minimum": 0, "maximum": 1},
             },
             "required": [],

@@ -131,6 +131,40 @@ LABEL_GAP = 2.0
 #: ``page_bbox`` is what a located vision item carries.
 BBOX_ALIASES = ("box", "page_bbox")
 
+#: The obvious guesses at a kind's name, and the kind each one is written
+#: as. A PDF's own name for a sticky note is a Text annotation, and a viewer's
+#: comments list calls every markup a comment, so ``text`` and ``comment`` are
+#: what a caller reaches for when it means a note (Foundry brief 4,
+#: 2026-10-07: both cost an agent a round trip, refused).
+KIND_ALIASES = {
+    "comment": "note", "text": "note", "sticky": "note",
+    "sticky_note": "note", "sticky note": "note",
+    "rectangle": "box", "rect": "box", "square": "box",
+    "ellipse": "circle", "oval": "circle", "ring": "circle",
+}
+
+#: Fields a caller adds to style a mark that this module does not take: the
+#: colour of every mark is fixed by its kind (:data:`KIND_COLOR`). They are
+#: ignored, with a note, rather than refusing the whole call — 8 of 14 marking
+#: runs on Foundry (2026-10-07) lost a round trip to ``color``.
+IGNORED_FIELDS = ("color", "colour")
+
+#: What an ``anchor`` OBJECT may hold: a caller that nests the anchor
+#: (``"anchor": {"quote": ...}``) has it read as the markup's own field.
+ANCHOR_FIELDS = ("quote", "bbox", "point", "points_at", "reply_to", "view",
+                 "image_box") + BBOX_ALIASES
+
+#: The colours, in the words a note to the caller uses.
+COLOR_WORDS = ("box, circle and callout red; highlight and note yellow; "
+               "reply blue")
+
+#: Two marks of one kind that say the same thing (the same label, or with
+#: none the same comment) and overlap by more than this — intersection over
+#: the smaller box — are one thing marked twice (Foundry brief 4: a tag ringed
+#: twice from two zooms, each ring confirmed, and the answer counted eight
+#: tags on a sheet of seven).
+DUPLICATE_OVERLAP = 0.5
+
 #: Author written on a markup whose caller named none.
 DEFAULT_AUTHOR = "planlens"
 
@@ -227,7 +261,15 @@ class MarkupSpec:
     box, circle or highlight (``comment`` is what opens in the comments list).
     ``min_score`` is the lowest fuzzy score a quote may match at when the
     exact search finds nothing; it means what it means in
-    :meth:`Document.search`.
+    :meth:`Document.search`. ``target`` names, in a few words or as printed,
+    the thing the mark is ON — the tag, the line of text, the dimension —
+    for a check of where the mark landed to compare with: a review comment
+    is usually a request ABOUT the thing ("please confirm ..."), not its
+    name, so it cannot serve. It is not drawn on the page.
+
+    ``adjustments`` is filled by :meth:`from_dict`, never by a caller: what
+    it read differently from what it was given (a kind's other name, a
+    nested ``anchor``, a colour it does not take), so the caller is told.
     """
     kind: str
     page: int
@@ -245,23 +287,39 @@ class MarkupSpec:
     #: judge how far that box can be trusted (:func:`_view_anchor_problem`).
     view: Optional[BBox] = None
     image_box: Optional[BBox] = None
+    target: Optional[str] = None
+    adjustments: List[str] = field(default_factory=list, repr=False)
 
     #: Accepted in the JSON beside the fields (see :data:`BBOX_ALIASES` and
     #: the ``view`` + ``image_box`` anchor).
     INPUT_ONLY = BBOX_ALIASES + ("view", "image_box")
 
+    #: Fields of the dataclass that are not the caller's to give.
+    INTERNAL = ("adjustments",)
+
+    @classmethod
+    def fields_accepted(cls) -> List[str]:
+        """Every field a markup's JSON may carry."""
+        return sorted((set(cls.__dataclass_fields__) - set(cls.INTERNAL))
+                      | set(cls.INPUT_ONLY))
+
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "MarkupSpec":
-        """Build one from the JSON a tool layer receives, or say what is wrong."""
+        """Build one from the JSON a tool layer receives, or say what is wrong.
+
+        The obvious guesses are read rather than refused, each with a note in
+        :attr:`adjustments`: a kind's other name (:data:`KIND_ALIASES`), an
+        ``anchor`` object holding the anchor (:data:`ANCHOR_FIELDS`), and a
+        colour (:data:`IGNORED_FIELDS` — every kind has its own)."""
         if not isinstance(raw, dict):
             raise ValueError("each markup must be an object with kind, page "
                              "and comment")
-        unknown = set(raw) - {f for f in cls.__dataclass_fields__} \
-            - set(cls.INPUT_ONLY)
+        raw, notes = _forgiven(raw)
+        unknown = set(raw) - set(cls.fields_accepted())
         if unknown:
             raise ValueError(
                 f"unknown markup field(s) {sorted(unknown)}; the fields are "
-                f"{sorted(set(cls.__dataclass_fields__) | set(cls.INPUT_ONLY))}")
+                f"{cls.fields_accepted()}")
         kind = str(raw.get("kind") or "").strip().lower()
         if kind not in ANNOT_SUBTYPE:
             raise ValueError(f"unknown markup kind '{raw.get('kind')}'; "
@@ -299,6 +357,12 @@ class MarkupSpec:
                              f"highlight, not a {kind}; put the words in "
                              f"comment")
         bbox_raw = next(iter(boxes.values()), None)
+        target = raw.get("target")
+        if target is not None and not isinstance(target, str):
+            raise ValueError(
+                "target is a few words naming the thing the mark is on (the "
+                "tag, the line of text) — text, not a box; give the box as "
+                "bbox")
         return cls(
             kind=kind,
             page=page,
@@ -316,7 +380,51 @@ class MarkupSpec:
             min_score=int(raw.get("min_score") or DEFAULT_FUZZY_MIN_SCORE),
             view=view,
             image_box=image_box,
+            target=(target.strip() or None) if isinstance(target, str)
+            else None,
+            adjustments=notes,
         )
+
+
+def _forgiven(raw: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """``raw`` with the obvious guesses read as what they mean, and a note
+    for each (see :meth:`MarkupSpec.from_dict`). Anything else is left for
+    the caller's own checks to refuse."""
+    raw = dict(raw)
+    notes: List[str] = []
+    for name in IGNORED_FIELDS:
+        if name in raw:
+            raw.pop(name)
+            notes.append(f"'{name}' is not a markup field and was ignored: "
+                         f"each kind has its own colour ({COLOR_WORDS})")
+    anchor = raw.get("anchor")
+    if isinstance(anchor, dict):
+        raw.pop("anchor")
+        moved = []
+        for key, value in anchor.items():
+            if key not in ANCHOR_FIELDS:
+                raise ValueError(
+                    f"the anchor object holds '{key}', which is not an "
+                    f"anchor; an anchor is one of quote, bbox, point, "
+                    f"points_at, view + image_box or reply_to, given as the "
+                    f"markup's own field")
+            if raw.get(key) is not None and raw.get(key) != value:
+                raise ValueError(
+                    f"'{key}' is given twice, in the anchor object and as "
+                    f"the markup's own field, with different values; give "
+                    f"it once")
+            raw[key] = value
+            moved.append(key)
+        notes.append(f"the anchor object was read as the markup's own "
+                     f"{' + '.join(moved) or 'nothing'}: give the anchor as "
+                     f"its own field (quote, bbox, point, view + image_box "
+                     f"or reply_to)")
+    kind = str(raw.get("kind") or "").strip().lower()
+    if kind in KIND_ALIASES:
+        raw["kind"] = KIND_ALIASES[kind]
+        notes.append(f"kind '{kind}' was written as a {KIND_ALIASES[kind]}; "
+                     f"the kinds are {list(KINDS)}")
+    return raw, notes
 
 
 @dataclass
@@ -344,6 +452,9 @@ class WrittenMarkup:
     target: Optional[BBox] = None
     label: Optional[str] = None
     label_bbox: Optional[BBox] = None
+    #: The position of the spec this came from in the caller's list (rows
+    #: leave the skipped specs out, so a row's place is not its index).
+    index: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -374,13 +485,17 @@ class WriteReport:
     ``skipped`` is the half a caller must read: a markup whose quote is not on
     the page, whose anchor cannot carry its kind, or whose reply names a markup
     that is not there, is reported with its reason rather than placed somewhere
-    plausible.
+    plausible. ``adjusted`` says which specs were read differently from how
+    they were written (a kind's other name, a nested anchor, a colour), and
+    ``duplicates`` which marks went on twice (:func:`duplicate_marks`).
     """
     output: str
     author: str = DEFAULT_AUTHOR
     appended: bool = False
     written: List[WrittenMarkup] = field(default_factory=list)
     skipped: List[Dict[str, Any]] = field(default_factory=list)
+    adjusted: List[Dict[str, Any]] = field(default_factory=list)
+    duplicates: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def n_written(self) -> int:
@@ -401,7 +516,52 @@ class WriteReport:
         }
         if self.skipped:
             out["skipped"] = list(self.skipped)
+        if self.adjusted:
+            out["adjusted"] = list(self.adjusted)
+        if self.duplicates:
+            out["duplicates"] = list(self.duplicates)
         return out
+
+
+def _overlap_smaller(a: BBox, b: BBox) -> float:
+    """Intersection over the SMALLER box's area (0 for a box with none)."""
+    iw = min(a[2], b[2]) - max(a[0], b[0])
+    ih = min(a[3], b[3]) - max(a[1], b[1])
+    if iw <= 0 or ih <= 0:
+        return 0.0
+    small = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return (iw * ih) / small if small > 0 else 0.0
+
+
+def _says(mark: WrittenMarkup) -> str:
+    """What a mark says, for telling two of them apart: its label, or with
+    none its comment, folded."""
+    return " ".join(str(mark.label or mark.comment or "").lower().split())
+
+
+def duplicate_marks(written: Sequence[WrittenMarkup]
+                    ) -> List[Dict[str, Any]]:
+    """Marks that repeat an earlier one: the same page and kind, saying the
+    same thing (:func:`_says`), over boxes — the thing anchored on where
+    there is one, else the mark's own — overlapping by more than
+    :data:`DUPLICATE_OVERLAP`. Each is reported once, against the first mark
+    it repeats; replies are never duplicates (a thread may repeat itself)."""
+    out: List[Dict[str, Any]] = []
+    for j, b in enumerate(written):
+        if b.kind == "reply":
+            continue
+        for a in written[:j]:
+            if (a.page != b.page or a.kind != b.kind
+                    or _says(a) != _says(b)):
+                continue
+            share = _overlap_smaller(a.target or a.bbox, b.target or b.bbox)
+            if share > DUPLICATE_OVERLAP:
+                out.append({"index": b.index, "same_as": a.index,
+                            "page": b.page, "kind": b.kind,
+                            **({"label": b.label} if b.label else {}),
+                            "overlap": round(share, 2)})
+                break
+    return out
 
 
 @dataclass
@@ -1000,6 +1160,8 @@ def write_markups(source: Union[str, bytes],
     base = _read_bytes(output if appended else source)
     report = WriteReport(output=os.path.abspath(output), author=author,
                          appended=appended)
+    report.adjusted = [{"index": i, "notes": list(s.adjustments)}
+                       for i, s in enumerate(specs) if s.adjustments]
     doc = fitz.open(stream=base, filetype="pdf")
     reader: List[Optional[Document]] = [None]
     annots_by_page: Dict[int, List[Markup]] = {}
@@ -1063,11 +1225,12 @@ def write_markups(source: Union[str, bytes],
                 target=(bbox_union(anchor.boxes)
                         if spec.kind in LABELLED_KINDS and anchor.boxes
                         else None),
-                label=spec.label, label_bbox=label_box))
+                label=spec.label, label_bbox=label_box, index=index))
             # A page whose annotations were just added to must be re-read
             # before the next spec, or a reply naming a markup written in this
             # same call would not find it.
             annots_by_page.pop(spec.page, None)
+        report.duplicates = duplicate_marks(report.written)
         parent = os.path.dirname(os.path.abspath(output))
         if parent:
             os.makedirs(parent, exist_ok=True)

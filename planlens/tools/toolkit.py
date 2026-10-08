@@ -921,6 +921,16 @@ class ReviewToolkit:
         out["written"] = rows
         if nxt is not None:
             out["written_truncated_after"] = nxt
+        if report.adjusted:
+            out["adjusted"] = report.adjusted[:20]
+        if report.duplicates:
+            out["duplicates"] = report.duplicates[:20]
+            out["duplicates_note"] = (
+                "each of these marks repeats an earlier one of the same kind "
+                "saying the same thing over the same place: one thing marked "
+                "twice. Unless they really are two things, write the copy "
+                "again with append=false without the repeats, and count "
+                "each thing once")
         if report.skipped:
             rows, nxt = fit_items(report.skipped,
                                   max(ceiling - json_len(out) - 40, 300))

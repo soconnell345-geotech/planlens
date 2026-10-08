@@ -321,7 +321,8 @@ def test_a_bad_spec_is_a_ValueError_naming_what_is_wrong(source, tmp_path):
     with pytest.raises(ValueError, match="unknown markup kind"):
         write_markups(source, out, [{"kind": "scribble", "page": 0}])
     with pytest.raises(ValueError, match="unknown markup field"):
-        write_markups(source, out, [{"kind": "note", "page": 0, "colour": "red"}])
+        write_markups(source, out, [{"kind": "note", "page": 0,
+                                     "font": "bold"}])
     with pytest.raises(ValueError, match="has no page"):
         write_markups(source, out, [{"kind": "note", "comment": "x"}])
     with pytest.raises(ValueError, match="bbox must be"):
@@ -467,3 +468,103 @@ def test_a_box_given_two_ways_or_half_given_is_refused(source, tmp_path,
     spec = {"kind": "box", "page": 0, "comment": "c", **extra}
     with pytest.raises(ValueError, match=match):
         write_markups(source, str(tmp_path / "x.pdf"), [spec])
+
+
+# -- the obvious guesses are read, not refused (Foundry brief 4, 2026-10-07) --
+
+def test_the_obvious_guesses_are_read_with_a_note(source, gt, tmp_path):
+    """8 of 14 marking runs on Foundry lost a round trip to a refusal: a
+    ``color`` on every ring, kinds ``comment`` and ``text`` for a sticky
+    note, and the anchor nested as ``{"anchor": {"quote": ...}}``. Each is
+    read as what it plainly means, and the report says so per markup."""
+    out = str(tmp_path / "guesses.pdf")
+    report = write_markups(source, out, [
+        {"kind": "circle", "page": gt.sheet_page, "comment": "tag",
+         "label": "GCE", "bbox": [1200, 700, 1230, 712], "color": "#FF0000"},
+        {"kind": "comment", "page": gt.narrative_page,
+         "comment": "Which borings reached rock?", "quote": "twelve borings"},
+        {"kind": "Text", "page": gt.narrative_page, "comment": "A note.",
+         "point": [120, 180]},
+        {"kind": "note", "page": gt.narrative_page, "comment": "Nested.",
+         "anchor": {"quote": "twelve borings"}},
+        {"kind": "note", "page": gt.narrative_page, "comment": "Plain.",
+         "point": [130, 190]},
+    ], author=AI)
+    assert report.n_written == 5 and report.n_skipped == 0
+    assert [w.kind for w in report.written] == ["circle", "note", "note",
+                                                "note", "note"]
+    notes = {a["index"]: " ".join(a["notes"]) for a in report.adjusted}
+    assert set(notes) == {0, 1, 2, 3}
+    assert "'color' is not a markup field" in notes[0] and "red" in notes[0]
+    assert "kind 'comment' was written as a note" in notes[1]
+    assert "kind 'text' was written as a note" in notes[2]
+    assert "anchor object was read as the markup's own quote" in notes[3]
+    assert report.written[3].anchored_by == "quote"
+    assert json.loads(json.dumps(report.to_dict()))["adjusted"][0]["index"] == 0
+
+
+def test_a_nested_anchor_that_contradicts_itself_is_refused(source, tmp_path):
+    out = str(tmp_path / "bad_anchor.pdf")
+    with pytest.raises(ValueError, match="given twice"):
+        write_markups(source, out, [{"kind": "note", "page": 0, "comment": "x",
+                                     "quote": "a", "anchor": {"quote": "b"}}])
+    with pytest.raises(ValueError, match="not an anchor"):
+        write_markups(source, out, [{"kind": "note", "page": 0, "comment": "x",
+                                     "anchor": {"colour": "red"}}])
+
+
+def test_target_names_what_the_mark_is_on(source, gt, tmp_path):
+    out = str(tmp_path / "target.pdf")
+    spec = MarkupSpec.from_dict({
+        "kind": "callout", "page": gt.sheet_page,
+        "comment": "Please confirm the embedment.", "target": " PILE TIP EL. ",
+        "points_at": list(gt.reviewer_target)})
+    assert spec.target == "PILE TIP EL." and not spec.adjustments
+    assert "target" in MarkupSpec.fields_accepted()
+    assert "adjustments" not in MarkupSpec.fields_accepted()
+    report = write_markups(source, out, [spec], author=AI)
+    assert report.n_written == 1
+    with pytest.raises(ValueError, match="text, not a box"):
+        MarkupSpec.from_dict({"kind": "box", "page": 0, "comment": "x",
+                              "bbox": [1, 1, 5, 5], "target": [1, 1, 5, 5]})
+
+
+# -- one thing marked twice (Foundry brief 4: a tag ringed twice) --------------
+
+def test_one_thing_marked_twice_is_flagged(source, gt, tmp_path):
+    """Two rings round one tag from two zooms (boxes a point or two apart)
+    are one thing marked twice; rings round different things, or a box and a
+    ring round the same thing, or two rings saying different things, are
+    not."""
+    out = str(tmp_path / "twice.pdf")
+    p = gt.sheet_page
+    report = write_markups(source, out, [
+        {"kind": "circle", "page": p, "comment": "tag", "label": "GCE",
+         "bbox": [1200.0, 700.0, 1210.4, 704.3]},
+        {"kind": "circle", "page": p, "comment": "tag", "label": "GCE",
+         "bbox": [1400.0, 900.0, 1410.4, 904.3]},
+        {"kind": "circle", "page": p, "comment": "tag", "label": "GCE",
+         "bbox": [1200.6, 700.4, 1211.5, 704.9]},           # T6 again
+        {"kind": "box", "page": p, "comment": "tag", "label": "GCE",
+         "bbox": [1200.0, 700.0, 1210.4, 704.3]},           # another kind
+        {"kind": "circle", "page": p, "comment": "tag", "label": "GCG",
+         "bbox": [1400.0, 900.0, 1410.4, 904.3]},           # another label
+    ], author=AI)
+    assert report.n_written == 5
+    assert [(d["index"], d["same_as"]) for d in report.duplicates] == [(2, 0)]
+    dup = report.to_dict()["duplicates"][0]
+    assert dup["kind"] == "circle" and dup["label"] == "GCE"
+    assert dup["overlap"] > 0.5
+
+
+def test_two_comments_on_one_spot_are_two_comments(source, gt, tmp_path):
+    out = str(tmp_path / "two_comments.pdf")
+    report = write_markups(source, out, [
+        {"kind": "note", "page": gt.narrative_page, "comment": "First point.",
+         "point": [120, 180]},
+        {"kind": "note", "page": gt.narrative_page, "comment": "Second point.",
+         "point": [120, 180]},
+        {"kind": "note", "page": gt.narrative_page, "comment": "First point.",
+         "point": [121, 181]},
+    ], author=AI)
+    assert [(d["index"], d["same_as"]) for d in report.duplicates] == [(2, 0)]

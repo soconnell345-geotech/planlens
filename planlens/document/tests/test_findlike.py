@@ -362,3 +362,108 @@ def test_the_numpy_path_never_loads_opencv(gt, no_opencv, monkeypatch):
         assert fitz.Pixmap(sheets[0][0]).width == 4 * 460
     finally:
         d.close()
+
+
+# -- an example crossed by linework (Foundry brief 4, 2026-10-07) -----------------
+
+def _view_box(view, image_box):
+    """A 0-999 box on a view's image as page points (the host app's
+    conversion), so the test boxes are the ones the live runs passed."""
+    vx0, vy0, vx1, vy1 = view
+    x0, y0, x1, y1 = image_box
+    w, h = vx1 - vx0, vy1 - vy0
+    return (vx0 + x0 / 999 * w, vy0 + y0 / 999 * h,
+            vx0 + x1 / 999 * w, vy0 + y1 / 999 * h)
+
+
+#: T1, the callout whose lettering sits on a heavy vertical grid line, as
+#: two live runs boxed it (a 258 pt zoom and a 59 pt zoom); and T3, the clean
+#: example a third run used.
+T1_LIVE = (_view_box((357.9, 53.2, 616.2, 221.1), (510, 491, 553, 521)),
+           _view_box((419.5, 98.8, 548.2, 169.5), (549, 525, 628, 591)))
+T3_LIVE = _view_box((197.4, 208.6, 494.9, 396.3), (553, 546, 592, 575))
+
+
+def test_an_example_on_a_grid_line_does_not_flood_the_search(gt):
+    """Replayed from the live runs: with T1's boxes the search returned 400
+    candidates (the cap) holding one of the seven callouts, and 367 holding
+    all seven with no warning — the template was mostly the grid line and
+    matched grid ticks everywhere, and the host read every candidate (180 and
+    289 s). The line runs on past the box's edge where the lettering stops,
+    so it is left out of the template: a few dozen candidates, every
+    callout."""
+    callouts = [t for t in gt.of("GCE", "callout") if t.page == 0]
+    assert len(callouts) == 7
+    t1 = min(callouts, key=lambda t: math.dist(
+        ((t.bbox[0] + t.bbox[2]) / 2, (t.bbox[1] + t.bbox[3]) / 2),
+        (495.0, 138.0)))
+    d = Document(content=gt.pdf)
+    try:
+        for box in T1_LIVE + (t1.bbox,):
+            res = d.find_like(0, box, "0", backend="numpy")
+            assert "linework_left_out" in res["example"], box
+            assert len(res["hits"]) < 100, (box, len(res["hits"]))
+            missed = [t for t in callouts if not _hits_on(gt, res, t)]
+            assert not missed, (box, missed)
+            assert not res["warnings"]
+    finally:
+        d.close()
+
+
+def test_a_clean_example_is_unchanged(gt):
+    """An example nothing crosses keeps exactly the template it always had
+    (the T3 run: 43 candidates, every callout)."""
+    d = Document(content=gt.pdf)
+    try:
+        res = d.find_like(0, T3_LIVE, "0", backend="numpy")
+        assert "linework_left_out" not in res["example"]
+        assert len(res["hits"]) == 43
+        made = {}
+        tpl, _tb = fl._example(d._doc[0], T3_LIVE, 150.0, made)
+        plain = fl._ink(d._doc[0], 150.0, clip=T3_LIVE)
+        assert made["dropped"] == 0 and tpl.size < plain.size
+    finally:
+        d.close()
+
+
+def _crossed_mark(line=True):
+    """A small square mark, and (``line``) a long rule straight through it."""
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=200)
+    page.draw_rect(fitz.Rect(100, 90, 112, 102), color=(0, 0, 0), width=1.0)
+    page.draw_line((106, 93), (106, 99), color=(0, 0, 0), width=1.0)
+    if line:
+        page.draw_line((40, 96), (260, 96), color=(0, 0, 0), width=1.5)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+def test_a_line_through_the_box_is_left_out_and_the_mark_kept():
+    d = Document(content=_crossed_mark())
+    a, b = {}, {}
+    try:
+        crossed, _tb = fl._example(d._doc[0], (97, 87, 115, 105), 150.0, a)
+    finally:
+        d.close()
+    d = Document(content=_crossed_mark(line=False))
+    try:
+        clean, _tb2 = fl._example(d._doc[0], (97, 87, 115, 105), 150.0, b)
+    finally:
+        d.close()
+    assert a["dropped"] > 0 and b["dropped"] == 0
+    # the mark's own frame and stroke are still in the template
+    assert (crossed > 64).sum() > 0.6 * (clean > 64).sum()
+    # the rule's row runs straight across the clean mark's middle; in the
+    # crossed template that row holds only the mark's two sides and stroke
+    mid = crossed.shape[0] // 2
+    assert (crossed[mid] > 64).sum() < 0.5 * crossed.shape[1]
+
+
+def test_a_box_holding_only_a_line_is_refused():
+    d = Document(content=_crossed_mark())
+    try:
+        with pytest.raises(ValueError, match="only linework"):
+            d.find_like(0, (150, 93, 170, 99), backend="numpy")
+    finally:
+        d.close()

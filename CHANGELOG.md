@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **Markups and `find_like` after the Foundry brief 4 review (2026-10-07).**
+  Each changes behaviour an agent sees, and is to be measured live before it
+  ships.
+  - **`find_like`: linework through the example is not the mark.** Ink that
+    runs straight through the example box and on past its edge (a grid line
+    under the lettering, a wall, a rule, a leader's shoulder) is left out of
+    the template (`findlike._crossing_lines`), and the result's `example`
+    says how much (`linework_left_out`). On the tag fixture the callout whose
+    lettering sits on a heavy grid line gave 367 and 400 candidates as its
+    own example; now 54-67, every callout found. A clean example's template
+    is unchanged; a box holding only a line is refused.
+  - **`write_markups` reads the obvious guesses.** A `color` / `colour`
+    (each kind has its own colour), kinds `comment` / `text` (a sticky note)
+    and the other names in `KIND_ALIASES`, and an `anchor` object holding the
+    anchor are read as what they mean, with a note per markup in
+    `WriteReport.adjusted`, instead of refusing the whole call.
+  - **`target`** on a markup: what the mark is on, in a few words or as
+    printed — for a placement check to compare with when the comment is a
+    request rather than the thing's name. Not drawn.
+  - **One thing marked twice is flagged**: `WriteReport.duplicates`
+    (`duplicate_marks`) lists marks of one kind saying the same thing whose
+    boxes overlap by more than half, and the `annotate_document` result says
+    what to do about them.
+  - The `render_page` / `render_region` tool descriptions say a `dpi` only
+    makes the image smaller.
+
 - **Visual scales: geometry says where, the caller says what.** A page's own
   scales are found from its drawing, so a position read off a scan, a chart
   or a plan comes back as a value with its +/-, its provenance and what it

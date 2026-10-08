@@ -8,7 +8,11 @@ found none of 34. Lettering drawn by CAD is drawn the SAME way every time,
 though, so once one copy is located, every other copy is an image match away:
 
 1. **The example.** A box around ONE copy, on any page (a legend row is fine).
-   Its ink is cut out at the search dpi and trimmed to the mark.
+   Its ink is cut out at the search dpi and trimmed to the mark. Linework
+   that runs THROUGH the box — a grid line under the lettering, a wall, a
+   leader's shoulder — carries on past the box's edge where the mark does
+   not, and is left out of the template (:func:`_crossing_lines`): a
+   template that is mostly a line matches every line on the sheet.
 2. **The search.** Every page is rendered in grey and the example is matched
    (zero-mean normalised cross-correlation, OpenCV's ``TM_CCOEFF_NORMED``) at
    a ladder of scales and at 0 / 90 / 180 / 270 degrees — a legend's
@@ -139,12 +143,115 @@ class LikeHit:
 from planlens.document.raster import ink as _ink  # noqa: E402
 
 
-def _example(page, bbox: BBox, dpi: float):
-    """The example's ink, trimmed to the mark, and its trimmed box in points."""
+#: Paper looked at round the example box when telling the mark from linework
+#: that crosses it: at least this many points each side ...
+CROSSING_MARGIN_PT = 2.0
+#: ... and at least this fraction of the box's shorter side.
+CROSSING_MARGIN_FRAC = 0.5
+#: Crossing ink in a band wider than this fraction of the box (across the
+#: run) is a FILL the example sits in, not a line through it, and is kept.
+CROSSING_MAX_BAND = 0.34
+
+
+def _crossing_lines(page, bbox: BBox, dpi: float):
+    """Where linework runs THROUGH the example box rather than belonging to
+    the mark: ``(mask, (x0, y0), z)`` — a boolean image over the box widened
+    by a margin of paper (:data:`CROSSING_MARGIN_PT`,
+    :data:`CROSSING_MARGIN_FRAC`), its top-left in points and its pixels per
+    point; ``None`` when nothing crosses.
+
+    A run of ink straight down a column (or along a row) that reaches into
+    the box and carries on to the edge of the margin is a line passing
+    through — a grid line, a wall, a table rule, a leader's shoulder. The
+    mark itself stops inside its box, so a run that does not leave it is
+    kept. Found on the tag fixture (Foundry brief 4, 2026-10-07): one tag's
+    lettering sits on a heavy grid line, the template was mostly that line,
+    and it matched grid ticks everywhere — 367 and 400 candidates against 43
+    from a clean copy, and up to 289 s of reading them.
+    """
+    import numpy as np
+    bx0, by0, bx1, by1 = bbox
+    m = max(CROSSING_MARGIN_PT, CROSSING_MARGIN_FRAC * min(bx1 - bx0, by1 - by0))
+    pr = page.rect
+    px0, py0 = max(pr.x0, bx0 - m), max(pr.y0, by0 - m)
+    px1, py1 = min(pr.x1, bx1 + m), min(pr.y1, by1 + m)
+    big = _ink(page, dpi, clip=(px0, py0, px1, py1)) > 64
+    h, w = big.shape
+    z = dpi / 72.0
+    c0 = max(0, int(math.floor((bx0 - px0) * z)))
+    c1 = min(w, int(math.ceil((bx1 - px0) * z)))
+    r0 = max(0, int(math.floor((by0 - py0) * z)))
+    r1 = min(h, int(math.ceil((by1 - py0) * z)))
+    # A side with no paper beyond the box (the page's own edge) cannot show
+    # a line carrying on past it.
+    top, bottom, left, right = r0 >= 2, h - r1 >= 2, c0 >= 2, w - c1 >= 2
+
+    def runs(v):
+        d = np.diff(np.concatenate(([0], v.astype(np.int8), [0])))
+        return zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1))
+
+    def thin(mask, axis, span):
+        # A line is thin across its run; a band of crossing columns (rows)
+        # wider than a third of the box is a fill, not a line, and stays.
+        across = mask.any(axis=axis)
+        widest = max(3, int(CROSSING_MAX_BAND * span))
+        for a, b in runs(across):
+            if b - a > widest:
+                if axis == 0:
+                    mask[:, a:b] = False
+                else:
+                    mask[a:b, :] = False
+        return mask
+
+    down = np.zeros_like(big)
+    for c in range(c0, c1):
+        for a, b in runs(big[:, c]):
+            if b > r0 and a < r1 and ((top and a == 0) or (bottom and b == h)):
+                down[a:b, c] = True
+    across = np.zeros_like(big)
+    for r in range(r0, r1):
+        for a, b in runs(big[r, :]):
+            if b > c0 and a < c1 and ((left and a == 0) or (right and b == w)):
+                across[r, a:b] = True
+    line = thin(down, 0, c1 - c0) | thin(across, 1, r1 - r0)
+    return (line, (px0, py0), z) if line.any() else None
+
+
+def _example(page, bbox: BBox, dpi: float,
+             report: Optional[Dict[str, Any]] = None):
+    """The example's ink, trimmed to the mark, and its trimmed box in points.
+    Linework crossing the box is left out of the ink
+    (:func:`_crossing_lines`); ``report``, when given, gets ``dropped``: how
+    many ink pixels that was — 0 for a clean example, whose template is
+    exactly what it always was."""
     import numpy as np
     ink = _ink(page, dpi, clip=bbox)
+    dropped = 0
+    crossing = _crossing_lines(page, bbox, dpi) if (ink > 64).any() else None
+    if crossing is not None:
+        line, (px0, py0), z = crossing
+        h, w = line.shape
+        # Each template pixel's centre, looked up in the wider render, with
+        # a pixel's slack across the line (the two renders' grids differ by
+        # less than a pixel).
+        rows = np.clip(np.floor((bbox[1] + (np.arange(ink.shape[0]) + 0.5) / z
+                                 - py0) * z).astype(int), 0, h - 1)
+        cols = np.clip(np.floor((bbox[0] + (np.arange(ink.shape[1]) + 0.5) / z
+                                 - px0) * z).astype(int), 0, w - 1)
+        hit = line[rows][:, cols]
+        grown = hit.copy()
+        grown[:, 1:] |= hit[:, :-1]
+        grown[:, :-1] |= hit[:, 1:]
+        grown[1:, :] |= hit[:-1, :]
+        grown[:-1, :] |= hit[1:, :]
+        dropped = int(((ink > 64) & grown).sum())
+        ink = ink.copy()
+        ink[grown] = 0
     mask = ink > 64
     if not mask.any():
+        if dropped:
+            raise ValueError("the example box holds only linework running "
+                             "through it — box the mark itself")
         raise ValueError("the example box holds no ink — box the mark itself")
     ys, xs = np.where(mask)
     pad = 1
@@ -158,6 +265,8 @@ def _example(page, bbox: BBox, dpi: float):
         # with every window on every page.
         raise ValueError("the example box holds solid ink and no paper — box "
                          "the mark itself, with a little paper round it")
+    if report is not None:
+        report["dropped"] = dropped
     return tpl, tb
 
 
@@ -794,7 +903,9 @@ def find_like(doc, page: int, bbox: Sequence[float], pages=None, *,
     height_pt = min(bx[2] - bx[0], bx[3] - bx[1])
     want = dpi if dpi else DEFAULT_DPI
     want = max(want, 72.0 * MIN_EXAMPLE_PX / max(height_pt, 0.5))
-    tpl, tb = _example(fz[page], bx, want)
+    made: Dict[str, Any] = {}
+    tpl, tb = _example(fz[page], bx, want, made)
+    dropped = made.get("dropped", 0)
     scales = tuple(scales) if scales else DEFAULT_SCALES
     warnings: List[str] = []
 
@@ -819,8 +930,14 @@ def find_like(doc, page: int, bbox: Sequence[float], pages=None, *,
     if classify and hits:
         _classify(hits, fz, idx)
     counts = {c: sum(1 for h in hits if h.context == c) for c in CONTEXTS}
-    return {"example": {"page": page, "bbox": [round(v, 1) for v in tb],
-                        "height_pt": round(min(tb[2] - tb[0], tb[3] - tb[1]), 2)},
+    example = {"page": page, "bbox": [round(float(v), 1) for v in tb],
+               "height_pt": round(float(min(tb[2] - tb[0], tb[3] - tb[1])), 2)}
+    if dropped:
+        example["linework_left_out"] = (
+            f"{dropped} ink pixel(s) of linework running through the example "
+            f"box (a grid line, a wall, a rule, a leader) were left out of "
+            f"the template: they are not part of the mark")
+    return {"example": example,
             "hits": hits, "pages": idx, "counts": counts,
             "dpi": round(want, 1), "backend": engine, "warnings": warnings}
 
