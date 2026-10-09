@@ -25,7 +25,9 @@ scale on the page the position comes back in points with
 
 Kinds: ``line`` (the drawn rule nearest the box), ``lines`` (every rule in
 the box, each with its extent, so a short hatch run shows as one), ``point``
-(a symbol or plotted marker), ``edge`` (the top / bottom / left / right of
+(a symbol or plotted marker; on a plan, whose scale measures distances, a
+point has no value of its own and says so, naming the scale and ``distance``),
+``edge`` (the top / bottom / left / right of
 the ink in the box), ``curve`` with ``at`` (where a curve crosses an axis
 value), ``distance`` with ``to`` (between two snapped points, through a
 plan's distance scale), ``text`` (a text line's exact box).
@@ -842,6 +844,30 @@ def _measure_lines(ps, facts, kind, box, window, centre, pad, named,
     return res
 
 
+#: What a point on a plan says: its scale is real, but it measures how far
+#: apart two things are, not where one thing is (live smoke 2a, 2026-10-09:
+#: a point on a plan with a 0.95-confidence bar said ``scale_known: false``
+#: and ``scales: []``, and the agent worked the distance out by hand).
+PLAN_POINT_NOTE = ("this page's scale is a plan's distance scale: it says how "
+                   "far apart two things are, not where one thing is, so a "
+                   "single position on the plan has no value of its own (it "
+                   "is given in page points). To measure between two things, "
+                   "call kind='distance' with this box and to=[the second "
+                   "thing's box]")
+
+
+def _plan_point(ps: PageScales, point: Point, named: Optional[str]
+                ) -> Optional[Dict[str, Any]]:
+    """For a point whose position no x/y scale reads: the plan's distance
+    scale that governs it, said as a known scale with no value of its own,
+    or None when there is none."""
+    sc = _distance_scale(ps, named)
+    if sc is None or not sc.contains(*point, slack=4.0):
+        return None
+    return {"scale_known": True, "scales": [_scale_summary(sc)],
+            "note": PLAN_POINT_NOTE}
+
+
 def _measure_point(ps, facts, box, window, centre, pad, named, warnings,
                    list_only=False) -> Dict[str, Any]:
     cands = _point_candidates(facts, window)
@@ -872,19 +898,24 @@ def _measure_point(ps, facts, box, window, centre, pad, named, warnings,
         res["alternatives"] = []
         if not got["values"]:
             res["position_pt"] = _rb(c["centre"], 2)
-            res["scale_known"] = False
+            res.update(_plan_point(ps, c["centre"], named)
+                       or {"scale_known": False})
         return res
     if len(cands) > 1 or (cands and list_only):
         res["value"] = None
         res["ambiguous"] = True
         alts = []
+        any_value = False
         for c in sorted(cands, key=lambda c: math.dist(c["centre"], centre)):
             got = read_both(c["centre"], c["pm"], 0.95)
+            any_value = any_value or bool(got["values"])
             alts.append({"bbox": _rb(c["bbox"], 2),
                          "at_pt": _rb(c["centre"], 2),
                          "moved_pt": _r(math.dist(c["centre"], centre), 2),
                          "values": got["values"] or None})
         res["alternatives"] = alts
+        if not any_value:
+            res.update(_plan_point(ps, centre, named) or {})
         warnings.append(f"{len(cands)} marks fit the box; none was chosen")
         return res
     got = read_both(centre, pad, 0.6)
@@ -892,6 +923,8 @@ def _measure_point(ps, facts, box, window, centre, pad, named, warnings,
     res["scales"] = list(got["scales"].values())
     res["unsnapped"] = True
     res["position_pt"] = _rb(centre, 2)
+    if not got["values"]:
+        res.update(_plan_point(ps, centre, named) or {})
     warnings.append("no mark was found in the window: the box's own centre "
                     "was read, with its location error as the uncertainty")
     return res

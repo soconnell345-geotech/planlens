@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Markups on rotated pages, and labels that read with the page
+  (2026-10-09, the app's live smoke wave 2a).**
+  - **Rotated pages.** `markup_writer` rotated the page box a second time,
+    so on 90 and 270 degree pages labels, circles and callout boxes landed
+    away from their marks (labels on a sheet's title text). The writer now
+    uses `page.rect` as it is. Tests write every mark kind on 0/90/180/270
+    pages and read each back with `markups()`.
+  - **Label reading direction and placement.** A label reads the way the
+    page's nearby text reads. A new optional `label_reads` (up/down) covers
+    pages with no text layer. A label goes to the side of its mark that
+    covers the least drawing.
+  - **`measure` on a point of a plan with a scale** says `scale_known: true`,
+    names the scale, and points to `kind='distance'` with `to=`.
+
 - **Markups and `find_like` after the Foundry brief 4 review (2026-10-07).**
   Each changes behaviour an agent sees, and is to be measured live before it
   ships.

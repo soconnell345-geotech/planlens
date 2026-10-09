@@ -222,7 +222,10 @@ TOOL_SPECS = [
             "place a mark at a location you did not get from a tool result "
             "for that page: a box written from memory or estimated by eye "
             "lands in the wrong place. A box or circle can carry a short "
-            "label drawn on the page beside it. Each kind has a fixed "
+            "label drawn on the page beside it, where it covers the least of "
+            "the drawing; on a sheet whose lettering runs up or down the "
+            "page, give label_reads so the label runs the same way. Each "
+            "kind has a fixed "
             "colour (box, circle and callout red; highlight and note "
             "yellow); there is no colour field. Give target — what the mark "
             "is on, in a few words or as printed — whenever the comment is a "
@@ -318,6 +321,20 @@ TOOL_SPECS = [
                                                       "it is what a check of "
                                                       "the mark's place "
                                                       "compares with."},
+                            "label_reads": {
+                                "type": "string",
+                                "enum": ["across", "up", "down",
+                                         "upside_down"],
+                                "description": "With label only: which way "
+                                               "the label reads as the page "
+                                               "is shown — up (bottom to "
+                                               "top) or down (top to "
+                                               "bottom) where the drawing's "
+                                               "own lettering runs that "
+                                               "way. Left out, it follows "
+                                               "the page's text beside the "
+                                               "mark (across where the "
+                                               "lettering is not text)."},
                             "point": {"type": "array",
                                       "items": {"type": "number"},
                                       "minItems": 2, "maxItems": 2,

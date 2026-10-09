@@ -126,6 +126,42 @@ CIRCLE_MIN_SIZE = 14.0
 LABEL_FONTSIZE = 9.0
 LABEL_GAP = 2.0
 
+#: Which way a visible label reads, in the words a caller uses, as the
+#: displayed angle (degrees counter-clockwise; 0 is ordinary left-to-right
+#: text, 90 reads bottom-to-top, 270 top-to-bottom) — the convention of
+#: :func:`planlens.document.frame.direction_to_rotation`. A drawing plotted
+#: sideways onto its page, or a title block turned along a sheet's edge,
+#: prints its lettering this way, and a label that reads across it runs over
+#: the drawing instead of along it (live smoke 2a, 2026-10-09).
+LABEL_READS = {
+    "across": 0, "left_to_right": 0, "horizontal": 0,
+    "up": 90, "bottom_to_top": 90,
+    "upside_down": 180, "right_to_left": 180,
+    "down": 270, "top_to_bottom": 270,
+}
+
+#: The word a written row reports each direction by.
+READS_NAME = {0: "across", 90: "up", 180: "upside_down", 270: "down"}
+
+#: With no ``label_reads`` given, a label reads the way the text it sits by
+#: reads: the page's text lines within this many points of the mark, counted
+#: by letters, set it when one direction holds at least
+#: :data:`LABEL_READS_SHARE` of them; failing that the whole page's text
+#: does, by the same share; failing that it reads across. A page with no text
+#: layer (lettering drawn as lines, a scan) says nothing, so its labels read
+#: across unless the caller says otherwise.
+LABEL_READS_REACH = 24.0
+LABEL_READS_SHARE = 2.0 / 3.0
+
+#: A line of text this close (degrees) to a multiple of 90 reads that way;
+#: lettering at any other angle (a road name along a curve) is not counted.
+LABEL_READS_TOLERANCE = 5.0
+
+#: A label is put where it covers the least of the page's own ink — read on
+#: a grey render of the page WITHOUT annotations at this many pixels per
+#: point — and of the other markups on the page.
+LABEL_INK_PX_PER_PT = 2.0
+
 #: Names accepted for ``bbox``: ``box`` is what a caller reaches for first (an
 #: agent sent it twice in one field session, losing a call each time), and
 #: ``page_bbox`` is what a located vision item carries.
@@ -265,7 +301,10 @@ class MarkupSpec:
     the thing the mark is ON — the tag, the line of text, the dimension —
     for a check of where the mark landed to compare with: a review comment
     is usually a request ABOUT the thing ("please confirm ..."), not its
-    name, so it cannot serve. It is not drawn on the page.
+    name, so it cannot serve. It is not drawn on the page. ``label_reads``
+    says which way the label reads (:data:`LABEL_READS`: ``across``, ``up``,
+    ``down``, ``upside_down``, or 0 / 90 / 180 / 270), held as the displayed
+    angle; left out, the label reads the way the text beside the mark does.
 
     ``adjustments`` is filled by :meth:`from_dict`, never by a caller: what
     it read differently from what it was given (a kind's other name, a
@@ -288,6 +327,7 @@ class MarkupSpec:
     view: Optional[BBox] = None
     image_box: Optional[BBox] = None
     target: Optional[str] = None
+    label_reads: Optional[int] = None
     adjustments: List[str] = field(default_factory=list, repr=False)
 
     #: Accepted in the JSON beside the fields (see :data:`BBOX_ALIASES` and
@@ -363,6 +403,11 @@ class MarkupSpec:
                 "target is a few words naming the thing the mark is on (the "
                 "tag, the line of text) — text, not a box; give the box as "
                 "bbox")
+        reads = _label_reads(raw.get("label_reads"))
+        if reads is not None and not label:
+            notes.append("label_reads was ignored: it says which way a "
+                         "label reads, and this markup has no label")
+            reads = None
         return cls(
             kind=kind,
             page=page,
@@ -382,8 +427,37 @@ class MarkupSpec:
             image_box=image_box,
             target=(target.strip() or None) if isinstance(target, str)
             else None,
+            label_reads=reads,
             adjustments=notes,
         )
+
+
+def _label_reads(value: Any) -> Optional[int]:
+    """A ``label_reads`` as the displayed angle, ``None`` for none / auto;
+    a ValueError naming the accepted values for anything else."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        value = str(value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        angle = float(value) % 360.0
+        if angle in (0.0, 90.0, 180.0, 270.0):
+            return int(angle)
+    else:
+        word = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+        if word in ("", "auto"):
+            return None
+        if word in LABEL_READS:
+            return LABEL_READS[word]
+        try:
+            return _label_reads(float(word))
+        except ValueError:
+            pass
+    raise ValueError(
+        f"label_reads must be across, up (bottom to top), down (top to "
+        f"bottom) or upside_down — or 0, 90, 180 or 270 degrees "
+        f"counter-clockwise as the page is shown — not {value!r}; leave it "
+        f"out and the label reads the way the text beside the mark does")
 
 
 def _forgiven(raw: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
@@ -452,6 +526,9 @@ class WrittenMarkup:
     target: Optional[BBox] = None
     label: Optional[str] = None
     label_bbox: Optional[BBox] = None
+    #: Which way the label reads, as the displayed angle (see
+    #: :data:`LABEL_READS`); reported only when it is not across.
+    label_reads: Optional[int] = None
     #: The position of the spec this came from in the caller's list (rows
     #: leave the skipped specs out, so a row's place is not its index).
     index: Optional[int] = None
@@ -469,6 +546,9 @@ class WrittenMarkup:
             out["label"] = self.label
             if self.label_bbox is not None:
                 out["label_bbox"] = [round(v, 1) for v in self.label_bbox]
+            if self.label_reads:
+                out["label_reads"] = READS_NAME.get(self.label_reads,
+                                                    self.label_reads)
         if self.points_at is not None:
             out["points_at"] = [round(v, 1) for v in self.points_at]
         if self.in_reply_to:
@@ -901,6 +981,19 @@ def _resolve_anchor(spec: MarkupSpec, reader_for_quote, markups_on_page,
     return _Anchor(how="point", point=spec.point), None
 
 
+def _page_box(page) -> BBox:
+    """The page as the reader sees it, in the displayed frame.
+
+    PyMuPDF's ``page.rect`` already IS that frame: ``/Rotate`` applied,
+    origin (0, 0), cropbox-relative. It must not be rotated again — doing so
+    (``to_display_bbox(page, page.rect)``) gave (0, -180, 612, 612) for a
+    792 x 612 sheet at /Rotate 270, so labels, rings and callout boxes were
+    pushed back onto a page 180 pt too narrow and landed on the sheet title,
+    90-150 pt from their marks (live smoke 2a, 2026-10-09, B1)."""
+    r = page.rect
+    return (float(r.x0), float(r.y0), float(r.x1), float(r.y1))
+
+
 def _callout_box(tip: Point, comment: str, page_box: BBox) -> BBox:
     """A text box for a callout the caller gave no box for, kept on the page."""
     n_lines = max(1, -(-len(comment) // CALLOUT_CHARS_PER_LINE))
@@ -927,34 +1020,243 @@ def _circle_box(box: BBox, page_box: BBox) -> BBox:
             min(px1, cx + a), min(py1, cy + b))
 
 
-def _label_box(text: str, near: BBox, page_box: BBox) -> BBox:
-    """Where a visible label goes: just above the mark's top-right corner,
-    pushed back onto the page (below the mark when there is no room above)."""
-    w = len(text) * LABEL_FONTSIZE * 0.62 + 6.0
-    h = LABEL_FONTSIZE * 1.45 + 4.0
-    px0, py0, px1, py1 = page_box
-    x0 = min(max(near[2] - w * 0.25, px0 + 2.0), px1 - w - 2.0)
-    y0 = near[1] - h - LABEL_GAP
-    if y0 < py0 + 2.0:
-        y0 = min(near[3] + LABEL_GAP, py1 - h - 2.0)
-    return (x0, y0, x0 + w, y0 + h)
+#: The reading frame of a label that reads at each displayed angle: the
+#: unit vector along the line of text and the one pointing "down" the
+#: letters, both in the displayed frame (x right, y down).
+_READING_AXES = {
+    0: ((1.0, 0.0), (0.0, 1.0)),
+    90: ((0.0, -1.0), (1.0, 0.0)),
+    180: ((-1.0, 0.0), (0.0, -1.0)),
+    270: ((0.0, 1.0), (-1.0, 0.0)),
+}
+
+
+def _to_reading(box: Sequence[float], reads: int) -> BBox:
+    """A displayed box in the frame of text reading at ``reads`` degrees:
+    u along the line, v down the letters."""
+    (dx, dy), (nx, ny) = _READING_AXES[reads]
+    pts = [(x * dx + y * dy, x * nx + y * ny)
+           for x in (box[0], box[2]) for y in (box[1], box[3])]
+    return (min(p[0] for p in pts), min(p[1] for p in pts),
+            max(p[0] for p in pts), max(p[1] for p in pts))
+
+
+def _from_reading(box: Sequence[float], reads: int) -> BBox:
+    """The inverse of :func:`_to_reading`."""
+    (dx, dy), (nx, ny) = _READING_AXES[reads]
+    pts = [(u * dx + v * nx, u * dy + v * ny)
+           for u in (box[0], box[2]) for v in (box[1], box[3])]
+    return (min(p[0] for p in pts), min(p[1] for p in pts),
+            max(p[0] for p in pts), max(p[1] for p in pts))
+
+
+def _label_size(text: str) -> Tuple[float, float]:
+    """``(length along the line, height across it)`` of a label, points."""
+    return (len(text) * LABEL_FONTSIZE * 0.62 + 6.0,
+            LABEL_FONTSIZE * 1.45 + 4.0)
+
+
+def _label_spots(text: str, near: BBox, page_box: BBox, reads: int = 0
+                 ) -> List[BBox]:
+    """Where a visible label may go beside a mark, in order of preference,
+    as displayed boxes kept on the page: above the mark (toward its right
+    end, then its left), below it, then after and before it — "above" and
+    "after" as the label reads, so a label running up a sideways drawing
+    sits beside its mark the way it would on an upright one."""
+    w, h = _label_size(text)
+    n = _to_reading(near, reads)
+    pb = _to_reading(page_box, reads)
+    mid = (n[1] + n[3]) / 2.0
+    spots = [(n[2] - w * 0.25, n[1] - h - LABEL_GAP),
+             (n[0] - w * 0.75, n[1] - h - LABEL_GAP),
+             (n[2] - w * 0.25, n[3] + LABEL_GAP),
+             (n[0] - w * 0.75, n[3] + LABEL_GAP),
+             (n[2] + LABEL_GAP, mid - h / 2.0),
+             (n[0] - LABEL_GAP - w, mid - h / 2.0)]
+    out: List[BBox] = []
+    for u0, v0 in spots:
+        u0 = min(max(u0, pb[0] + 2.0), pb[2] - w - 2.0)
+        v0 = min(max(v0, pb[1] + 2.0), pb[3] - h - 2.0)
+        box = _from_reading((u0, v0, u0 + w, v0 + h), reads)
+        if all(max(abs(a - b) for a, b in zip(box, o)) > 0.5 for o in out):
+            out.append(box)
+    return out
+
+
+def _label_box(text: str, near: BBox, page_box: BBox, reads: int = 0
+               ) -> BBox:
+    """The first place a visible label is tried: just above the mark's far
+    end as the label reads, pushed back onto the page."""
+    return _label_spots(text, near, page_box, reads)[0]
+
+
+def _text_lines(page) -> List[Tuple[BBox, Optional[int], int]]:
+    """The page's text lines as ``(displayed box, reading angle snapped to a
+    multiple of 90 or None, letters)``."""
+    import fitz
+    from planlens.document.frame import direction_to_rotation
+    out: List[Tuple[BBox, Optional[int], int]] = []
+    try:
+        # text only: "dict" would otherwise copy every image's bytes
+        data = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
+    except Exception:  # pragma: no cover - an unreadable text layer says nothing
+        return out
+    for block in data.get("blocks", ()):
+        for line in block.get("lines", ()):
+            n = len("".join(s.get("text", "")
+                            for s in line.get("spans", ())).strip())
+            if not n:
+                continue
+            ang = direction_to_rotation(page, line.get("dir", (1.0, 0.0)))
+            q = int(round(ang / 90.0)) % 4 * 90
+            off = abs((ang - q + 180.0) % 360.0 - 180.0)
+            out.append((to_display_bbox(page, line["bbox"]),
+                        q if off <= LABEL_READS_TOLERANCE else None, n))
+    return out
+
+
+def _majority(lines: Sequence[Tuple[BBox, Optional[int], int]],
+              min_letters: int) -> Optional[int]:
+    """The direction holding :data:`LABEL_READS_SHARE` of the letters of
+    ``lines``, or None (too few letters, or no clear majority)."""
+    tally: Dict[int, int] = {}
+    for _b, q, n in lines:
+        if q is not None:
+            tally[q] = tally.get(q, 0) + n
+    total = sum(tally.values())
+    if total < min_letters:
+        return None
+    best = max(tally, key=tally.get)
+    return best if tally[best] >= LABEL_READS_SHARE * total else None
+
+
+def _text_reads(lines: Sequence[Tuple[BBox, Optional[int], int]],
+                near: BBox) -> int:
+    """Which way a label beside ``near`` should read when the caller did not
+    say: the way the text round the mark reads, else the way most of the
+    page's text reads, else across (see :data:`LABEL_READS_REACH`)."""
+    r = LABEL_READS_REACH
+    x0, y0, x1, y1 = near[0] - r, near[1] - r, near[2] + r, near[3] + r
+    local = [ln for ln in lines
+             if ln[0][0] < x1 and ln[0][2] > x0
+             and ln[0][1] < y1 and ln[0][3] > y0]
+    reads = _majority(local, 3)
+    if reads is None:
+        reads = _majority(lines, 20)
+    return reads or 0
+
+
+def _ink_grid(page, region: BBox):
+    """``(ink mask, region, px per pt)`` of the page's own ink over
+    ``region`` (displayed frame), rendered without annotations; None when
+    the region cannot be rendered."""
+    import fitz
+    import numpy as np
+
+    x0, y0, x1, y1 = region
+    if x1 - x0 < 1.0 or y1 - y0 < 1.0:
+        return None
+    scale = LABEL_INK_PX_PER_PT
+    try:
+        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale),
+                              clip=fitz.Rect(*region), colorspace=fitz.csGRAY,
+                              alpha=False, annots=False)
+    except Exception:  # pragma: no cover - placement falls back to order
+        return None
+    if pix.width < 1 or pix.height < 1:
+        return None
+    grey = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+        pix.height, pix.stride)[:, :pix.width]
+    return grey < INK_LEVEL, region, pix.width / (x1 - x0)
+
+
+def _ink_fraction(grid, box: BBox) -> float:
+    """The share of ``box`` (displayed frame) that is ink on an
+    :func:`_ink_grid`; 0 where the box is outside it."""
+    if grid is None:
+        return 0.0
+    ink, region, s = grid
+    h, w = ink.shape
+    c0 = max(0, int((box[0] - region[0]) * s))
+    r0 = max(0, int((box[1] - region[1]) * s))
+    c1 = min(w, int(round((box[2] - region[0]) * s)))
+    r1 = min(h, int(round((box[3] - region[1]) * s)))
+    if c1 <= c0 or r1 <= r0:
+        return 0.0
+    return float(ink[r0:r1, c0:c1].mean())
+
+
+def _covered(box: BBox, others: Sequence[BBox]) -> float:
+    """The largest share of ``box`` any one of ``others`` covers."""
+    area = max((box[2] - box[0]) * (box[3] - box[1]), 1e-9)
+    best = 0.0
+    for o in others:
+        iw = min(box[2], o[2]) - max(box[0], o[0])
+        ih = min(box[3], o[3]) - max(box[1], o[1])
+        if iw > 0 and ih > 0:
+            best = max(best, iw * ih / area)
+    return best
+
+
+def _other_marks(page) -> List[BBox]:
+    """The displayed boxes of the markups already on the page (popups, which
+    are not drawn, left out)."""
+    import fitz
+    out: List[BBox] = []
+    for a in page.annots():
+        if a.type[0] == fitz.PDF_ANNOT_POPUP:
+            continue
+        out.append(to_display_bbox(page, a.rect))
+    return out
+
+
+def _label_place(page, text: str, near: BBox, reads: int) -> BBox:
+    """Where a label goes: of :func:`_label_spots`, the one covering the
+    least of the page's own ink and of the markups already on it (the mark
+    itself among them); the first on a tie. A label over the drawing's
+    lettering cannot be read and hides what it is about."""
+    spots = _label_spots(text, near, _page_box(page), reads)
+    if len(spots) == 1:
+        return spots[0]
+    region = bbox_union(spots)
+    pb = _page_box(page)
+    region = (max(region[0], pb[0]), max(region[1], pb[1]),
+              min(region[2], pb[2]), min(region[3], pb[3]))
+    grid = _ink_grid(page, region)
+    marks = _other_marks(page)
+    best, best_score = spots[0], None
+    for i, spot in enumerate(spots):
+        score = _ink_fraction(grid, spot) + _covered(spot, marks) + 0.002 * i
+        if best_score is None or score < best_score - 1e-9:
+            best, best_score = spot, score
+    return best
 
 
 def _add_label(page, shape, text: str, near: BBox, author: str,
-               created: str):
+               created: str, reads: Optional[int] = None,
+               lines: Optional[Sequence[Tuple[BBox, Optional[int], int]]]
+               = None):
     """Draw ``text`` on the page beside a mark, as a borderless FreeText tied
     to the mark by ``/IRT`` with ``/RT /Group`` — the PDF's way of saying the
     two are one markup, which a viewer moves and deletes together and which
-    planlens' reader reports as reply-linked to the mark."""
-    import fitz
+    planlens' reader reports as reply-linked to the mark.
 
-    page_box = to_display_bbox(page, (page.rect.x0, page.rect.y0,
-                                      page.rect.x1, page.rect.y1))
-    box = _label_box(text, near, page_box)
+    ``reads`` is the displayed angle the label reads at (None: the way the
+    text beside the mark reads, from ``lines`` — :func:`_text_lines` of the
+    page, read once per page by the caller). Returns ``(annot, displayed
+    box, reads)``."""
+    if reads is None:
+        reads = _text_reads(lines if lines is not None else
+                            _text_lines(page), near)
+    box = _label_place(page, text, near, reads)
     annot = page.add_freetext_annot(
         _rect(page, from_display_bbox(page, box)), text,
         fontsize=LABEL_FONTSIZE, text_color=KIND_COLOR["circle"],
-        border_width=0, rotate=int(page.rotation) % 360)
+        border_width=0,
+        # A FreeText's /Rotate turns its text in the UNROTATED page space,
+        # so reading at ``reads`` as displayed is the page's own rotation
+        # plus that (measured at every page rotation, 2026-10-09).
+        rotate=(int(page.rotation) + int(reads)) % 360)
     annot.set_info(title=author, content=text, subject="Label",
                    creationDate=created, modDate=created)
     annot.update()
@@ -964,7 +1266,7 @@ def _add_label(page, shape, text: str, near: BBox, author: str,
     page.parent.xref_set_key(annot.xref, "CL", "null")
     annot.set_irt_xref(shape.xref)
     page.parent.xref_set_key(annot.xref, "RT", "/Group")
-    return annot, box
+    return annot, box, int(reads)
 
 
 def _finish(annot, spec: MarkupSpec, author: str, created: str) -> None:
@@ -1037,8 +1339,7 @@ def _place(page, spec: MarkupSpec, anchor: _Anchor, author: str, created: str
         box = bbox_union(anchor.boxes)
         if box is None:
             return None, "a circle needs a bbox or a quote to go round"
-        ring = _circle_box(box, to_display_bbox(
-            page, (page.rect.x0, page.rect.y0, page.rect.x1, page.rect.y1)))
+        ring = _circle_box(box, _page_box(page))
         un = from_display_bbox(page, ring)
         # MuPDF grows a Circle's /Rect by the same 1 pt a Square's grows by;
         # compensated the same way, so the read-back box is the ring placed.
@@ -1058,10 +1359,8 @@ def _place(page, spec: MarkupSpec, anchor: _Anchor, author: str, created: str
         if tip is None:
             return None, ("a callout needs a spot to point at: give points_at, "
                           "a point, or a quote")
-        page_box = to_display_bbox(page, (page.rect.x0, page.rect.y0,
-                                          page.rect.x1, page.rect.y1))
         box = spec.bbox if (spec.bbox is not None and spec.points_at is not None) \
-            else _callout_box(tip, spec.comment, page_box)
+            else _callout_box(tip, spec.comment, _page_box(page))
         un_box = from_display_bbox(page, box)
         # The leader runs tip -> knee -> the box's near edge; the PDF spec puts
         # the END at the box and the START on the thing being commented on,
@@ -1165,6 +1464,9 @@ def write_markups(source: Union[str, bytes],
     doc = fitz.open(stream=base, filetype="pdf")
     reader: List[Optional[Document]] = [None]
     annots_by_page: Dict[int, List[Markup]] = {}
+    # A page's text lines, read once for every label on it (the direction a
+    # label reads in follows them; markups added here do not change them).
+    lines_by_page: Dict[int, List[Tuple[BBox, Optional[int], int]]] = {}
     created = _pdf_date()
 
     def reader_for_quote() -> Document:
@@ -1210,10 +1512,16 @@ def write_markups(source: Union[str, bytes],
                     "reason": reason})
                 continue
             shown = to_display_bbox(page, annot.rect)
-            label_box = None
+            label_box = label_reads = None
             if spec.label:
-                _lab, label_box = _add_label(page, annot, spec.label, shown,
-                                             who, created)
+                lines = None
+                if spec.label_reads is None:
+                    if spec.page not in lines_by_page:
+                        lines_by_page[spec.page] = _text_lines(page)
+                    lines = lines_by_page[spec.page]
+                _lab, label_box, label_reads = _add_label(
+                    page, annot, spec.label, shown, who, created,
+                    reads=spec.label_reads, lines=lines)
             report.written.append(WrittenMarkup(
                 page=spec.page, kind=spec.kind, anchored_by=anchor.how,
                 bbox=shown, comment=spec.comment,
@@ -1225,7 +1533,8 @@ def write_markups(source: Union[str, bytes],
                 target=(bbox_union(anchor.boxes)
                         if spec.kind in LABELLED_KINDS and anchor.boxes
                         else None),
-                label=spec.label, label_bbox=label_box, index=index))
+                label=spec.label, label_bbox=label_box,
+                label_reads=label_reads, index=index))
             # A page whose annotations were just added to must be re-read
             # before the next spec, or a reply naming a markup written in this
             # same call would not find it.

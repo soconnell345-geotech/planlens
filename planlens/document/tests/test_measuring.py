@@ -171,6 +171,47 @@ def test_a_plan_distance_through_the_bar():
         assert any("disagrees" in w for w in res.get("reconciled", []))
 
 
+def test_a_point_on_a_plan_names_the_scale_and_the_distance_call():
+    """Live smoke 2a (2026-10-09, F17): on a plan whose bar was found at
+    0.95, ``measure(kind="point")`` said ``scales: []`` and
+    ``scale_known: false``, and the agent worked the distance out by hand.
+    A plan's scale measures distances: a point has no value of its own, but
+    the scale IS known, and the result says how to measure between two."""
+    fx = build_plan(PlanVariant("m_plan_point", replot=0.5))
+    doc = fx.open()
+    rd = fx.readings[0]
+    for pad, where in ((2, rd.box_pt),
+                       # nothing to snap to: the box itself is read
+                       (2, (rd.box_pt[0] + 60, rd.box_pt[1] + 60,
+                            rd.box_pt[2] + 60, rd.box_pt[3] + 60))):
+        res = measure(doc, 0, where=list(where), kind="point", pad=pad)
+        assert res["value"] is None
+        assert res["scale_known"] is True, res
+        assert [s["id"] for s in res["scales"]] == ["p0.plan.bar"]
+        assert "kind='distance'" in res["note"] and "to=" in res["note"]
+        assert len(res["position_pt"]) == 2
+    # and the distance it points to reads through that scale
+    dist = measure(doc, 0, where=list(rd.box_pt), kind="distance",
+                   to=list(rd.to_box_pt), pad=2)
+    assert dist["scale"]["id"] == "p0.plan.bar"
+    assert abs(dist["value"]["distance"] - rd.value) <= \
+        dist["value"]["plus_minus"]
+
+
+def test_a_point_off_every_scale_still_says_points():
+    """No scale at all: a point is in page points and says the scale is not
+    known (the plan note is for a plan only)."""
+    import fitz
+    d = fitz.open()
+    p = d.new_page()
+    p.draw_circle((300, 300), 2, fill=(0, 0, 0))
+    from planlens.document import Document
+    doc = Document(content=d.tobytes())
+    res = measure(doc, 0, where=[296, 296, 304, 304], kind="point", pad=2)
+    assert res["value"] is None and res.get("scale_known") is False
+    assert "distance" not in res.get("note", "")
+
+
 def test_grid_coordinates_of_a_symbol():
     fx = build_plan(PlanVariant("m_ne", ne_grid=True))
     doc = fx.open()

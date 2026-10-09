@@ -568,3 +568,241 @@ def test_two_comments_on_one_spot_are_two_comments(source, gt, tmp_path):
          "point": [121, 181]},
     ], author=AI)
     assert [(d["index"], d["same_as"]) for d in report.duplicates] == [(2, 0)]
+
+
+# -- every kind on 0 / 90 / 180 / 270 degree pages (live smoke 2a, B1) --------
+#
+# The writer rotated ``page.rect`` -- already the displayed frame -- a second
+# time, so on a /Rotate 270 sheet displayed 792 x 612 it kept labels, rings
+# and callout boxes on a page of (0, -180, 612, 612): the labels of F16's two
+# 270-degree sheets printed over the sheet title, 90-150 pt from their boxes.
+# Each sheet below is DISPLAYED 792 x 612 whatever its /Rotate, so one set of
+# targets serves all four, and every target sits near an edge, where the
+# page box decides where a label or a callout box goes.
+
+from planlens.document.frame import (  # noqa: E402
+    direction_to_rotation, from_display_point,
+)
+from planlens.document.markup_writer import (  # noqa: E402
+    LABEL_GAP, _ink_fraction, _ink_grid, _label_box, _page_box,
+)
+
+SHOWN = (0.0, 0.0, 792.0, 612.0)
+#: F16's STD. NO. cell on its /Rotate 270 sheets, displayed.
+STD_BOX = (697.5, 547.9, 749.0, 575.3)
+RING_AT = (736.0, 70.0, 752.0, 82.0)
+HL_BOX = (40.0, 586.0, 120.0, 596.0)
+TIP = (770.0, 30.0)
+SPOT = (20.0, 590.0)
+
+
+def _rotated_sheet(rot, reads=0, lines=None):
+    """A sheet shown 792 x 612 at /Rotate ``rot``, with lettering that reads
+    ``reads`` degrees as shown (default: across), at displayed spots."""
+    doc = fitz.open()
+    w, h = (792, 612) if rot in (0, 180) else (612, 792)
+    page = doc.new_page(width=w, height=h)
+    page.set_rotation(rot)
+    if lines is None:
+        lines = [((300, 300), "GENERAL NOTES"),
+                 ((300, 320), "1. ALL WORK PER STANDARD."),
+                 ((300, 340), "2. FIELD VERIFY.")]
+    for (x, y), text in lines:
+        page.insert_text(from_display_point(page, x, y), text, fontsize=8,
+                         rotate=(rot + reads) % 360)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+def _gap(a, b):
+    """The distance between two boxes (0 when they touch or overlap)."""
+    dx = max(0.0, max(a[0], b[0]) - min(a[2], b[2]))
+    dy = max(0.0, max(a[1], b[1]) - min(a[3], b[3]))
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _on(box, outer, slack=0.5):
+    return (box[0] >= outer[0] - slack and box[1] >= outer[1] - slack
+            and box[2] <= outer[2] + slack and box[3] <= outer[3] + slack)
+
+
+def _overlap_share(a, b):
+    iw = min(a[2], b[2]) - max(a[0], b[0])
+    ih = min(a[3], b[3]) - max(a[1], b[1])
+    if iw <= 0 or ih <= 0:
+        return 0.0
+    return iw * ih / ((a[2] - a[0]) * (a[3] - a[1]))
+
+
+def _label_directions(path):
+    """{label text: the way it reads as shown} — the file baked so each
+    label's appearance becomes page text whose direction PyMuPDF reports."""
+    doc = fitz.open(path)
+    doc.bake()
+    out = {}
+    for page in doc:
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", ()):
+                text = "".join(s["text"] for s in line["spans"]).strip()
+                if text:
+                    out.setdefault(text, direction_to_rotation(page,
+                                                               line["dir"]))
+    doc.close()
+    return out
+
+
+@pytest.mark.parametrize("rot", [0, 90, 180, 270])
+def test_the_page_box_is_the_page_as_shown(rot):
+    doc = fitz.open(stream=_rotated_sheet(rot), filetype="pdf")
+    assert _page_box(doc[0]) == SHOWN
+    doc.close()
+
+
+@pytest.mark.parametrize("rot", [0, 90, 180, 270])
+def test_every_kind_lands_on_its_target_at_every_rotation(tmp_path, rot):
+    src = tmp_path / f"sheet_{rot}.pdf"
+    src.write_bytes(_rotated_sheet(rot))
+    out = str(tmp_path / f"marked_{rot}.pdf")
+    report = write_markups(str(src), out, [
+        {"kind": "box", "page": 0, "comment": "the standard number",
+         "label": "Sheet 10.31A", "bbox": list(STD_BOX)},
+        {"kind": "circle", "page": 0, "comment": "tag", "label": "GCE",
+         "bbox": list(RING_AT)},
+        {"kind": "highlight", "page": 0, "comment": "this strip",
+         "label": "check", "bbox": list(HL_BOX)},
+        {"kind": "callout", "page": 0, "comment": "Confirm the corner.",
+         "points_at": list(TIP)},
+        {"kind": "note", "page": 0, "comment": "A note.",
+         "point": list(SPOT)},
+    ], author=AI)
+    assert report.n_written == 5 and report.n_skipped == 0
+    rows = {w.kind: w for w in report.written}
+    with open_document(out) as doc:
+        mine = _written(doc, AI)
+        by = {m.subject: m for m in mine}
+        # the box is the box asked for
+        for got, asked in zip(by["Box"].bbox, STD_BOX):
+            assert abs(got - asked) < 0.5, (rot, by["Box"].bbox)
+        # the ring goes round its whole target and stays on the page
+        ring = by["Circle"]
+        assert all(_inside_ellipse(ring.bbox, x, y)
+                   for x in (RING_AT[0], RING_AT[2])
+                   for y in (RING_AT[1], RING_AT[3])), (rot, ring.bbox)
+        assert _on(ring.bbox, SHOWN)
+        # the highlight covers its strip
+        hl = by["Highlight"]
+        assert hl.bbox[0] <= HL_BOX[0] + 1 and hl.bbox[2] >= HL_BOX[2] - 1
+        assert hl.bbox[1] <= HL_BOX[1] + 1 and hl.bbox[3] >= HL_BOX[3] - 1
+        # the callout aims at its spot and its box is on the page, near it
+        co = by["Callout"]
+        assert abs(co.points_at[0] - TIP[0]) < 1.0
+        assert abs(co.points_at[1] - TIP[1]) < 1.0
+        assert _on(co.bbox, SHOWN), (rot, co.bbox)
+        assert co.bbox[2] - co.bbox[0] < 300 and co.bbox[3] - co.bbox[1] < 150
+        # the note hangs from its spot
+        note = by["Note"]
+        assert abs(note.bbox[0] - SPOT[0]) < 0.5
+        assert abs(note.bbox[1] - SPOT[1]) < 0.5
+        # every label sits against its own mark, on the page, off the mark
+        labels = [m for m in mine if m.subject == "Label"]
+        assert sorted(m.text for m in labels) == ["GCE", "Sheet 10.31A",
+                                                  "check"]
+        for lab in labels:
+            mark = next(m for m in mine if m.id == lab.in_reply_to)
+            assert _gap(lab.bbox, mark.bbox) <= LABEL_GAP + 1.0, \
+                (rot, lab.text, lab.bbox, mark.bbox)
+            assert _on(lab.bbox, SHOWN), (rot, lab.text, lab.bbox)
+            assert _overlap_share(lab.bbox, mark.bbox) < 0.05
+            row = next(r for r in rows.values() if r.label == lab.text)
+            assert bbox_iou(lab.bbox, row.label_bbox) > 0.9
+    # and every label reads across, as the sheet's own lettering does
+    reads = _label_directions(out)
+    for text in ("GCE", "Sheet 10.31A", "check"):
+        assert reads[text] == 0.0, (rot, text, reads)
+    assert all(r.label_reads in (None, 0) for r in report.written)
+
+
+@pytest.mark.parametrize("rot", [0, 270])
+@pytest.mark.parametrize("reads,name", [(90, "up"), (270, "down")])
+def test_a_label_reads_the_way_the_text_beside_it_does(tmp_path, rot, reads,
+                                                       name):
+    """A drawing plotted sideways onto its page (or a title block turned
+    along a sheet's edge) prints its lettering up or down the page. A label
+    beside a mark there reads the same way, and sits beside the mark as it
+    would on an upright sheet — not across the drawing."""
+    beside = [((STD_BOX[0] - 30, STD_BOX[1] - 40), "STD. NO."),
+              ((STD_BOX[0] - 50, STD_BOX[1] - 60), "MECKLENBURG COUNTY"),
+              ((300, 300), "GENERAL NOTES")]
+    src = tmp_path / "sideways.pdf"
+    src.write_bytes(_rotated_sheet(rot, reads=reads, lines=beside))
+    out = str(tmp_path / "sideways_marked.pdf")
+    report = write_markups(str(src), out, [
+        {"kind": "box", "page": 0, "comment": "the standard number",
+         "label": "Sheet 10.31A", "bbox": list(STD_BOX)}], author=AI)
+    row = report.written[0]
+    assert row.label_reads == reads
+    assert row.to_dict()["label_reads"] == name
+    lb = row.label_bbox
+    assert lb[3] - lb[1] > lb[2] - lb[0]          # tall: it runs up or down
+    assert _gap(lb, row.bbox) <= LABEL_GAP + 1.0 and _on(lb, SHOWN)
+    assert _label_directions(out)["Sheet 10.31A"] == float(reads)
+
+
+def test_the_caller_can_say_which_way_a_label_reads(tmp_path):
+    """A sheet whose lettering is drawn as lines has no text to follow: the
+    caller who has LOOKED says which way it reads."""
+    src = tmp_path / "no_text.pdf"
+    src.write_bytes(_rotated_sheet(0, lines=[]))
+    out = str(tmp_path / "told.pdf")
+    report = write_markups(str(src), out, [
+        {"kind": "box", "page": 0, "comment": "c", "label": "DOWN LABEL",
+         "label_reads": "down", "bbox": list(STD_BOX)},
+        {"kind": "circle", "page": 0, "comment": "c", "label": "UP LABEL",
+         "label_reads": 90, "bbox": list(RING_AT)},
+        {"kind": "box", "page": 0, "comment": "c", "label": "PLAIN",
+         "bbox": [300, 300, 340, 320]},
+        {"kind": "box", "page": 0, "comment": "c", "label_reads": "up",
+         "bbox": [400, 300, 440, 320]},
+    ], author=AI)
+    assert report.n_written == 4
+    reads = _label_directions(out)
+    assert reads["DOWN LABEL"] == 270.0 and reads["UP LABEL"] == 90.0
+    assert reads["PLAIN"] == 0.0
+    assert [a["index"] for a in report.adjusted] == [3]
+    assert "label_reads was ignored" in report.adjusted[0]["notes"][0]
+
+
+@pytest.mark.parametrize("value", ["sideways", 45, "diagonal"])
+def test_a_direction_that_is_not_one_is_refused(tmp_path, value):
+    src = tmp_path / "s.pdf"
+    src.write_bytes(_rotated_sheet(0))
+    with pytest.raises(ValueError, match="label_reads must be across, up"):
+        write_markups(str(src), str(tmp_path / "x.pdf"), [
+            {"kind": "box", "page": 0, "comment": "c", "label": "L",
+             "label_reads": value, "bbox": [300, 300, 340, 320]}])
+
+
+@pytest.mark.parametrize("rot", [0, 90])
+def test_a_label_goes_where_it_covers_no_lettering(tmp_path, rot):
+    """The first place a label is tried (above the mark) is full of notes;
+    the label goes beside the mark where the paper is clear, not over the
+    drawing's lettering (F16 page 10: "Sheet 50.03" over "MONUMENT")."""
+    box = (400.0, 300.0, 440.0, 316.0)
+    notes = [((360, 270 + 6 * i), "NOTE TEXT NOTE TEXT NOTE TEXT")
+             for i in range(5)]
+    src = tmp_path / "busy.pdf"
+    src.write_bytes(_rotated_sheet(rot, lines=notes))
+    out = str(tmp_path / "busy_marked.pdf")
+    report = write_markups(str(src), out, [
+        {"kind": "box", "page": 0, "comment": "c", "label": "Sheet 50.03",
+         "bbox": list(box)}], author=AI)
+    row = report.written[0]
+    doc = fitz.open(out)
+    page = doc[0]
+    first = _label_box("Sheet 50.03", row.bbox, SHOWN)
+    assert _ink_fraction(_ink_grid(page, first), first) > 0.05  # busy there
+    lb = row.label_bbox
+    assert _ink_fraction(_ink_grid(page, lb), lb) == 0.0
+    assert _gap(lb, row.bbox) <= LABEL_GAP + 1.0
+    doc.close()
