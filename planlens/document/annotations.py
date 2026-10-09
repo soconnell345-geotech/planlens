@@ -31,6 +31,7 @@ Coordinates are converted from PyMuPDF's unrotated space to the displayed frame.
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from planlens.document.frame import bbox_iou, to_display_bbox, to_display_point
@@ -110,6 +111,31 @@ def _points_at(annot, kind: str, has_callout: bool, verts) -> Optional[Tuple[flo
         if start_le and not end_le:
             return verts[0]
     return None
+
+
+def _when(iso: Optional[str]) -> Optional[datetime]:
+    """A markup's ISO creation date as a datetime, or None when it has none
+    or it does not parse."""
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _drawn_after(other: Markup, m: Markup, order: Dict[str, int]) -> bool:
+    """Whether ``other`` was drawn after ``m``: by their creation dates when
+    both carry one and they differ, else by their places in the page's
+    annotation list (a viewer appends a new markup at its end)."""
+    a, b = _when(other.created), _when(m.created)
+    if a is not None and b is not None:
+        try:
+            if a != b:
+                return a > b
+        except TypeError:        # one date with a zone, one without
+            pass
+    return order[other.id] > order[m.id]
 
 
 def extract_annotations(page, page_index: int
@@ -206,6 +232,11 @@ def extract_annotations(page, page_index: int
     # highlight cloud a responder draws around the original comment to the
     # response box by /IRT, and the tip lands inside that cloud too — naming
     # it would say "this reply points at its own cloud".
+    # A markup drawn AFTER the pointer is skipped too: a callout aims at what
+    # was on the sheet when it was drawn, never at a box someone added round
+    # its target later (live smoke wave 3, F5: a reviewer's callout was listed
+    # as "aimed at" the box an app had drawn round the ring it points to).
+    order = {m.id: i for i, m in enumerate(markups)}
     for m in markups:
         if m.points_at is None:
             continue
@@ -213,7 +244,8 @@ def extract_annotations(page, page_index: int
         best = None
         for other in markups:
             if (other is m or other.in_reply_to == m.id
-                    or m.in_reply_to == other.id):
+                    or m.in_reply_to == other.id
+                    or _drawn_after(other, m, order)):
                 continue
             x0, y0, x1, y1 = other.bbox
             if x0 <= px <= x1 and y0 <= py <= y1:

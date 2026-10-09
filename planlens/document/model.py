@@ -198,7 +198,9 @@ class Markup:
     explicitly — the tip of a callout leader or the arrowhead end of an arrow.
     It is ``None`` when the annotation carries no such geometry; it is never
     inferred from proximity. ``points_to_markup`` names the markup whose box
-    contains that tip (a reply callout aimed at a reviewer's comment).
+    contains that tip (a reply callout aimed at a reviewer's comment), among
+    the markups drawn BEFORE this one: a box added round the target later is
+    never what an earlier callout was aimed at.
     ``in_reply_to`` comes only from the PDF's own reply link (/IRT) —
     Bluebeam also uses it to tie a cloud to its comment box; ``replies`` is
     its inverse. ``appearance_text`` is text the markup DRAWS that its comment

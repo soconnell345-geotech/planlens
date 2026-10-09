@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 — 2026-10-09
+
+- **A callout's aim ignores markups drawn after it (2026-10-09, the app's
+  live smoke wave 3).** `extract_annotations` judged what an original
+  callout is "aimed at" against every markup on the page, including boxes a
+  reviewer (or the app) added later, so a callout read as pointing at the
+  new box. The aim now considers only markups drawn earlier (by date, else
+  by order in the PDF) and the content under the leader.
 
 - **Markups on rotated pages, and labels that read with the page
   (2026-10-09, the app's live smoke wave 2a).**
