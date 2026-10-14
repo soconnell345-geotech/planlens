@@ -102,6 +102,10 @@ class ScaleFixture:
     #: The page is not drawn to scale: every finder must refuse it.
     not_to_scale: bool = False
     notes: List[str] = field(default_factory=list)
+    #: A log's samples drawn as boxes against the depth scale, each
+    #: ``{"id", "type", "blows", "top", "bottom"}`` in the depth unit (empty
+    #: on a page that draws none).
+    samples: List[Dict[str, Any]] = field(default_factory=list)
 
     def open(self):
         """The fixture as a :class:`planlens.document.Document`."""
@@ -343,6 +347,17 @@ class LogVariant:
     rotate270: bool = False
     contacts: Tuple[float, ...] = (2.26, 3.86, 5.31, 7.26)
     samples_regular: bool = False
+    #: Draw each sample as a BOX across the sample columns, its top and foot
+    #: ruled against the depth scale and no sample depth printed as a
+    #: number (as many logs do), instead of values set at sample depths.
+    sample_boxes: bool = False
+    #: With ``sample_boxes``: lines that cross the sample columns and are NOT
+    #: a box's own - a water line from the middle of the sample columns out
+    #: to the remarks (inside S-2), a dashed line right across the form
+    #: (inside S-3) - and S-5 drawn with no top line of its own, opened
+    #: instead by a stratum contact drawn on from the description across
+    #: the sample columns, stopping at their edge.
+    sample_crossers: bool = False
     text_source: Optional[str] = None  # None | "ocr" | "azure_di"
     label_size: float = 9.0
     seed: int = 1
@@ -462,6 +477,8 @@ def build_log(v: LogVariant) -> ScaleFixture:
     shape.commit()
     for name, (a, b) in band.items():
         text = _LOG_HEADERS[name]
+        if v.sample_boxes and name == "no":
+            text = "Sample No"
         size = 7.5
         tw = _text_width(text, size)
         if tw > b - a - 3:
@@ -557,7 +574,60 @@ def build_log(v: LogVariant) -> ScaleFixture:
     sa, sb = band["spt"]
     ta, tb = band["type"]
     na, nb = band["no"]
-    if v.samples_regular:
+    boxes: List[Dict[str, Any]] = []
+    if v.sample_boxes:
+        # (top, length) in steps of the scale, the sample's number, its type
+        # and the blows printed inside the box: a bag sample, driven samples
+        # every 1.5 steps, and one short box where the drive was refused.
+        plan = ((0.2, 0.6, "B-1", "BAG", ""),
+                (1.0, 0.45, "S-1", "SS", "4 6 8"),
+                (2.5, 0.45, "S-2", "SS", "7 9 12"),
+                (4.0, 0.45, "S-3", "SS", "10 14 17"),
+                (5.5, 0.25, "S-4", "SS", "32 50/10"),
+                (7.0, 0.45, "S-5", "SS", "12 15 18"),
+                (8.5, 0.45, "S-6", "SS", "9 11 13"))
+        lo_x, hi_x = min(sa, ta, na), max(sb, tb, nb)
+        for top_s, len_s, sid, kind, blows in plan:
+            top = v.start + top_s * v.step
+            bottom = top + len_s * v.step
+            if bottom > v.start + v.n_steps * v.step - 0.3 * v.step:
+                continue
+            y0, y1 = y_of(top), y_of(bottom)
+            sh = page.new_shape()
+            if v.sample_crossers and sid == "S-5":
+                # opened by a contact drawn on from the description
+                sh.draw_line((dsa, y0), (hi_x, y0))
+            else:
+                sh.draw_line((lo_x, y0), (hi_x, y0))
+            sh.draw_line((lo_x, y1), (hi_x, y1))
+            if v.sample_crossers and sid == "S-2":
+                # a water line from the middle of the sample columns out
+                yw = y_of(top + 0.3 * len_s * v.step)
+                sh.draw_line(((ta + tb) / 2.0, yw), (right, yw))
+            if v.sample_crossers and sid == "S-3":
+                # a dashed line right across the form
+                yd = y_of(top + 0.2 * len_s * v.step)
+                x = left
+                while x < right:
+                    sh.draw_line((x, yd), (min(x + 5.0, right), yd))
+                    x += 8.0
+            sh.finish(color=(0, 0, 0), width=0.7)
+            sh.commit()
+            base = (y0 + y1) / 2.0 + 2.5
+            for (a, b), text in (((na, nb), sid), ((ta, tb), kind),
+                                 ((sa, sb), blows)):
+                if not text:
+                    continue
+                tw = _text_width(text, 6.5)
+                x = (a + b - tw) / 2.0
+                page.insert_text((x, base), text, fontsize=6.5)
+                ocr.append((text, turn.box((x, base - 5.2, x + tw,
+                                            base + 1.0))))
+            boxes.append({"id": sid, "type": kind, "blows": blows,
+                          "top": round(top, 4), "bottom": round(bottom, 4)})
+    if v.sample_boxes:
+        sample_depths = []
+    elif v.samples_regular:
         sample_depths = [v.start + 0.75 + 1.5 * k for k in range(7)
                          if 0.75 + 1.5 * k < v.n_steps * v.step - 0.3]
     else:
@@ -598,7 +668,8 @@ def build_log(v: LogVariant) -> ScaleFixture:
                           "body_top_y": body_top, "body_bottom_y": body_bottom,
                           "column": turn.box((da, body_top, db, body_bottom)),
                           "description": turn.box((dsa, body_top, dsb,
-                                                   body_bottom))}})
+                                                   body_bottom))}},
+        samples=boxes)
     return fx
 
 

@@ -203,8 +203,12 @@ def test_log_grid_tool_returns_the_grid(log_kit, log_gt):
     tops = [layer["top"] for layer in out["layers"]]
     assert tops == [t for t, _b, _d in log_gt.layers]
     assert out["fields"]["boring_id"] == "B-12"
-    texts = {row["text"] for row in out["rows"]}
+    # compact rows: [depth, column, text] grouped by page, every row here
+    assert out["cell_fields"] == ["depth", "column", "text"]
+    texts = {cell[2] for group in out["rows"] for cell in group["cells"]}
     assert "5-9-12" in texts and "N=21" in texts
+    assert out["rows_note"].startswith("all ")
+    assert "next_offset" not in out
     assert "warnings" not in out
 
 
@@ -221,7 +225,9 @@ def test_log_grid_is_published_and_budgeted(log_kit):
     assert "boring log" in spec["description"]
     assert set(spec["parameters"]["properties"]) == {"handle", "pages",
                                                      "rows", "offset",
-                                                     "values"}
+                                                     "values", "row_detail"}
+    assert "SAMPLES" in spec["description"]
+    assert "read from the log" in spec["description"]
     handle = log_kit.open("log.pdf").handle
     text = log_kit.call_json("log_grid", {"handle": handle, "pages": "0"},
                              max_chars=1500)
@@ -258,3 +264,79 @@ def test_log_grid_tool_asks_for_and_takes_label_values(tmp_path):
         assert any("label box(es)" in w for w in bad["warnings"])
     finally:
         kit.close()
+
+
+# -- samples and the compact per-log record (BACKLOG PL-24) -------------------
+
+@pytest.fixture
+def box_kit(tmp_path):
+    from planlens.testing.visual_scale_fixtures import LogVariant, build_log
+    fx = build_log(LogVariant("tool_boxes", raster=False, sample_boxes=True,
+                              label_anchor="centre"))
+    kit = ReviewToolkit(resolve_source=lambda key: fx.pdf,
+                        output_dir=str(tmp_path), image_view_hint=IMG_HINT)
+    yield kit, fx
+    kit.close()
+
+
+def test_log_grid_tool_returns_each_sample_s_interval(box_kit):
+    kit, fx = box_kit
+    handle = kit.open("boxes.pdf").handle
+    out = call(kit, "log_grid", handle=handle, pages="0")
+    assert out["n_samples"] == len(fx.samples)
+    assert "read from the log" in out["samples_note"]
+    assert "vector" in out["samples_note"]
+    for truth, s in zip(fx.samples, out["samples"]):
+        assert s["id"] == truth["id"]
+        assert abs(s["top"] - truth["top"]) <= max(s["plus_minus"], 0.005)
+        assert abs(s["bottom"] - truth["bottom"]) <= max(s["plus_minus"],
+                                                         0.005)
+        assert "read" not in s          # said once, in samples_note
+    s1 = next(s for s in out["samples"] if s["id"] == "S-1")
+    assert s1["cells"] == {"blows": "4 6 8", "sample_type": "SS"}
+    # what a sample, a layer or a ruler already holds is not listed again
+    listed = [c for g in out["rows"] for c in g["cells"]]
+    assert not any(c[1] in ("description", "blows", "sample_id",
+                            "sample_type") for c in listed)
+    assert "in samples" in out["rows_note"] and "in layers" in out["rows_note"]
+    # rows=false keeps the whole record: layers and samples
+    lean = call(kit, "log_grid", handle=handle, pages="0", rows=False)
+    assert lean["samples"] == out["samples"] and lean["layers"]
+    assert "rows=true" in lean["rows_note"]
+
+
+def test_log_grid_tool_says_what_paging_left_out(box_kit):
+    from planlens.document.loggrid import log_grid
+    kit, fx = box_kit
+    handle = kit.open("boxes.pdf").handle
+    every = [c.text for c in log_grid(fx.open(), [0]).rows]
+    seen, offset, calls = [], 0, 0
+    while True:
+        args = {"handle": handle, "pages": "0", "row_detail": "full"}
+        if offset:
+            args["offset"] = offset
+        text = kit.call_json("log_grid", args, max_chars=4500)
+        assert len(text) <= 4500
+        out = json.loads(text)
+        calls += 1
+        # every window carries the whole log's layers and samples
+        assert len(out["samples"]) == out["n_samples"] == 7
+        seen += [r["text"] for r in out["rows"]]
+        if "next_offset" not in out:
+            assert "the last of this log's rows" in out["rows_note"]
+            break
+        note = out["rows_note"]
+        assert "NOT here" in note and f"offset={out['next_offset']}" in note
+        assert "more rows" in note and "on pages 0" in note
+        offset = out["next_offset"]
+    assert calls > 1 and seen == every
+
+
+def test_log_grid_tool_full_rows_keep_their_boxes(box_kit):
+    kit, _fx = box_kit
+    handle = kit.open("boxes.pdf").handle
+    out = call(kit, "log_grid", handle=handle, pages="0", row_detail="full")
+    assert all("bbox" in r and "page" in r for r in out["rows"])
+    assert "cell_fields" not in out
+    bad = call(kit, "log_grid", handle=handle, pages="0", row_detail="all")
+    assert "row_detail" in bad["error"]

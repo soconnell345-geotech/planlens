@@ -410,25 +410,32 @@ TOOL_SPECS = [
             "plasticity_index, fines, qu, pocket_pen, torvane, remarks, "
             "tests, or other keeping the printed header); the depth RULER "
             "fitted to the printed scale, with its unit and the residual of "
-            "the fit; every remaining line of text as a ROW carrying its "
-            "column, its depth, the depth range its box covers, its numbers "
-            "and its box; the LAYERS the description column is cut into, "
-            "each with its top depth, its bottom and its text; and the "
-            "FIELDS printed outside the body (boring number, ground surface "
-            "elevation, dates, hammer type, driller, total depth, "
-            "groundwater). Values are returned AS PRINTED and never parsed "
-            "into a meaning: a blow record stays \"5-9-12\" and an N value "
-            "stays \"N=21\". Depths are in the unit the log prints, which "
+            "the fit; the LAYERS the description column is cut into, each "
+            "with its top, bottom and text; the SAMPLES where the log draws "
+            "each sample as a box in its sample columns: the box's top and "
+            "bottom read off the log's own depth scale, with their +/- and "
+            "what the sample columns print inside it (number, type, "
+            "recovery, blows); every other line of text as a ROW with its "
+            "column and depth; and the FIELDS printed outside the body "
+            "(boring number, ground surface elevation, dates, hammer type, "
+            "driller, total depth, groundwater). Layers and samples always "
+            "cover the whole log. Rows are compact, [depth, column, text] "
+            "by page, without the lines a layer or a sample already holds "
+            "(row_detail=full adds boxes); rows_note says whether every row "
+            "is here and, if not, which depths and pages are left and the "
+            "offset that returns them. Values are AS PRINTED and never "
+            "parsed: a blow record stays \"5-9-12\". A depth read off the "
+            "log's own drawn scale is read from the log, as a printed "
+            "number is. Depths are in the unit the log prints, which "
             "depth_unit names. A page whose ruler cannot be found returns "
             "its cells with NO depths and says so in warnings - read the "
-            "warnings before using anything. This is data with boxes, not a "
-            "reading of the log; look at the page for what the geometry "
-            "cannot say (sample symbols, water-level symbols, refusal "
-            "notation). A scanned log is read from its pixels: its ruled "
-            "columns and every stratum line, each layer top with its +/-; "
-            "where the scan has no text the depth labels are found but not "
-            "read, the result carries needs_values with their boxes, and "
-            "the call is repeated with values."),
+            "warnings before using anything. Look at the page for what the "
+            "geometry cannot say (sample symbols, water-level symbols, "
+            "refusal notation). A scanned log is read from its pixels: its "
+            "ruled columns and every stratum line, each layer top with its "
+            "+/-; where the scan has no text the depth labels are found but "
+            "not read, the result carries needs_values with their boxes, "
+            "and the call is repeated with values."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -441,10 +448,15 @@ TOOL_SPECS = [
                                    "log.",
                 },
                 "rows": {"type": "boolean",
-                         "description": "Include the placed cells (default "
-                                        "true). false returns only the "
-                                        "columns, the ruler, the layers and "
-                                        "the fields."},
+                         "description": "Include the rows (default true). "
+                                        "false returns only the columns, "
+                                        "the ruler, the layers, the samples "
+                                        "and the fields."},
+                "row_detail": {"type": "string",
+                               "enum": ["compact", "full"],
+                               "description": "compact (default) or full: "
+                                              "each row with its box, "
+                                              "numbers and confidence."},
                 "offset": {"type": "integer", "minimum": 0},
                 "values": {"type": "object",
                            "description": "For needs_values: {page: [label "

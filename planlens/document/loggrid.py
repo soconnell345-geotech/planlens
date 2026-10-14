@@ -188,6 +188,38 @@ SAME_BOUNDARY_PT = 2.5
 #: line, and a line's box carries a point or two of leading above the ink.
 BOUNDARY_SLACK_PT = 0.5
 
+#: The columns a sample's own lines are drawn across, and the columns whose
+#: text is read as what a sample interval holds. A boundary must cross one
+#: of the first set: a plotted N column can carry a grid of its own, and its
+#: lines are not samples.
+SAMPLE_LINE_COLUMNS = ("sample_id", "sample_type", "blows", "recovery", "rqd")
+SAMPLE_TEXT_COLUMNS = SAMPLE_LINE_COLUMNS + ("n_value",)
+
+#: Lines this close together, three or more in a run, are a sample symbol's
+#: fill (a ladder of rungs, a hatch) and not boundaries: only the first and
+#: last of the run are kept, which are the symbol's own top and foot.
+SAMPLE_HATCH_PT = 4.0
+
+#: An interval shorter than this between two sample lines is the gap
+#: between two boxes drawn edge to edge, never a sample.
+MIN_SAMPLE_PT = 2.0
+
+#: The shortest drawn piece kept for the sample lines. A form draws the line
+#: across its sample columns one column at a time, and a narrow column's
+#: piece is shorter than :data:`MIN_RULE_LENGTH_PT`.
+SHORT_PIECE_PT = 3.0
+
+#: Pieces of a sample line join only where they nearly meet (the gap of a
+#: dash at most). A stratum contact drawn up to the description column's
+#: edge and a sample's line starting a column further on are two lines, not
+#: one that crosses the description.
+SAMPLE_JOIN_GAP_PT = 3.0
+
+#: How far a drawn vector line may sit from the depth it marks, in points:
+#: half a typical line weight. With the ruler's own residual it is the
+#: +/- of a sample depth read off a vector log.
+VECTOR_LINE_PT = 0.5
+
 
 #: A value-shape refinement fires once this many cells of a column match.
 MIN_SHAPE_CELLS = 2
@@ -622,6 +654,51 @@ class Layer:
         })
 
 
+@dataclass(frozen=True)
+class Sample:
+    """One sample's interval, read off the lines the form draws for it.
+
+    Many logs print no sample depth as a number: each sample is a box in the
+    sample columns, drawn against the depth scale, and its top and bottom are
+    where the box's lines cross that scale. ``top`` and ``bottom`` are those
+    two lines read through the page's own ruler, ``plus_minus`` their 95 %
+    uncertainty in the depth unit, and ``read`` how the lines were found:
+    ``"vector"`` from the PDF's drawn lines (exact to a fraction of a
+    point), ``"pixels"`` from a scan. ``label`` is what the sample-number
+    column prints inside the box and ``cells`` what the other sample columns
+    print there (recovery, blows, type), as printed. ``ends`` says which side
+    is not a drawn line but the sheet's own top or foot, where a box may go
+    on from the sheet before or into the next.
+    """
+
+    page: int
+    top: float
+    bottom: float
+    label: str = ""
+    cells: Tuple[Tuple[str, str], ...] = ()
+    pages: Tuple[int, ...] = ()
+    plus_minus: Optional[float] = None
+    read: str = "vector"
+    ends: Tuple[str, str] = ("line", "line")
+    bbox: Optional[BBox] = None
+    confidence: float = 0.5
+
+    def to_dict(self) -> Dict[str, Any]:
+        return _compact({
+            "page": self.page,
+            "pages": list(self.pages) if len(self.pages) > 1 else None,
+            "top": _r(self.top, 2), "bottom": _r(self.bottom, 2),
+            "plus_minus": _r(self.plus_minus, 3),
+            "id": self.label or None,
+            "cells": dict(self.cells) or None,
+            "read": ("drawn lines, " + ("vector" if self.read == "vector"
+                                        else "scan pixels")),
+            "ends": (list(self.ends) if self.ends != ("line", "line")
+                     else None),
+            "confidence": round(float(self.confidence), 2),
+        })
+
+
 @dataclass
 class LogGrid:
     """One log — its pages, continuation sheets included — read as a grid."""
@@ -633,6 +710,9 @@ class LogGrid:
     elevation_rulers: Dict[int, Ruler] = field(default_factory=dict)
     rows: List[Cell] = field(default_factory=list)
     layers: List[Layer] = field(default_factory=list)
+    #: Each sample's interval where the form draws it (see :class:`Sample`);
+    #: empty where the sample columns draw no lines of their own.
+    samples: List[Sample] = field(default_factory=list)
     fields: Dict[str, str] = field(default_factory=dict)
     field_boxes: Dict[str, Tuple[int, BBox]] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
@@ -672,6 +752,32 @@ class LogGrid:
     def has_ruler(self) -> bool:
         return bool(self.rulers)
 
+    def compact_rows(self) -> Tuple[List[Cell], Dict[str, int]]:
+        """The rows a reader still needs once it has the layers and rulers.
+
+        A description line is already in its layer's text, and a depth or
+        elevation scale's own labels are the ruler's ticks; listing them
+        again row by row is most of a log's rows (about two in five on a
+        corpus log) and the reason a long log could not come back in one
+        result. Returns the remaining cells in page order, and how many of
+        each kind were left out because they are said elsewhere.
+        """
+        desc = {c.id for c in self.columns if "description" in c.names}
+        scale_cols = {r.column_id for r in list(self.rulers.values())
+                      + list(self.elevation_rulers.values()) if r.column_id}
+        kept: List[Cell] = []
+        left = {"description_column": 0, "scale_labels": 0}
+        for cell in self.rows:
+            if cell.column_id in desc:
+                left["description_column"] += 1
+                continue
+            if cell.column_id in scale_cols and \
+                    _single_number(cell.text) is not None:
+                left["scale_labels"] += 1
+                continue
+            kept.append(cell)
+        return kept, left
+
     def to_dict(self, rows: bool = True) -> Dict[str, Any]:
         seen = set()
         cols: List[Dict[str, Any]] = []
@@ -689,6 +795,7 @@ class LogGrid:
             "rulers": [r.to_dict() for r in self.rulers.values()],
             "n_rows": len(self.rows),
             "layers": [ly.to_dict() for ly in self.layers],
+            "samples": [s.to_dict() for s in self.samples],
             "fields": dict(self.fields),
         }
         if self.elevation_rulers:
@@ -861,7 +968,8 @@ class _Rule:
         return self.hi - self.lo
 
 
-def page_rules(page) -> Tuple[List[_Rule], List[_Rule]]:
+def page_rules(page, short: Optional[List[_Rule]] = None
+               ) -> Tuple[List[_Rule], List[_Rule]]:
     """``(horizontal, vertical)`` drawn rules of a page, displayed frame.
 
     PyMuPDF reports drawings in the UNROTATED page space, so every segment is
@@ -869,6 +977,11 @@ def page_rules(page) -> Tuple[List[_Rule], List[_Rule]]:
     /Rotate 90 page what the content stream draws horizontally is displayed
     vertically, and a column edge has to be vertical AS DISPLAYED because that
     is the frame every text box is in.
+
+    ``short``, when given, also collects the horizontal PIECES too short to
+    be a rule here (from :data:`SHORT_PIECE_PT`), and the top and foot of
+    every stroked box too small to be four rules: a sample's box in a narrow
+    sample column is drawn with them. What is returned is unchanged.
     """
     horizontal: List[_Rule] = []
     vertical: List[_Rule] = []
@@ -892,6 +1005,9 @@ def page_rules(page) -> Tuple[List[_Rule], List[_Rule]]:
             a, lo, hi = (dy0 + dy1) / 2.0, min(dx0, dx1), max(dx0, dx1)
             if hi - lo >= MIN_RULE_LENGTH_PT and on_page(a, lo, hi, False):
                 horizontal.append(_Rule(a, lo, hi))
+            elif (short is not None and hi - lo >= SHORT_PIECE_PT
+                    and on_page(a, lo, hi, False)):
+                short.append(_Rule(a, lo, hi))
         elif abs(dx1 - dx0) <= RULE_STRAIGHTNESS_PT:
             a, lo, hi = (dx0 + dx1) / 2.0, min(dy0, dy1), max(dy0, dy1)
             if hi - lo >= MIN_RULE_LENGTH_PT and on_page(a, lo, hi, True):
@@ -928,6 +1044,14 @@ def page_rules(page) -> Tuple[List[_Rule], List[_Rule]]:
                     if on_page(bx[0], bx[1], bx[3], True):
                         vertical.append(_Rule(bx[0], bx[1], bx[3]))
                         vertical.append(_Rule(bx[2], bx[1], bx[3]))
+                elif (short is not None and w >= SHORT_PIECE_PT
+                        and on_page(bx[1], bx[0], bx[2], False)):
+                    if h <= 2.0:
+                        short.append(_Rule((bx[1] + bx[3]) / 2.0, bx[0],
+                                           bx[2]))
+                    elif stroked:
+                        short.append(_Rule(bx[1], bx[0], bx[2]))
+                        short.append(_Rule(bx[3], bx[0], bx[2]))
     return horizontal, vertical
 
 
@@ -998,6 +1122,18 @@ class _PageGrid:
     strata: List[Tuple[float, float, Optional[float], bool]] = field(
         default_factory=list)
     needs_values: Optional[Dict[str, Any]] = None
+    #: The lines drawn across the sample columns, as ``(y, depth,
+    #: plus_minus, crosses the sample numbers)``: from the vector rules on a
+    #: drawn page, from the pixels on a scan. They cut the sample columns
+    #: into each sample's interval.
+    sample_lines: List[Tuple[float, float, Optional[float], bool]] = field(
+        default_factory=list)
+    #: Stratum contacts drawn on across the sample columns, same form: they
+    #: trim the empty part off a box, never cut through one.
+    sample_contacts: List[Tuple[float, float, Optional[float], bool]] = field(
+        default_factory=list)
+    #: The horizontal pieces as drawn, short ones included (vector pages).
+    h_pieces: List[_Rule] = field(default_factory=list)
 
 
 def _grid_columns(v_runs: Sequence[Tuple[float, float, float]],
@@ -1475,7 +1611,11 @@ def _read_page(doc, index: int) -> _PageGrid:
     h_rules: List[_Rule] = []
     v_runs: List[Tuple[float, float, float]] = []
     if fitz_page is not None:
-        h_rules, v_rules = page_rules(fitz_page)
+        short: List[_Rule] = []
+        h_rules, v_rules = page_rules(fitz_page, short=short)
+        # The pieces as drawn, kept for the sample lines (joined there only
+        # where they meet).
+        pg.h_pieces = list(h_rules) + short
         # Collinear pieces are one rule. Every length this module measures —
         # does it cross the form, does it cross the description column, is it
         # long enough to be a column edge — is a length of the RUN.
@@ -2063,6 +2203,397 @@ def _build_layers(grids: Sequence[_PageGrid], unit: Optional[str]
 
 
 # ---------------------------------------------------------------------------
+# Samples
+# ---------------------------------------------------------------------------
+#
+# A log that prints no sample depth as a number still states every sample's
+# interval: the sample columns are cut into boxes by lines drawn against the
+# depth scale, and a box's top and foot ARE the sample's depths. The lines
+# are found the way stratum lines are -- drawn rules on a vector page,
+# lines in the pixels on a scan -- and read through the same ruler, so a
+# sample depth is as exact as a layer contact: to a fraction of a point on a
+# vector log. A box is a sample when the sample columns print something
+# inside it (a sample number, a type, a recovery, blows); an empty box is the
+# gap between two samples.
+
+def _sample_columns(pg: _PageGrid, names: Sequence[str],
+                    first: bool = False) -> List[Column]:
+    """The page's sample columns: whose header names one of ``names`` (with
+    ``first``, names it FIRST), never the description or the graphic log (a
+    "Sample Description" header names both). The lines are looked for in
+    the columns named first - a plotted "SPT N VALUE PL MC LL" column names
+    blows only after the N it plots - and the text in all of them: a "FIELD
+    TEST RESULTS" column prints the blows."""
+    return [c for c in pg.columns
+            if (c.name in names if first else set(names) & set(c.names))
+            and not {"description", "graphic"} & set(c.names)]
+
+
+def _sample_groups(cols: Sequence[Column],
+                   blockers: Sequence[Tuple[float, float]]
+                   ) -> List[List[Column]]:
+    """The sample columns in side-by-side groups: a group ends where the
+    description or the depth scale stands between two of them."""
+    groups: List[List[Column]] = []
+    for c in sorted(cols, key=lambda c: c.x0):
+        if groups:
+            prev = groups[-1][-1]
+            between = any(prev.x1 - 0.5 <= (a + b) / 2.0 <= c.x0 + 0.5
+                          for a, b in blockers)
+            if not between:
+                groups[-1].append(c)
+                continue
+        groups.append([c])
+    return groups
+
+
+def _is_box_line(lo: float, hi: float, groups: Sequence[Sequence[Column]],
+                 blockers: Sequence[Tuple[float, float]],
+                 slack: float) -> bool:
+    """Is a line from ``lo`` to ``hi`` one of the sample boxes' own lines?
+
+    It crosses neither the description nor the depth scale (a contact or a
+    line drawn right across the log) and it is no dash: a run shorter than
+    a rule, or than its group of sample columns where that is narrower.
+    Then it is a box's line when it crosses EVERY sample column of its group
+    (it may run on beyond them: some forms rule a sample's row right across
+    the laboratory columns), or when it crosses some of them and stays
+    inside the group (some forms close a box under the recovery and blows
+    only). A line that starts part way across the group and runs on out of
+    it - a water line drawn from the recovery column out to the remarks -
+    is neither, and taking it would cut a sample's box in two.
+    """
+    if any(_covers(lo, hi, a, b) for a, b in blockers):
+        return False
+    for group in groups:
+        g_lo, g_hi = group[0].x0, group[-1].x1
+        if hi - lo < min(MIN_RULE_LENGTH_PT, 0.9 * (g_hi - g_lo)):
+            continue
+        crossed = [c for c in group if _covers(lo, hi, c.x0, c.x1)]
+        if not crossed:
+            continue
+        if len(crossed) == len(group):
+            return True
+        if lo >= g_lo - slack and hi <= g_hi + slack:
+            return True
+    return False
+
+
+def _is_contact_into_samples(lo: float, hi: float,
+                             groups: Sequence[Sequence[Column]],
+                             blockers: Sequence[Tuple[float, float]],
+                             slack: float) -> bool:
+    """A line drawn from the description across a whole group of sample
+    columns and STOPPING at the group's far edge: a stratum contact some
+    forms carry on through the sample columns. It is a box's line where it
+    trims empty paper off a box (a sample that starts at the contact) and
+    never where it would cut through what a box prints."""
+    if not any(_covers(lo, hi, a, b) for a, b in blockers):
+        return False
+    for group in groups:
+        g_lo, g_hi = group[0].x0, group[-1].x1
+        if not all(_covers(lo, hi, c.x0, c.x1) for c in group):
+            continue
+        if abs(hi - g_hi) <= slack or abs(lo - g_lo) <= slack:
+            return True
+    return False
+
+
+def _covers(lo: float, hi: float, x0: float, x1: float) -> bool:
+    """Does a line from ``lo`` to ``hi`` cross most of the band x0-x1?"""
+    return min(hi, x1) - max(lo, x0) >= STRATUM_COVER_FRAC * max(1.0, x1 - x0)
+
+
+#: A piece this short with another short piece beside it, a small gap
+#: between, is a DASH: a dashed depth-grid line or water line is drawn so
+#: (measured: 5.8 pt dashes, 2.8 pt gaps), and no box's line is.
+DASH_PT = 8.0
+DASH_GAP_PT = (1.0, 4.5)
+
+
+def _sample_runs(pieces: Sequence[_Rule]) -> List[_Rule]:
+    """The solid lines among ``pieces``: the dashes taken out, then the
+    collinear pieces that (nearly) meet joined into the line they draw."""
+    # One row per drawn y. Tighter than a rule's own tolerance: a symbol's
+    # ladder of rungs 2 or 3 pt apart must not pull a box's line off its y.
+    rows: List[List[_Rule]] = []
+    for r in sorted(pieces, key=lambda r: (r.a, r.lo)):
+        if rows and abs(r.a - rows[-1][0].a) <= SAME_TICK_PT:
+            rows[-1].append(r)
+        else:
+            rows.append([r])
+    out: List[_Rule] = []
+    for row in rows:
+        row.sort(key=lambda r: r.lo)
+        solid = []
+        for i, r in enumerate(row):
+            if r.length < DASH_PT and any(
+                    o.length < DASH_PT
+                    and DASH_GAP_PT[0] < max(o.lo - r.hi, r.lo - o.hi)
+                    <= DASH_GAP_PT[1]
+                    for j, o in enumerate(row) if j != i):
+                continue
+            solid.append(r)
+        # Each run sits at the y of its longest piece: the line itself, not
+        # a stray stroke a fraction of a point off it.
+        cur: List[_Rule] = []
+        for r in solid + [None]:
+            if r is not None and cur and \
+                    r.lo <= max(p.hi for p in cur) + SAMPLE_JOIN_GAP_PT:
+                cur.append(r)
+                continue
+            if cur:
+                out.append(_Rule(max(cur, key=lambda p: p.length).a,
+                                 min(p.lo for p in cur),
+                                 max(p.hi for p in cur)))
+            cur = [r] if r is not None else []
+    return out
+
+
+def _sample_line_blockers(pg: _PageGrid) -> List[Column]:
+    """Columns a sample's own line does not cross: the description (a line
+    there is a stratum contact or a water line) and the depth scale. The
+    description is the log's own one; a remarks column whose header also
+    reads as a description is crossed by a box's line on many forms."""
+    desc = _description_column(pg)
+    out = [desc] if desc is not None else []
+    if pg.ruler is not None and pg.ruler.column_id:
+        out += [c for c in pg.columns if c.id == pg.ruler.column_id]
+    return out
+
+
+def _thin_sample_lines(lines: Sequence[Tuple[Any, ...]]
+                       ) -> List[Tuple[Any, ...]]:
+    """One line per boundary: a line drawn twice is one, and a ladder or a
+    hatch inside a sample symbol is the symbol's top and foot only."""
+    once: List[Tuple[Any, ...]] = []
+    for ln in sorted(lines):
+        if once and ln[0] - once[-1][0] <= SAME_TICK_PT:
+            continue
+        once.append(ln)
+    kept: List[Tuple[Any, ...]] = []
+    i = 0
+    while i < len(once):
+        j = i
+        while j + 1 < len(once) and once[j + 1][0] - once[j][0] <= SAMPLE_HATCH_PT:
+            j += 1
+        kept.extend([once[i], once[j]] if j - i + 1 >= 3 else once[i:j + 1])
+        i = j + 1
+    return kept
+
+
+def _vector_plus_minus(ruler: Ruler) -> float:
+    """The +/- of a depth read off a drawn vector line through ``ruler``."""
+    import math
+    if ruler.plus_minus is not None:
+        return float(ruler.plus_minus)
+    return math.hypot(float(ruler.residual),
+                      abs(ruler.slope) * VECTOR_LINE_PT)
+
+
+def _vector_sample_lines(pg: _PageGrid) -> None:
+    """The drawn rules that cut a vector page's sample columns into boxes."""
+    ruler = pg.ruler
+    if ruler is None or pg.raster or pg.body_top is None:
+        return
+    cols = _sample_columns(pg, SAMPLE_LINE_COLUMNS, first=True)
+    if not cols:
+        return
+    blockers = [(c.x0, c.x1) for c in _sample_line_blockers(pg)]
+    groups = _sample_groups(cols, blockers)
+    labels = [c for c in _sample_columns(pg, SAMPLE_TEXT_COLUMNS)
+              if "sample_id" in c.names]
+    bottom = pg.body_bottom if pg.body_bottom is not None else pg.height
+    pm = _vector_plus_minus(ruler)
+    found, contacts = [], []
+    for rule in _sample_runs(pg.h_pieces or pg.horizontal):
+        if not pg.body_top + 2.0 < rule.a < bottom - 2.0:
+            continue                      # the frame: added as the sheet's
+        mark = (rule.a, ruler.value_at(rule.a), pm,
+                not labels or any(_covers(rule.lo, rule.hi, c.x0, c.x1)
+                                  for c in labels))
+        if _is_box_line(rule.lo, rule.hi, groups, blockers, SAME_EDGE_PT):
+            found.append(mark)
+        elif _is_contact_into_samples(rule.lo, rule.hi, groups, blockers,
+                                      SAME_EDGE_PT):
+            contacts.append(mark)
+    pg.sample_lines = _thin_sample_lines(found)
+    pg.sample_contacts = sorted(contacts)
+
+
+def _raster_sample_lines(pg: _PageGrid, facts, sc,
+                         body: Tuple[float, float], lo_s: float,
+                         hi_s: float) -> None:
+    """The lines in a scan's pixels that cut its sample columns into boxes,
+    each read through the page's fitted scale with its +/-."""
+    import math
+    from planlens.document.scales import rotate_point
+    cols = _sample_columns(pg, SAMPLE_LINE_COLUMNS, first=True)
+    if not cols:
+        return
+
+    def deskewed(c: Column) -> Column:
+        a = rotate_point(c.x0, body[0], facts.angle_deg)[0]
+        b = rotate_point(c.x1, body[0], facts.angle_deg)[0]
+        return Column(**{**c.__dict__, "x0": min(a, b), "x1": max(a, b)})
+
+    blockers = [(d.x0, d.x1) for d in (deskewed(c) for c in
+                                       _sample_line_blockers(pg))]
+    groups = _sample_groups([deskewed(c) for c in cols], blockers)
+    labels = [deskewed(c) for c in _sample_columns(pg, SAMPLE_TEXT_COLUMNS)
+              if "sample_id" in c.names]
+    x_ref = (min(c.x0 for c in cols) + max(c.x1 for c in cols)) / 2.0
+    found, contacts = [], []
+    for L in facts.hlines():
+        if L.source != "pixels" or L.dashed:
+            continue                      # a dashed line is no box's line
+        pos, lo, hi = facts.line_span(L)
+        if pos <= lo_s + 2.0 or pos >= hi_s - 2.0:
+            continue                      # the frame itself
+        # a line found in pixels ends a pixel or two from where it is drawn
+        box = _is_box_line(lo, hi, groups, blockers, 3.0)
+        if not box and not _is_contact_into_samples(lo, hi, groups,
+                                                    blockers, 3.0):
+            continue
+        y = L.at(x_ref)
+        s_ = sc.along(x_ref, y)
+        pm = abs(sc.b) * math.hypot(sc.plus_minus_pt_at(s_),
+                                    L.plus_minus_pt(facts.pixel_pt))
+        mark = (y, sc.value_at(s_), pm,
+                not labels or any(_covers(lo, hi, c.x0, c.x1)
+                                  for c in labels))
+        (found if box else contacts).append(mark)
+    pg.sample_lines = _thin_sample_lines(found)
+    pg.sample_contacts = sorted(contacts)
+
+
+def _build_samples(grids: Sequence[_PageGrid]
+                   ) -> Tuple[List[Sample], List[str]]:
+    """Each sample's interval, from the lines that cut the sample columns."""
+    warnings: List[str] = []
+    found: List[Sample] = []
+    for pg in grids:
+        ruler = pg.ruler
+        if ruler is None or not pg.sample_lines:
+            continue
+        text_cols = {c.id: c for c in _sample_columns(pg, SAMPLE_TEXT_COLUMNS)}
+        if not text_cols:
+            continue
+        frame_pm = _vector_plus_minus(ruler)
+        # (y, depth, +/-, what drew it, does it cross the sample numbers)
+        marks: List[Tuple[float, float, Optional[float], str, bool]] = []
+        if pg.body_top is not None:
+            marks.append((pg.body_top, ruler.value_at(pg.body_top), frame_pm,
+                          "sheet_top", True))
+        marks += [(y, d, pm, "line", crosses)
+                  for y, d, pm, crosses in pg.sample_lines]
+        if pg.body_bottom is not None:
+            marks.append((pg.body_bottom, ruler.value_at(pg.body_bottom),
+                          frame_pm, "sheet_foot", True))
+        marks.sort(key=lambda m: m[1])
+        order = {cid: i for i, cid in enumerate(
+            sorted(text_cols, key=lambda k: text_cols[k].x0))}
+        cells = [c for c in pg.cells
+                 if c.column_id in text_cols and c.depth is not None]
+        x0 = min(c.x0 for c in text_cols.values())
+        x1 = max(c.x1 for c in text_cols.values())
+        conf = min([ruler.confidence]
+                   + [c.confidence for c in text_cols.values()])
+        boxes: List[Tuple[Tuple, Tuple, List[str], Dict[str, List[str]]]] = []
+        for a, b in zip(marks, marks[1:]):
+            if abs(b[0] - a[0]) < MIN_SAMPLE_PT:
+                continue
+            inside = sorted((c for c in cells if a[1] < c.depth < b[1]),
+                            key=lambda c: (order[c.column_id], c.depth,
+                                           c.bbox[0]))
+            if not inside:
+                continue                  # the gap between two samples
+            ids = [c.text.strip() for c in inside
+                   if "sample_id" in text_cols[c.column_id].names]
+            groups: Dict[str, List[str]] = {}
+            for c in inside:
+                col = text_cols[c.column_id]
+                if "sample_id" in col.names:
+                    continue
+                groups.setdefault(col.name, []).append(c.text.strip())
+            # A contact drawn on across the sample columns, between a box's
+            # line and everything the box prints, is where the box starts
+            # (or ends): the paper beyond it is the gap to the next sample.
+            ink = [d for c in inside for d in (c.depth_top, c.depth_bottom,
+                                               c.depth) if d is not None]
+            above = [m for m in pg.sample_contacts if a[1] < m[1] < min(ink)]
+            below = [m for m in pg.sample_contacts if max(ink) < m[1] < b[1]]
+            if above:
+                m = max(above, key=lambda m: m[1])
+                a = (m[0], m[1], m[2], "line", m[3])
+            if below:
+                m = min(below, key=lambda m: m[1])
+                b = (m[0], m[1], m[2], "line", m[3])
+            boxes.append((a, b, ids, groups))
+        # A sample number printed in two lines can straddle a line drawn
+        # under the recovery and the blows only: the part of it on the far
+        # side, alone in a box of its own, belongs to the box beside it.
+        joined: List[Tuple[Tuple, Tuple, List[str], Dict[str, List[str]]]] = []
+        for box in boxes:
+            if joined:
+                prev = joined[-1]
+                if prev[1][0] == box[0][0] and not box[0][4]:
+                    if not box[3] and box[2] and prev[2]:
+                        joined[-1] = (prev[0], prev[1], prev[2] + box[2],
+                                      prev[3])
+                        continue
+                    if not prev[3] and prev[2] and box[2]:
+                        joined[-1] = (box[0], box[1], prev[2] + box[2],
+                                      box[3])
+                        continue
+            joined.append(box)
+        for a, b, ids, groups in joined:
+            numbered = sorted({t for t in ids
+                               if any(ch.isdigit() for ch in t)})
+            if len(numbered) > 1:
+                # The lines do not separate the samples here: one box with
+                # two sample numbers in it is not one sample's interval.
+                warnings.append(
+                    f"page {pg.page}: the box from {a[1]:.2f} to {b[1]:.2f} "
+                    f"holds {len(numbered)} sample numbers "
+                    f"({', '.join(numbered)}); no interval was read for them")
+                continue
+            pms = [p for p in (a[2], b[2]) if p is not None]
+            found.append(Sample(
+                page=pg.page, top=a[1], bottom=b[1], label=" ".join(ids),
+                cells=tuple((k, " ".join(v)) for k, v in groups.items()),
+                pages=(pg.page,), plus_minus=max(pms) if pms else None,
+                read="pixels" if pg.raster else "vector",
+                ends=(a[3], b[3]),
+                bbox=(x0, a[0], x1, b[0]), confidence=conf))
+    # A box cut by a sheet break is one sample: its number is printed on one
+    # side of the break, the rest of the box on the other.
+    steps = [pg.ruler.step for pg in grids if pg.ruler is not None]
+    same_depth = 0.05 * (min(steps) if steps else 1.0)
+    merged: List[Sample] = []
+    for s in found:
+        if merged:
+            p = merged[-1]
+            if (p.ends[1] == "sheet_foot" and s.ends[0] == "sheet_top"
+                    and s.page > p.page and bool(p.label) != bool(s.label)
+                    and abs(s.top - p.bottom) <= same_depth):
+                cells = dict(p.cells)
+                for k, v in s.cells:
+                    cells[k] = (cells[k] + " " + v).strip() if k in cells else v
+                pms = [x for x in (p.plus_minus, s.plus_minus) if x is not None]
+                merged[-1] = Sample(
+                    page=p.page, top=p.top, bottom=s.bottom,
+                    label=p.label or s.label, cells=tuple(cells.items()),
+                    pages=tuple(sorted(set(p.pages) | set(s.pages))),
+                    plus_minus=max(pms) if pms else None, read=p.read,
+                    ends=(p.ends[0], s.ends[1]), bbox=p.bbox,
+                    confidence=min(p.confidence, s.confidence))
+                continue
+        merged.append(s)
+    return merged, warnings
+
+
+# ---------------------------------------------------------------------------
 # Header fields
 # ---------------------------------------------------------------------------
 
@@ -2553,6 +3084,8 @@ def _raster_leg(doc, pg: "_PageGrid", page_values) -> None:
                                      "confidence": min(c.confidence,
                                                        sc.confidence)}))
         pg.cells = new_cells
+    # the lines that cut the sample columns into each sample's box
+    _raster_sample_lines(pg, facts, sc, body, lo_s, hi_s)
     # the stratum lines across the description column
     if desc is None:
         pg.warnings.append(f"page {pg.page}: no description column was "
@@ -2681,6 +3214,8 @@ def log_grid(doc, pages=None, values=None) -> LogGrid:
             _raster_leg(doc, pg, vals.get(pg.page))
         elif pg.ruler is not None and pg.horizontal:
             _vector_anchor(doc, pg)
+            # read through the ruler as finally fitted (ticks taken in)
+            _vector_sample_lines(pg)
     for pg in grids:
         if pg.needs_values:
             grid.needs_values[pg.page] = pg.needs_values
@@ -2733,5 +3268,7 @@ def log_grid(doc, pages=None, values=None) -> LogGrid:
     layers, layer_warnings = _build_layers(grids, grid.unit)
     grid.layers = layers
     grid.warnings.extend(layer_warnings)
+    grid.samples, sample_warnings = _build_samples(grids)
+    grid.warnings.extend(sample_warnings)
     grid.fields, grid.field_boxes = _collect_fields(grids)
     return grid

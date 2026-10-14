@@ -1267,6 +1267,49 @@ where it belongs. A boundary a new sheet opens that catches no description is
 the sheet break and not a layer, and the layer above simply continues through
 it.
 
+### Samples (2026-10-14)
+
+Many logs print no sample depth as a number. Each sample is a BOX in the
+sample columns (number, type, recovery, blows), drawn against the depth
+scale, and its top and foot are exact in the drawing. A field session lost 54
+of 60 SPT records because the grid placed every row but said nothing about
+the boxes, and the reader would not take a depth off the drawn scale.
+`LogGrid.samples` now reads them:
+
+- **The lines.** The sample columns are those whose header names them FIRST
+  (a plotted "SPT N VALUE PL MC LL" column names blows only after the N it
+  plots). A line is one of the boxes' own lines when it crosses neither the
+  description nor the depth scale, is no dash, and either crosses every
+  sample column of its group (it may run on across the laboratory columns)
+  or crosses some and stays inside the group (some forms close a box under
+  the recovery and blows only). A line that starts part way across the
+  sample columns and runs out of them (a water line drawn from the recovery
+  column to the remarks) would cut a box in two and is not taken.
+- **Pieces, not runs.** The line is read from the pieces as drawn, joined
+  only where they nearly meet: a stratum contact drawn up to the description
+  column's edge and a box's line starting a column further on are two
+  lines. Dashes (a dashed depth grid, a dashed water line: short pieces with
+  small gaps) are taken out first. Each line sits at the y of its longest
+  piece, so a symbol's ladder of rungs a couple of points away cannot pull
+  it off.
+- **Contacts drawn on through the samples.** A contact that crosses the
+  description and the whole group of sample columns and stops at the
+  group's far edge trims the empty paper off a box (a sample that starts at
+  the contact), and never cuts through what a box prints.
+- **A box is a sample** when the sample columns print something inside it;
+  an empty box is the gap between two samples. Its depths are its two lines
+  read through the page's ruler (or, on a scan, its fitted scale), with the
+  +/- of that reading: the ruler's residual and half a line weight on a
+  vector page, the scale's and the line's own on a scan. A box ending at
+  the sheet's top or foot says so (`ends`), and a box cut by a sheet break
+  is joined when its number is printed on one side only. A sample number
+  printed in two lines that straddles a line drawn under the recovery and
+  blows only is one number.
+- **When it reads none.** A form that draws no box (a sample's values set at
+  its depth, a dashed depth grid only) gives no samples rather than wrong
+  ones, and so does a scan whose headers have no text: its sample columns
+  cannot be named.
+
 ### Fields
 
 The key-value pairs printed outside the body, in three shapes and only three:

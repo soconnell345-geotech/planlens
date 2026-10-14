@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **`log_grid` reads each sample's interval off its drawn box, and a long
+  log comes back whole (BACKLOG PL-24).** On many logs a sample is a box in
+  the sample columns, drawn against the depth scale, with no depth printed
+  as a number. `LogGrid.samples` (and the tool's `samples`) gives each box's
+  top and bottom read through the log's own ruler, with their +/-, how the
+  lines were found (vector or scan pixels), which side is the sheet's own
+  edge, and what the sample columns print inside (number, type, recovery,
+  blows). DESIGN.md, "Samples". The tool's rows are now compact by default,
+  `[depth, column, text]` grouped by page, without the lines a layer, a
+  ruler or a sample already holds (`row_detail="full"` keeps the old rows),
+  so a long log fits one result where it used to stop a few metres down;
+  `rows_note` says whether every row is
+  there and, when not, which depths and pages are left and the `offset`
+  that returns them. The layers and samples always cover the whole log.
 - **Different drawing sheets are no longer called duplicates (BACKLOG
   PL-07).** On the review suite's 24-sheet set, lettered in strokes with no
   text layer, `duplicate_pages` named 22 of 24 sheets: the text rule keyed a
