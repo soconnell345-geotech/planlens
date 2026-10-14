@@ -32,7 +32,8 @@ from planlens.document.annotations import (
 from planlens.document.classify import classify_page
 from planlens.document.frame import bbox_union
 from planlens.document.imagehash import (
-    DUP_HASH_DISTANCE, hamming, page_dhash, wants_image_hash,
+    DUP_HASH_DISTANCE, fine_grid, hamming, page_dhash, same_picture,
+    wants_image_hash,
 )
 from planlens.document.model import (
     SOURCE_AZURE_DI, SOURCE_CAD_HIDDEN, SOURCE_OCR, SOURCE_PDF_TEXT, Markup,
@@ -42,8 +43,8 @@ from planlens.document.model import (
 from planlens.document.pdf_text import MAX_UNMAPPED_FRACTION, extract_text
 from planlens.document.scale import page_viewports
 from planlens.document.structure import (
-    BAND_MAX_CHARS, band_texts, content_hash, divider_title, printed_numbers,
-    segments,
+    BAND_MAX_CHARS, TEXT_DUP_MIN_WORDS, band_texts, body_word_count,
+    content_hash, divider_title, printed_numbers, segments,
 )
 from planlens.document.tables import extract_tables
 
@@ -280,11 +281,17 @@ class Document:
         self._annots: Dict[int, tuple] = {}
         self._summaries: Dict[int, PageSummary] = {}
         self._pages: Dict[tuple, PageContent] = {}
-        self._hashes: Dict[str, int] = {}
-        #: Page -> its text content hash, for the pages that have one.
+        #: Text content hash -> the pages whose words may name a repeat
+        #: (enough words of their own), in the order they were read.
+        self._hashes: Dict[str, List[int]] = {}
+        #: Page -> its text content hash, for every page but a blank one.
         self._content_keys: Dict[int, str] = {}
         #: Summaries carrying a picture hash, in the order they were read.
         self._image_hashes: List[PageSummary] = []
+        #: Page -> its unguarded 256-bit hash, for the pages
+        #: :meth:`_same_picture` compared; and the last few fine renders.
+        self._loose: Dict[int, Optional[str]] = {}
+        self._fine: Dict[int, Any] = {}
         self._segments: Optional[List[Dict[str, Any]]] = None
 
     # -- lifecycle ---------------------------------------------------------
@@ -433,50 +440,114 @@ class Document:
             text_reliable=text_reliable,
             unmapped_fraction=unmapped_fraction,
         )
-        if kind != "blank" and (n_words >= 15 or n_paths >= 30):
+        # Duplicates (PL-07). Every page but a blank one has a content key —
+        # its kind, words and path count — and two pages whose keys differ
+        # are different pages, whatever else matches. The key NAMES a repeat
+        # only when the page has enough words of its own; and a named repeat
+        # stands only when the picture agrees too. A drawing whose lettering
+        # is drawn as strokes has no words at all, so kind and path count
+        # were the whole key and 22 of a 24-sheet set came out as repeats of
+        # two sheets; a sheet whose only words are its title block is barely
+        # better off.
+        text_decides = False
+        if kind != "blank":
             key = content_hash(kind, lines, n_paths)
             self._content_keys[index] = key
-            first = self._hashes.setdefault(key, index)
-            if first != index:
-                s.duplicate_of, s.duplicate_rule = first, "text"
-        if wants_image_hash(kind, n_chars, bool(evidence.get("needs_ocr"))):
+            text_decides = body_word_count(lines, height) >= TEXT_DUP_MIN_WORDS
+            if text_decides:
+                same = self._hashes.setdefault(key, [])
+                self._mark_duplicate(s, same, "text")
+                same.append(index)
+        if wants_image_hash(kind, n_chars, bool(evidence.get("needs_ocr")),
+                            text_decides=text_decides):
             # The text rule is blind on a page whose text is a footer or
             # nothing at all. Cost is why this is gated rather than run on
             # every page: measured on a real 260-page submittal, hashing every
             # page costs 2.3-3.3 s against 0.45-0.64 s for the 13 that qualify.
             s.image_hash = page_dhash(page)
             if s.image_hash is not None:
-                first = self._image_duplicate(s)
+                self._mark_duplicate(s, self._image_candidates(s), "image")
                 self._image_hashes.append(s)
-                if first is not None and s.duplicate_of is None:
-                    s.duplicate_of, s.duplicate_rule = first, "image"
         self._summaries[index] = s
         self._segments = None
         return s
 
-    def _image_duplicate(self, s: PageSummary) -> Optional[int]:
-        """The earliest page whose PICTURE matches this one's, or None.
+    def _mark_duplicate(self, s: PageSummary, candidates: Sequence[int],
+                        rule: str) -> None:
+        """Settle ``s`` against the pages a rule nominated, by their picture.
 
-        A match needs the same kind and the same displayed size as well as a
-        hash within :data:`~planlens.document.imagehash.DUP_HASH_DISTANCE`.
-        Both guards do real work: the hash squeezes every page into the same
-        8x8 grid, so a letter page and a D-size sheet are compared on equal
-        terms unless the size says not to, and two kinds of page that happen
-        to share a silhouette are not the same page.
-
-        **The picture never overrules the words.** If both pages carry enough
-        text for the text rule to have hashed them, and those hashes differ,
-        the pages are not duplicates however alike they look. This is what
-        stops a drawing set being collapsed into its first sheet: sheets off
-        one border and title block differ by a sheet number and a few labels,
-        which is most of what a reviewer needs and almost none of the ink.
-        The picture speaks where the text is SILENT, not where it disagrees.
+        ``duplicate_of`` names the EARLIEST page ``s`` repeats, whichever
+        order the pages were read in: a nominated page before ``s`` that
+        looks the same makes ``s`` its duplicate, and a nominated page after
+        it (read first) that looks the same, and is not already a repeat of
+        something, becomes ``s``'s.
         """
-        best: Optional[int] = None
+        for other in sorted(candidates):
+            if other == s.page or not self._same_picture(other, s.page):
+                continue
+            if other < s.page:
+                if s.duplicate_of is None:
+                    s.duplicate_of, s.duplicate_rule = other, rule
+                return
+            later = self._summaries.get(other)
+            if later is not None and later.duplicate_of is None:
+                later.duplicate_of, later.duplicate_rule = s.page, rule
+
+    def _same_picture(self, a: int, b: int) -> bool:
+        """Whether pages ``a`` and ``b`` render the same, pixel for pixel
+        within :data:`~planlens.document.imagehash.FINE_TOLERANCE` (see
+        :func:`~planlens.document.imagehash.same_picture`).
+
+        The 256-bit hashes are compared first (taken unguarded, so a page of
+        little ink still has one, and kept for every page compared): two
+        renders that are the same are 0 bits apart, and a page whose words
+        match many others' — a form's boilerplate, a title block — is then
+        rendered fine only against the few that look alike, not against
+        every page that shares its words. The last few fine renders are
+        kept, so a page repeated several times is drawn once."""
+        loose = []
+        for i in (a, b):
+            if i not in self._loose:
+                self._loose[i] = page_dhash(self._doc[i], guard=False)
+            loose.append(self._loose[i])
+        if None in loose or hamming(*loose) > DUP_HASH_DISTANCE:
+            return False
+        grids = []
+        for i in (a, b):
+            if i not in self._fine:
+                if len(self._fine) >= 8:
+                    self._fine.pop(next(iter(self._fine)))
+                self._fine[i] = fine_grid(self._doc[i])
+            grids.append(self._fine[i])
+        return same_picture(*grids)
+
+    def _image_candidates(self, s: PageSummary) -> List[int]:
+        """The pages whose 256-bit picture hash nominates ``s`` as a repeat;
+        :meth:`_mark_duplicate` then compares the pictures themselves.
+
+        A nomination needs the same kind and the same displayed size as well
+        as a hash within
+        :data:`~planlens.document.imagehash.DUP_HASH_DISTANCE`. Both guards
+        do real work: the hash squeezes every page into the same 16x16 grid,
+        so a letter page and a D-size sheet are compared on equal terms
+        unless the size says not to, and two kinds of page that happen to
+        share a silhouette are not the same page.
+
+        **The picture never overrules the words.** If the two pages' content
+        keys differ — their words or their path counts — they are not
+        duplicates however alike they look. This is what stops a drawing set
+        being collapsed into its first sheet: sheets off one border and title
+        block differ by a sheet number and a few labels, which is most of
+        what a reviewer needs and almost none of the ink. The picture speaks
+        where the text is SILENT, not where it disagrees; and where it does
+        speak, the hash only nominates — the fine comparison decides, because
+        a hash that cannot see a sheet number cannot tell two sheets apart.
+        """
         size = (round(s.width, 1), round(s.height, 1))
         mine = self._content_keys.get(s.page)
+        out = []
         for other in self._image_hashes:
-            if other.page >= s.page or other.kind != s.kind:
+            if other.page == s.page or other.kind != s.kind:
                 continue
             if (round(other.width, 1), round(other.height, 1)) != size:
                 continue
@@ -484,9 +555,8 @@ class Document:
             if mine is not None and theirs is not None and mine != theirs:
                 continue
             if hamming(other.image_hash, s.image_hash) <= DUP_HASH_DISTANCE:
-                if best is None or other.page < best:
-                    best = other.page
-        return best
+                out.append(other.page)
+        return out
 
     def page_map(self, pages: PageSpec = None) -> List[PageSummary]:
         """One :class:`PageSummary` per page — kind, size, heading, counts.

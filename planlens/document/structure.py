@@ -12,7 +12,9 @@ module reads them:
   reference** ("SHEET 1 OF 7") found there;
 - **divider pages** — a cover or tab whose heading says APPENDIX, ATTACHMENT,
   ITEM, SECTION, CONTENTS, ...;
-- **duplicates** — a page whose text and linework repeat an earlier page;
+- **duplicates** — a page whose words repeat an earlier page's and whose
+  picture is the same (or, where it has too few words of its own to say, the
+  same picture alone: :mod:`planlens.document.imagehash`);
 - and from these, **segments**: runs of consecutive pages that share a running
   header/footer and numbering, split at dividers, at a change of page size or
   between drawing sheets and everything else, and where the printed page
@@ -60,6 +62,14 @@ _DIVIDER_WHOLE = {"table of contents", "contents", "cover", "cover sheet",
 #: Pages with fewer words than this can be dividers.
 DIVIDER_MAX_WORDS = 60
 
+#: Fewest words of a page's OWN — outside the header and footer bands, where
+#: every page of a document repeats the same running text — before its words
+#: may name it a repeat of an earlier page. Below this the words say too
+#: little: the stroke-lettered drawing set of the review suite has no text
+#: layer at all, and the rule that keyed such a page on its kind and path
+#: count alone called 22 of its 24 different sheets duplicates.
+TEXT_DUP_MIN_WORDS = 15
+
 
 def _norm_key(text: str) -> str:
     """Digits masked, case and whitespace folded, purely numeric fragments
@@ -99,6 +109,19 @@ def band_texts(lines: Sequence[TextLine], height: float
     key = lambda l: (round(l.bbox[1] / 4.0), l.bbox[0])   # noqa: E731
     return ([l.text for l in sorted(top, key=key)],
             [l.text for l in sorted(bottom, key=key)])
+
+
+def body_word_count(lines: Sequence[TextLine], height: float) -> int:
+    """Words on the page outside the header and footer bands (the bands
+    :func:`band_texts` reads); a line with no box counts as body."""
+    n = 0
+    for ln in lines:
+        if ln.bbox is not None and (
+                ln.bbox[3] <= BAND_FRACTION * height
+                or ln.bbox[1] >= (1.0 - BAND_FRACTION) * height):
+            continue
+        n += len(ln.text.split())
+    return n
 
 
 def printed_numbers(texts: Sequence[str]) -> Dict[str, Any]:

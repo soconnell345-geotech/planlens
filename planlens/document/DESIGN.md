@@ -421,9 +421,10 @@ prose 1.5-6, dividers and drawings 0.1-0.7), `n_images`, `ruling_h/v`,
 8 %), the page number PRINTED on the page (`printed_page`, `printed_of`), a
 `sheet` reference ("1 of 7", "S-101"), `scales` on drawing sheets, a
 `divider_title` (APPENDIX / ATTACHMENT / ITEM / cover ... on a page under 60
-words), `duplicate_of` (same kind, text and path count as an earlier page —
-or, where the text cannot decide, the same picture: see "Duplicates on
-scans", with `duplicate_rule` naming which) and the `segment` it belongs to.
+words), `duplicate_of` (same kind, words and path count as an earlier page —
+or, where the words are too few to decide, the same picture — and in both
+cases the same render: see "Duplicates on scans" and "Distinct sheets are not
+repeats", with `duplicate_rule` naming which) and the `segment` it belongs to.
 
 `layers` (2026-09-16) names the optional-content groups the page's line-work
 sits in — a plotted sheet's CAD layer names, the drafter's own words for what
@@ -586,6 +587,63 @@ a turned page is one a reviewer still has to look at. /Rotate 90 fails the
 page-size guard before the hash is consulted; /Rotate 180 keeps the size and
 is rejected on the picture alone (measured 130 bits of 256 apart on a public
 sheet).
+
+#### Distinct sheets are not repeats (2026-10-14, BACKLOG PL-07)
+
+The review suite's 24-sheet set, every sheet lettered in strokes (no text
+layer) off one border, legend and title block, came back from
+`open_document` with `"duplicate_pages": "1-2,4-23"`. The text rule keyed a
+page on its kind, its words and its path count, and admitted any page with 30
+paths: with no words, kind and path count were the whole key, and the
+fixture's sheets all have the same number of paths. The picture hash was not
+to blame there (its closest pair of those sheets is 18 bits apart), but it
+would have been on the next set: a sheet against its own revision — one
+0.06 in tag's letter changed, one tag moved 30 pt, the sheet number changed —
+is 0-1 bits apart at 256 bits on 11x17, D and E sheets alike. The hash
+records where a page gets lighter and darker, and a small label moves none
+of it.
+
+Three changes, each general:
+
+- **Words name a repeat only when there are enough of them.** The text rule
+  now needs `TEXT_DUP_MIN_WORDS` (15) words of the page's OWN, outside the
+  header and footer bands where every page of a document repeats the same
+  running text (`structure.body_word_count`). A page with fewer gets a
+  picture hash instead (`wants_image_hash(text_decides=False)`). Every
+  non-blank page still has a content key, and two pages whose keys differ —
+  different words, or a different path count — are never duplicates.
+- **Every nominated repeat is confirmed on a finer render.** Whichever rule
+  nominates a page, it stands only if both pages render the same at about
+  36 dpi (`imagehash.fine_grid`, at least 1,024 px on the long side, at most
+  2,048): no pixel more than 16 grey levels apart (`FINE_TOLERANCE`). A page
+  placed twice — `insert_pdf`, `show_pdf_page`, the same scan inserted twice
+  — differs by 0; the revisions above by 56-116 at their most different
+  pixel; the synthetic submittal's two sheets, which differ by one digit, by
+  192. This is also what keeps a stroke-lettered sheet whose only words are
+  a typed title block from being called a repeat of its neighbour: the words
+  match, the picture does not. A render costs about 2 ms on the tag sheets
+  and is made only for a nominated page whose 256-bit hash (taken unguarded)
+  is within 2 bits of the other's; the last eight are kept. So a page whose
+  words match many others' is drawn fine only against the few that look
+  alike: measured on 200-page sets, 200 different sheets sharing a typed
+  title block and a path count map in 0.3 s, one sheet bound in 200 times in
+  1.4 s, a sheet and its revision alternating 100 times in 1.7 s.
+- **`duplicate_of` names the earliest page whatever order the pages are
+  read in.** A page read before the one it repeats is marked when that one
+  is read.
+
+Measured after: the 24-sheet set, 22 flagged → 0; the same set with one sheet
+bound in twice → that sheet only, rule `image`; the submittal's repeated
+report page → still a `text` duplicate; the scanned repeats and the
+laboratory sheet bound in twice → still `image` duplicates. Over all 24
+documents of the app's review suite (1,032 pages) the only other change is in
+UFC 3-301-01: its "This Page Intentionally Left Blank" pages 3 and 5 are no
+longer duplicates of page 1 — 13 words of their own, too few to name a
+repeat, and too little picture to hash — which is the answer a blank page
+gets. The page map's time is unchanged within the run-to-run spread (the
+538-page UFC 3-260-02: 3.4-3.8 s before and after). Tests:
+`document/tests/test_duplicates_distinct_sheets.py` beside
+`test_duplicates_image.py`.
 
 ### An unreliable text layer (2026-09-16)
 

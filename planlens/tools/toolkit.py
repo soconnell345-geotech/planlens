@@ -928,9 +928,13 @@ class ReviewToolkit:
             out["duplicates_note"] = (
                 "each of these marks repeats an earlier one of the same kind "
                 "saying the same thing over the same place: one thing marked "
-                "twice. Unless they really are two things, write the copy "
-                "again with append=false without the repeats, and count "
-                "each thing once")
+                "twice. If you meant these marks for that many different "
+                "things, a repeat usually means one of them is still "
+                "UNMARKED (two marks placed from the same find): check the "
+                "things you set out to mark, find the one with no mark and "
+                "mark it in place of the repeat. Unless they really are two "
+                "things, write the copy again with append=false without the "
+                "repeats, and count each thing once")
         if report.skipped:
             rows, nxt = fit_items(report.skipped,
                                   max(ceiling - json_len(out) - 40, 300))

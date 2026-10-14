@@ -692,5 +692,10 @@ def test_annotate_document_says_what_it_read_differently_and_what_repeats(
         assert out["duplicates"][0]["index"] == 1
         assert out["duplicates"][0]["same_as"] == 0
         assert "append=false" in out["duplicates_note"]
+        # Brief 5 (B4): seven marks meant for seven tags, two on one tag;
+        # the agent dropped the repeat and reported six. The note says the
+        # repeat may stand for a thing still unmarked.
+        assert "still UNMARKED" in out["duplicates_note"]
+        assert "mark it in place of the repeat" in out["duplicates_note"]
     finally:
         kit.close()

@@ -336,10 +336,11 @@ class PageSummary:
     #: the page has no text. The number behind ``text_reliable``.
     unmapped_fraction: float = 0.0
     duplicate_of: Optional[int] = None
-    #: Which rule found the duplicate: ``"text"`` (same kind, text and path
-    #: count as an earlier page) or ``"image"`` (the same picture, for pages
-    #: whose text cannot decide — see
-    #: :mod:`planlens.document.imagehash`). A reader weighs the two
+    #: Which rule found the duplicate: ``"text"`` (same kind, words and path
+    #: count as an earlier page, with enough words of its own to say so) or
+    #: ``"image"`` (the same picture, for pages whose text cannot decide).
+    #: Either way the two pages render the same: see
+    #: :mod:`planlens.document.imagehash`. A reader weighs the two
     #: differently, so the map says which one fired.
     duplicate_rule: Optional[str] = None
     #: The page's picture hash, when one was computed (see

@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- **Different drawing sheets are no longer called duplicates (BACKLOG
+  PL-07).** On the review suite's 24-sheet set, lettered in strokes with no
+  text layer, `duplicate_pages` named 22 of 24 sheets: the text rule keyed a
+  page on its kind, words and path count, and with no words the path count
+  was the key. Now the words name a repeat only when the page has
+  `TEXT_DUP_MIN_WORDS` (15) of its own outside the header and footer bands,
+  a page with fewer is compared by its picture, and EVERY nominated repeat
+  must render the same at about 36 dpi (`imagehash.fine_grid` /
+  `same_picture`): a page placed twice is identical pixel for pixel, while a
+  sheet and its revision with one small tag changed (0-1 bits apart on the
+  256-bit hash) differ by 56 grey levels or more. 22 → 0 on that set; every
+  repeat the tests place twice (a report page, a scan, a laboratory sheet, a
+  drawing sheet) is still caught. `duplicate_of` names the earliest page
+  whatever order pages are read in. DESIGN.md, "Distinct sheets are not
+  repeats".
+- **The duplicate-mark note says a repeat may hide an unmarked thing
+  (BACKLOG DR-17).** `annotate_document`'s `duplicates_note` now says that
+  when the marks were meant for that many different things, a repeat
+  usually means one of them is still unmarked, and to mark that one in
+  place of the repeat.
+
 ## 0.13.0 — 2026-10-09
 
 - **A callout's aim ignores markups drawn after it (2026-10-09, the app's

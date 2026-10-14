@@ -36,6 +36,13 @@ duplicate reaches an assembled submittal: an appendix bound in twice, one
 scan inserted under two tabs, a sheet repeated in a set. A page placed twice
 renders identically and is 0 bits away at any grid size.
 
+**The hash nominates; a finer render decides** (BACKLOG PL-07). Two sheets of
+one set that differ by a sheet number or one small tag are 0-1 bits apart at
+any grid this hash could use, so a repeat it nominates is confirmed on a
+render at about 36 dpi (:func:`fine_grid`, :func:`same_picture`), where a
+page placed twice is still identical pixel for pixel and those sheets are
+not.
+
 The whole thing is numpy and PyMuPDF. There is no ``imagehash``, ``Pillow``
 or ``scipy`` dependency and there deliberately will not be one: the
 computation is a render, a subtraction and a bit-pack.
@@ -106,10 +113,47 @@ MIN_CONFIDENT_BITS = 8
 #: existed.
 DUP_HASH_DISTANCE = 2
 
+#: The 256-bit hash only NOMINATES a repeat; :func:`same_picture` confirms it
+#: on a render this fine: :data:`FINE_DPI`, with the long side kept between
+#: :data:`FINE_MIN_SIDE` and :data:`FINE_MAX_SIDE` pixels (1,224 px for a
+#: D-size sheet, 1,024 for a letter page).
+#:
+#: The hash cannot separate two sheets off one border and title block that
+#: differ by a few small labels, and it was never meant to: it records where
+#: the page gets lighter and darker, and a tag moved or a letter changed does
+#: not move that. MEASURED on stroke-lettered sheets (0.06 in tags, the
+#: ``planlens.testing.tag_fixtures`` font) at 11x17, D and E size: a sheet
+#: against its revision with one tag's letter changed, with one tag moved
+#: 30 pt, or with its sheet number changed is 0-1 bits apart at 256 bits (and
+#: the synthetic submittal's two sheets, which differ by one digit, are 0 bits
+#: apart at every grid from 256 to 9,216 bits). On the fine render the same
+#: pairs are 56-116 grey levels apart at their most different pixel (one
+#: letter on a D-size sheet is the closest), while a page placed twice —
+#: copied with ``insert_pdf``, wrapped by ``show_pdf_page``, or the same scan
+#: inserted twice — is 0 apart at every pixel. A render costs about 2 ms on
+#: the tag sheets and is only made for a page the hash or the words
+#: nominated.
+FINE_DPI = 36.0
+FINE_MIN_SIDE = 1024
+FINE_MAX_SIDE = 2048
+
+#: Most grey levels (of 255) any one pixel of two fine renders may differ by
+#: for the pages to be the same picture. The same contrast that makes a bit
+#: of the hash ink rather than noise (:data:`INK_CONTRAST`): a page placed
+#: twice differs by 0, the closest different drawings measured by 56. A scan
+#: re-encoded at another JPEG quality measured 4-38, so a re-encoded copy may
+#: or may not match: the claim stays "placed twice", as above.
+FINE_TOLERANCE = INK_CONTRAST
+
 
 def wants_image_hash(kind: str, n_text_chars: int,
-                     needs_ocr: bool = False) -> bool:
+                     needs_ocr: bool = False,
+                     text_decides: bool = True) -> bool:
     """Whether this page needs a picture hash — i.e. its text cannot decide.
+
+    ``text_decides`` is False when the page has too few words of its own for
+    the text rule to name a repeat (``structure.TEXT_DUP_MIN_WORDS``): the
+    picture is then the only evidence there is.
 
     ``blank`` pages never get one: every blank page in a document looks like
     every other, and calling page 40 a duplicate of page 2 because both are
@@ -118,7 +162,7 @@ def wants_image_hash(kind: str, n_text_chars: int,
     if kind == "blank":
         return False
     return (bool(needs_ocr) or kind in IMAGE_HASH_KINDS
-            or n_text_chars < IMAGE_HASH_MAX_CHARS)
+            or n_text_chars < IMAGE_HASH_MAX_CHARS or not text_decides)
 
 
 def _gray_grid(page, width: int, height: int):
@@ -204,3 +248,29 @@ def hamming(a: str, b: str) -> int:
             f"hashes of different lengths cannot be compared: {len(a)} vs "
             f"{len(b)} hex characters")
     return bin(int(a, 16) ^ int(b, 16)).count("1")
+
+
+def fine_grid(page):
+    """The page as DISPLAYED, in grey, at the size :func:`same_picture`
+    compares (see :data:`FINE_DPI`); ``None`` when it cannot be rendered.
+    Annotations are left out, as for the hash."""
+    rect = page.rect
+    long_pt = max(rect.width, rect.height)
+    if long_pt <= 0:
+        return None
+    side = min(FINE_MAX_SIDE,
+               max(FINE_MIN_SIDE, int(round(long_pt * FINE_DPI / 72.0))))
+    width = max(2, int(round(side * rect.width / long_pt)))
+    height = max(2, int(round(side * rect.height / long_pt)))
+    return _gray_grid(page, width, height)
+
+
+def same_picture(a, b) -> bool:
+    """Whether two :func:`fine_grid` renders are the same picture: the same
+    size, and no pixel more than :data:`FINE_TOLERANCE` grey levels apart.
+    A missing render is never a match."""
+    import numpy as np
+    if a is None or b is None or a.shape != b.shape:
+        return False
+    diff = np.abs(a.astype(np.int16) - b.astype(np.int16))
+    return int(diff.max()) <= FINE_TOLERANCE
