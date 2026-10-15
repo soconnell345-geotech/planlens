@@ -24,7 +24,8 @@ document/
   scale.py        the measurement calibration the PDF itself stores
   quantities.py   the numbers the text STATES, with their units
   classify.py     coarse page kinds with evidence
-  imagehash.py    a page's picture in 256 bits, for duplicates on scans
+  imagehash.py    a page's picture in 256 bits, for duplicates on scans, and
+                  the finer render every nominated repeat must match
   structure.py    headers/footers, printed page numbers, dividers, duplicates,
                   segments (the constituent documents)
   advice.py       when text is not enough: "! look:" statements

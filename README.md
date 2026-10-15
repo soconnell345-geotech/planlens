@@ -13,8 +13,10 @@ located, attributed data:
   scale notes) and the document's structure — the transmittal, drawing set,
   calc package, nested reports and appendices, found from the running
   headers, footers and printed numbering the pages themselves carry; repeated
-  pages, found from their words or — on scans, which have none — from a hash
-  of the page's own picture; a flag on every page whose text layer is there
+  pages, found from their words or — on pages with few words of their own,
+  such as scans and sheets lettered in strokes — from a hash of the page's
+  own picture, and every repeat confirmed by rendering both pages, so two
+  different sheets of one drawing set are not called repeats; a flag on every page whose text layer is there
   but UNRELIABLE (a font with no Unicode map, so the extracted string is not
   what the page says, which no reader could otherwise tell from prose);
   contact
@@ -84,8 +86,9 @@ located, attributed data:
   wrong, and `find_quantities` returns every value-with-unit the document
   states, filterable by kind and unit, so a model can compare the narrative's
   claims with the drawing's geometry. `log_grid` hands back one
-  boring or test-pit log as columns, a depth ruler, placed cells, layers and
-  header fields. And `annotate_document` sends the review BACK: notes,
+  boring or test-pit log as columns, a depth ruler, placed cells, layers,
+  each sample's interval read off its drawn box, and header fields, with
+  compact rows so a long log fits one result. And `annotate_document` sends the review BACK: notes,
   highlights over the words quoted, boxes, callouts and replies written onto a
   NEW copy of the PDF as ordinary annotations, anchored to text that is
   searched for rather than to coordinates guessed at, with anything it could
