@@ -1095,10 +1095,12 @@ def _text_lines(page) -> List[Tuple[BBox, Optional[int], int]]:
     multiple of 90 or None, letters)``."""
     import fitz
     from planlens.document.frame import direction_to_rotation
+    from planlens.pymupdf_settings import line_boxes
     out: List[Tuple[BBox, Optional[int], int]] = []
     try:
         # text only: "dict" would otherwise copy every image's bytes
-        data = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
+        with line_boxes():
+            data = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
     except Exception:  # pragma: no cover - an unreadable text layer says nothing
         return out
     for block in data.get("blocks", ()):

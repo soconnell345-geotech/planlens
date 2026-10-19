@@ -28,9 +28,15 @@ classifiers = [
 dependencies = [
     "numpy>=2.0",
     "ezdxf>=1.4",
-    # Below 2 until the readers are checked on PyMuPDF 2.0 (2026-10-19), which
-    # reads table cells differently (the app's BACKLOG INF-17).
-    "PyMuPDF>=1.23,<2",
+    # 2.x reads the same as 1.x through planlens.pymupdf_settings (the app's
+    # BACKLOG INF-17): 2.0 imports pymupdf4llm, which turns the glyph-box
+    # corrections off process-wide, and an ONNX layout model that gates
+    # find_tables. The full suite passes on 1.27.2.3, 1.28.2 and 2.0. The
+    # floor was 1.23 and was never true: 1.23.26 fails 87 tests in just five
+    # files (add_freetext_annot has no callout=, no text page from a display
+    # list). 2.0 also brings onnxruntime, networkx, pyyaml, psutil, tabulate,
+    # pymupdf4llm and pymupdf-layout into the install.
+    "PyMuPDF>=1.27.2",
     # Raster/scanned-sheet ingest (OpenCV Hough/contour tracing). Core since
     # 0.4.0: it was the `raster` extra, and an install without it read a
     # scanned sheet as an empty drawing.

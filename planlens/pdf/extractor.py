@@ -15,6 +15,7 @@ import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 from planlens.pdf.results import PdfParseResult
+from planlens.pymupdf_settings import line_boxes
 
 
 def _import_fitz():
@@ -110,7 +111,8 @@ def _page_text_dict_without_annotations(page) -> dict:
     stext = page.get_displaylist(annots=False).get_textpage(flags)
     tp = stext if isinstance(stext, fitz.TextPage) else fitz.TextPage(stext)
     tp.parent = page
-    return page.get_text("dict", textpage=tp)
+    with line_boxes():
+        return page.get_text("dict", textpage=tp)
 
 
 def _color_to_hex(color) -> str:
@@ -294,7 +296,8 @@ def extract_vector_geometry(
 
     # Extract text
     text_annotations = []
-    text_dict = pg.get_text("dict")
+    with line_boxes():
+        text_dict = pg.get_text("dict")
     for block in text_dict.get("blocks", []):
         if block.get("type") == 0:
             for line in block.get("lines", []):

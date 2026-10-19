@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **Tables read the same on PyMuPDF 2.0 as on 1.x, and the `<2` cap is
+  lifted (app BACKLOG INF-17).** PyMuPDF 2.0 (2026-10-19) imports
+  `pymupdf4llm` and its ONNX layout analyser inside `import pymupdf`. The
+  first turns PyMuPDF's ascender/descender corrections off for the whole
+  process, so a character box hugs its glyph: in a ruled table "A-1" read
+  "A1\n-", "4.75" read "475\n." and "3 in" read "3in". The second makes
+  `find_tables()` keep only the ruled tables the model also boxed: two ruled
+  tables side by side read as one. The new `planlens.pymupdf_settings`
+  reads tables on the ruling lines alone (`use_layout=False` where PyMuPDF
+  knows the option) with the corrections on for the duration of the read,
+  then puts back the setting it found; the text-layer reads use the same
+  guard. On 1.x nothing changes. The suite passes on 1.27.2.3, 1.28.2 and
+  2.0. The floor rises from 1.23 to 1.27.2: 1.23 was never true (1.23.26
+  fails 87 tests in just five files, on `add_freetext_annot(callout=)` and display-list
+  text pages). Note: 2.0 also brings `onnxruntime`,
+  `networkx`, `pyyaml`, `psutil`, `tabulate`, `pymupdf4llm` and
+  `pymupdf-layout` into every install, and `import pymupdf` takes about
+  1 s and 90 MB more while it loads the layout model.
+
 - **`log_grid` reads each sample's interval off its drawn box, and a long
   log comes back whole (BACKLOG PL-24).** On many logs a sample is a box in
   the sample columns, drawn against the depth scale, with no depth printed

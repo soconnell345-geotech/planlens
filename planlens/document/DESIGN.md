@@ -402,6 +402,14 @@ Azure). Columns empty in every row are dropped and counted in `notes`. Cost is
 the reason tables are page-level only: 30 s of the 36 s a full measurement pass
 took over 260 pages.
 
+The same cells on PyMuPDF 1.x and 2.x (`planlens/pymupdf_settings.py`). 2.0
+imports `pymupdf4llm`, which turns the ascender/descender corrections off for
+the whole process, so character boxes hug their glyphs ("A-1" read
+"A1\n-"), and an ONNX layout model, which `find_tables()` consults by default
+(two ruled tables side by side read as one). Tables are read on the ruling
+lines alone (`use_layout=False`) with the corrections on for the read, then
+the setting found is put back.
+
 ## Page map
 
 `classify.classify_page` from cheap measurements (text chars, CAD-text chars,

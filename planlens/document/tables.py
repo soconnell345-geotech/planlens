@@ -17,6 +17,7 @@ from typing import List, Optional, Tuple
 
 from planlens.document.frame import to_display_bbox
 from planlens.document.model import Table
+from planlens.pymupdf_settings import find_tables, line_boxes
 
 
 def _cell(v) -> Optional[str]:
@@ -26,15 +27,27 @@ def _cell(v) -> Optional[str]:
 
 
 def extract_tables(page, page_index: int) -> Tuple[List[Table], List[str]]:
-    """Detected tables for one ``fitz.Page`` plus any warnings."""
+    """Detected tables for one ``fitz.Page`` plus any warnings.
+
+    Read on the ruling lines with line-high character boxes, the same on
+    PyMuPDF 1.x and 2.x (:mod:`planlens.pymupdf_settings`).
+    """
+    with line_boxes():
+        return _extract_tables(page, page_index)
+
+
+def _extract_tables(page, page_index: int) -> Tuple[List[Table], List[str]]:
     warnings: List[str] = []
     try:
-        # PyMuPDF prints an advisory about its optional layout package on first
-        # use; keep it out of stdout, which a tool harness may be capturing.
+        # PyMuPDF 1.x prints an advisory about its optional layout package on
+        # first use; keep it out of stdout, which a tool harness may be
+        # capturing.
         with contextlib.redirect_stdout(io.StringIO()):
-            found = page.find_tables()
+            found = find_tables(page)
     except Exception as exc:  # pragma: no cover - defensive
         return [], [f"table detection failed: {type(exc).__name__}: {exc}"]
+    if found is None:  # PyMuPDF prints an exception inside it, returns None
+        return [], ["table detection failed inside PyMuPDF"]
 
     tables: List[Table] = []
     for t in found.tables:

@@ -27,6 +27,7 @@ import math
 
 from planlens.document.frame import bbox_union
 from planlens.document.model import TextBlock, TextLine
+from planlens.pymupdf_settings import line_boxes
 
 _UNMAPPED = "�"
 
@@ -127,8 +128,16 @@ def extract_text(page, page_index: int, words: bool = False
 
     ``words=True`` also attaches each line's words with their own boxes — useful
     for pinpointing a value inside a long line, and roughly doubles the payload.
-    Text drawn by annotations is excluded; see :func:`_textpage`.
+    Text drawn by annotations is excluded; see :func:`_textpage`. Boxes are
+    line-high, the same on PyMuPDF 1.x and 2.x
+    (:mod:`planlens.pymupdf_settings`).
     """
+    with line_boxes():
+        return _extract_text(page, page_index, words)
+
+
+def _extract_text(page, page_index: int, words: bool
+                  ) -> Tuple[List[TextLine], List[TextBlock], Dict[str, Any]]:
     flags = _text_flags()
     tp = _textpage(page, flags)
     raw = page.get_text("dict", textpage=tp)
