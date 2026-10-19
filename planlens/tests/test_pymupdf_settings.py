@@ -9,10 +9,14 @@ ONNX model (two ruled tables side by side read as one). These tests pin the
 
 from __future__ import annotations
 
+import sys
+import threading
+
 import pytest
 
 fitz = pytest.importorskip("fitz")
 
+from planlens.document.pdf_text import extract_text  # noqa: E402
 from planlens.document.tables import extract_tables  # noqa: E402
 from planlens.pymupdf_settings import line_boxes  # noqa: E402
 
@@ -91,3 +95,45 @@ def test_line_boxes_leaves_the_default_alone():
         assert not fitz.TOOLS.unset_quad_corrections()
     finally:
         fitz.TOOLS.unset_quad_corrections(before)
+
+
+def test_reads_on_parallel_threads_leave_no_setting_behind(
+        two_tables_side_by_side, corrections_off):
+    """The app reads documents on parallel tool threads. PyMuPDF keeps the
+    glyph-box switches as process globals, and ``find_tables`` flips the
+    small-glyph-heights one and puts back what it found; two table reads
+    interleaved used to leave it on for the process (every later line box a
+    font size high) and ``sys.stdout`` on ``extract_tables``' dead buffer."""
+    data = two_tables_side_by_side.tobytes()
+    small = bool(fitz.TOOLS.set_small_glyph_heights())
+    stdout = sys.stdout
+    reads, errors = [], []
+
+    def read():
+        doc = fitz.open("pdf", data)
+        try:
+            for _ in range(8):
+                tables, _warnings = extract_tables(doc[0], 0)
+                lines, _blocks, _stats = extract_text(doc[0], 0)
+                reads.append(([t.rows for t in tables], lines[0].bbox))
+        except Exception as exc:  # pragma: no cover - reported below
+            errors.append(exc)
+        finally:
+            doc.close()
+
+    threads = [threading.Thread(target=read) for _ in range(4)]
+    try:
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert sys.stdout is stdout
+        assert bool(fitz.TOOLS.set_small_glyph_heights()) == small
+        assert fitz.TOOLS.unset_quad_corrections()
+    finally:
+        sys.stdout = stdout
+        fitz.TOOLS.set_small_glyph_heights(small)
+    assert errors == []
+    assert len(reads) == 32
+    assert all(r == reads[0] for r in reads)
+    assert reads[0][0] == [SIEVES, LIMITS]

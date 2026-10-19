@@ -21,6 +21,18 @@
   `pymupdf-layout` into every install, and `import pymupdf` takes about
   1 s and 90 MB more while it loads the layout model.
 
+- **planlens' PDF reads run one at a time across threads.** PyMuPDF keeps
+  its glyph-box switches as process globals and does not support threads;
+  the app reads documents on parallel tool threads. Two table reads on two
+  threads (1.x and 2.x alike) left the small-glyph-heights switch on for the
+  process, because `find_tables()` flips it and puts back what it found and
+  the two save-and-restores interleaved: every later line box came back a
+  font size high (10.0 pt where 13.74 is the line). They also left
+  `sys.stdout` on `extract_tables`' dead advisory buffer, so nothing the
+  process printed afterwards was seen. `pymupdf_settings.line_boxes()` now
+  holds a process-wide lock for the read (a nested read on the same thread
+  shares it).
+
 - **`log_grid` reads each sample's interval off its drawn box, and a long
   log comes back whole (BACKLOG PL-24).** On many logs a sample is a box in
   the sample columns, drawn against the depth scale, with no depth printed

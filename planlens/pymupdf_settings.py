@@ -23,9 +23,14 @@ its setting. :func:`find_tables` reads the ruling lines alone, passing
 without it has no layout gate either). On 1.x both change nothing, so 1.x and
 2.x read the same cells and the same boxes.
 
-The corrections are ONE global switch in PyMuPDF, so :func:`line_boxes` holds
-it for as long as any planlens read in the process is inside one: the first
-to enter turns it off, the last to leave puts back what the first found.
+PyMuPDF keeps these switches as process globals and does not support threads,
+while the app reads documents on parallel tool threads. So :func:`line_boxes`
+also lets ONE planlens read run at a time in the process (a nested read on the
+same thread shares it). Before it did, two table reads on two threads left
+the small-glyph-heights switch on for the process (``find_tables`` flips it
+and puts back what it found, and the two save-and-restores interleaved: every
+later line box came back a font size high) and left ``sys.stdout`` on
+``extract_tables``' dead buffer.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ from typing import Any, Iterator, Optional
 
 __all__ = ["line_boxes", "find_tables"]
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 _depth = 0
 _saved: Optional[bool] = None
 _use_layout_kw: Optional[bool] = None
@@ -45,7 +50,8 @@ _use_layout_kw: Optional[bool] = None
 
 @contextlib.contextmanager
 def line_boxes() -> Iterator[None]:
-    """Read with the ascender/descender corrections ON, as PyMuPDF 1.x does.
+    """Read with the ascender/descender corrections ON, as PyMuPDF 1.x does,
+    and with no other planlens read in progress on another thread.
 
     Wrap every call that turns a page's text into boxes: ``get_text("dict")``
     and ``"words"``, and ``find_tables`` with the ``extract()`` of what it
@@ -60,10 +66,9 @@ def line_boxes() -> Iterator[None]:
             if _saved:
                 tools.unset_quad_corrections(False)
         _depth += 1
-    try:
-        yield
-    finally:
-        with _lock:
+        try:
+            yield
+        finally:
             _depth -= 1
             if _depth == 0 and _saved:
                 tools.unset_quad_corrections(True)
