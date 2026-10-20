@@ -12,18 +12,30 @@
   RIGHT-HANDED local grid from two or more control points or a north arrow +
   scale + origin, reports residuals per control, and refuses a mirrored
   control set (three or more points off a line) unless
-  `on_mirror="warn"`. No existing number moves.
+  `on_mirror="warn"`. No existing number moves. Measured on a real site plan
+  (257,000 paths): the 53 boring symbols found in their four sizes, 8 s for
+  the page (473 s before the review bucketed segments round each symbol);
+  its IDs are drawn as strokes, so it pairs no labels and says so. Long
+  results are cut to fit: `styles` to 24 taken in turn from each shape (that
+  sheet drew 390, nearly all arrowhead triangles), `plan_grid`'s points with
+  a `truncated` note.
 
 - **A markup-only divider page starts and titles a segment (PL-02).** A tab
   with no text layer whose only words are a FreeText or Stamp markup of at
   most 8 words ("APPENDIX B") now gets that `divider_title` (evidence
   `divider_from_markup`), so the segment starts there and carries the title.
-  Before: such a page joined the previous segment, untitled.
+  Before: such a page joined the previous segment, untitled. A callout
+  (`/IT /FreeTextCallout`) or a markup in a reply thread does not count: on
+  a scanned page a reviewer's "Figures need a scale bar" otherwise titled a
+  segment.
 
 - **Stable markup ids, an atomic save, `ReviewToolkit.forget` (PL-06).**
   `Markup.uid` (`p3.n<NM>` from the annotation's `/NM`, else `p3.h<hash>`)
   survives a re-read and the deletion of an earlier markup; `id` stays
-  positional, and `reply_to` takes either. `write_markups` writes to a
+  positional, and `reply_to` takes either. Every annotation `write_markups`
+  adds gets its own `/NM` (`planlens-<16 hex>`): PyMuPDF's `fitz-A<n>` takes
+  the first free number, so a mark written after a deletion had the deleted
+  one's uid. `write_markups` writes to a
   temporary file beside the output and renames it over, so a failed save
   leaves the last good copy. `ReviewToolkit.forget(path)` closes every
   handle opened from a file and drops it, for a host that rewrites or deletes

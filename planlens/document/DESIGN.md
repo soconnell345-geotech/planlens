@@ -83,7 +83,7 @@ vertices, colour. Relationships come only from explicit PDF data:
 | `points_at` | FreeText callout: the start of `/CL` (PDF spec: the end at the target). Line/PolyLine: the end with a line ending, when exactly one end has one. Verified by rendering real Bluebeam markups: callout starts sit on the commented text, the arrowhead end on its target. Never inferred from proximity. |
 | `points_to_markup` | the smallest other markup whose box CONTAINS `points_at`, skipping the markup's own /IRT companions (Bluebeam ties the cloud a responder draws around the original comment to the response by /IRT; the tip lands inside that cloud too) and every markup drawn AFTER it (by creation date, else by its place in the page's annotation list): a callout aims at what was there when it was drawn, never at a box added round its target later. On the real submittal this links contractor replies to reviewer comments. |
 | `in_reply_to` / `replies` | the PDF `/IRT` link and its inverse. |
-| `uid` | an id that survives a re-read and an edit (PL-06): `p<page>.n<NM>` from the annotation's own `/NM` ("the annotation name, a text string uniquely identifying it among all the annotations on its page" in the PDF reference; Bluebeam, Acrobat and PyMuPDF write it and keep it on save), else `p<page>.h<hash>` of kind, box to the point, creation date, author and comment. `id` stays positional (`p3.m2`, which moves when an earlier markup is deleted); `reply_to` takes either. |
+| `uid` | an id that survives a re-read and an edit (PL-06): `p<page>.n<NM>` from the annotation's own `/NM` ("the annotation name, a text string uniquely identifying it among all the annotations on its page" in the PDF reference; Bluebeam, Acrobat and PyMuPDF write it and keep it on save), else `p<page>.h<hash>` of kind, box to the point, creation date, author and comment. Every annotation `write_markups` adds gets its own `/NM` (`planlens-<16 hex>`), because PyMuPDF names a new one with the first free `fitz-A<n>` on the page and a mark written after a deletion took the deleted one's uid. `id` stays positional (`p3.m2`, which moves when an earlier markup is deleted); `reply_to` takes either. |
 | `appearance_text` | text the annotation's OWN appearance draws (`annot.get_text`), kept when it differs from the comment field: review-stamp wording, what a snapshot stamp copied. Per-annotation, so overlapping markups cannot swap text (an earlier box-containment version did). Capped at 400 chars. |
 
 ## Writing markups (2026-09-21)
@@ -468,7 +468,11 @@ of at most 8 words, read through the same divider rules, largest first, on a
 page that is not a drawing sheet and has no more than 60 words of its own. The
 page's evidence names it (`divider_from_markup`). A sticky note does not count
 (its words sit in a pop-up, not on the page), nor a longer comment that
-happens to start "Section ...".
+happens to start "Section ...", nor a callout (`/IT /FreeTextCallout`) or a
+markup in a reply thread: on a scanned page a reviewer's "Figures need a
+scale bar" otherwise titled a segment. A short plain text box that reads like
+a title ("Section 3 incomplete") still does; nothing on the page tells it
+from a tab's label.
 
 Measured on the real 260-page submittal: 29 segments — transmittal, review
 letter, tabs, the seven-sheet drawing set as one segment, the calc package
@@ -1459,6 +1463,17 @@ and with a competitor nearly as close (named in `alternative`). `styles`
 counts type + fill + size, which is how a plan tells its programs apart; the
 model says which program each is. A label on two symbols, symbols with no
 label and labels with no symbol are reported.
+
+Measured on the field session's real site plan (257,000 paths, 331,000
+segments): the 53 boring symbols in their four sizes (12.6 pt x 10, 10.2 x
+21, 9.5 x 4, 9.0 x 18, as the trace review counted them), 8 s for the page.
+Testing every symbol against every segment took 473 s; segments too short or
+too long to cross a symbol are dropped first and the rest bucketed round each
+symbol. The sheet's IDs are drawn as strokes, so no label pairs and the
+result says so: the model reads the IDs by looking and matches them to the
+centres. The same sheet drew 2,290 small filled triangles (arrowheads) in
+368 styles; the tool lists 24 styles taken in turn from each shape and
+counts the rest per shape, so the borings' styles are not crowded out.
 
 **Grid** (`fit_plan_grid`, `grid_from_north`, tool `plan_grid`). A
 similarity — one scale, one rotation, a shift — fitted by least squares in

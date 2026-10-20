@@ -66,6 +66,30 @@ def test_a_comment_is_not_a_divider(text, kind):
         assert d.summary(3).divider_title is None
 
 
+@pytest.mark.parametrize("how", ["callout", "reply"])
+def test_a_callout_or_a_reply_thread_is_not_a_divider(how):
+    # On a scanned page a reviewer's short comment reads like a tab title
+    # ("Figures need a scale bar"); a callout points at something, and a
+    # markup in a reply thread is a discussion.
+    import fitz
+    doc = fitz.open(stream=_report(None))
+    tab = doc[3]
+    r = fitz.Rect(150, 330, 460, 400)
+    if how == "callout":
+        tab.add_freetext_annot(r, "Figures need a scale bar", fontsize=12,
+                               callout=((100, 200), (150, 360)))
+    else:
+        a = tab.add_freetext_annot(fitz.Rect(150, 200, 460, 260),
+                                   "Appendix B is missing its stamp",
+                                   fontsize=12)
+        b = tab.add_freetext_annot(r, "Stamp added", fontsize=12)
+        doc.xref_set_key(b.xref, "IRT", f"{a.xref} 0 R")
+    pdf = doc.tobytes()
+    doc.close()
+    with Document(content=pdf, name="r.pdf") as d:
+        assert d.summary(3).divider_title is None
+
+
 def _with_markups(n):
     import fitz
     doc = fitz.open()
@@ -132,6 +156,33 @@ def test_reply_by_uid_and_atomic_save(tmp_path):
     assert reply.uid == rep.written[0].uid
 
 
+def test_a_uid_is_never_given_to_a_later_mark(tmp_path):
+    # PyMuPDF names a new annotation with the first free fitz-A<n> on the
+    # page: delete a mark, write another, and the new one would take the
+    # deleted one's /NM, so an id held from before would name it.
+    import fitz
+    from planlens.document.markup_writer import write_markups
+    src = tmp_path / "a.pdf"
+    src.write_bytes(_with_markups(0))
+    one = tmp_path / "one.pdf"
+    rep = write_markups(str(src), str(one), [
+        {"kind": "note", "page": 0, "quote": "bearing pressure",
+         "comment": "first"}])
+    old = rep.written[0].uid
+    doc = fitz.open(str(one))
+    doc[0].delete_annot(next(iter(doc[0].annots())))
+    gone = tmp_path / "gone.pdf"
+    doc.save(str(gone))
+    doc.close()
+    two = tmp_path / "two.pdf"
+    write_markups(str(gone), str(two), [
+        {"kind": "note", "page": 0, "quote": "bearing pressure",
+         "comment": "second"}])
+    with Document(filepath=str(two)) as d:
+        uids = {m.text: m.uid for m in d.markups()}
+    assert uids["second"] != old and old not in uids.values()
+
+
 def test_failed_save_leaves_the_last_good_copy(tmp_path, monkeypatch):
     import fitz
     from planlens.document.markup_writer import write_markups
@@ -166,5 +217,18 @@ def test_forget_closes_and_reopens(tmp_path):
         assert tk.forget(str(src)) == []
         h2 = tk.call("open_document", {"source": str(src)})["handle"]
         assert "error" not in tk.call("document_markups", {"handle": h2})
+    finally:
+        tk.close()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows paths ignore case")
+def test_forget_matches_a_path_in_another_case(tmp_path):
+    from planlens.tools import ReviewToolkit
+    src = tmp_path / "Report.pdf"
+    src.write_bytes(_with_markups(1))
+    tk = ReviewToolkit()
+    try:
+        h = tk.call("open_document", {"source": str(src)})["handle"]
+        assert tk.forget(str(src).upper()) == [h]
     finally:
         tk.close()

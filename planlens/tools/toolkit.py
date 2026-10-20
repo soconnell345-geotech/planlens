@@ -149,6 +149,42 @@ def _compact_choices(out: Dict[str, Any], room: int) -> Dict[str, Any]:
     return out
 
 
+#: Most drawn styles ``plan_symbols`` lists one by one.
+PLAN_STYLE_ROWS = 24
+
+
+def _cut_styles(out: Dict[str, Any]) -> Dict[str, Any]:
+    """``plan_symbols``' ``styles`` cut to :data:`PLAN_STYLE_ROWS`, taken in
+    turn from each shape (each shape's commonest sizes first), with the
+    symbols per shape said for the rest. A site plan's arrowheads and
+    hatching are small closed shapes too: the field session's sheet drew 390
+    styles, nearly all of them filled triangles (2,290 of them), beside its
+    53 boring symbols in four sizes, and a list by count alone was nothing
+    but triangles (and, uncut, over the result limit)."""
+    styles = out.get("styles") or {}
+    if len(styles) <= PLAN_STYLE_ROWS:
+        return out
+    by_shape: Dict[str, List[Tuple[str, int]]] = {}
+    for style, n in styles.items():          # commonest first already
+        by_shape.setdefault(style.rsplit(" ", 2)[0], []).append((style, n))
+    order = sorted(by_shape, key=lambda k: -sum(n for _s, n in by_shape[k]))
+    kept: List[Tuple[str, int]] = []
+    rank = 0
+    while len(kept) < PLAN_STYLE_ROWS:
+        row = [by_shape[k][rank] for k in order if rank < len(by_shape[k])]
+        if not row:
+            break
+        kept.extend(row[:PLAN_STYLE_ROWS - len(kept)])
+        rank += 1
+    out = dict(out)
+    out["styles"] = dict(sorted(kept, key=lambda kv: -kv[1]))
+    out["styles_cut"] = (
+        f"{len(styles) - len(kept)} more styles. Symbols per shape: "
+        + ", ".join(f"{k} {sum(n for _s, n in by_shape[k])}" for k in order)
+        + ". Narrow with shapes or bbox")
+    return out
+
+
 def _default_resolver(source: str) -> Source:
     if os.path.isfile(source):
         return source
@@ -405,20 +441,28 @@ class ReviewToolkit:
         opened from and against the ``source`` string it was opened under.
         Returns the handles closed (empty when none was open).
         """
-        target = os.path.abspath(path)
-        closed: List[str] = []
+        def norm(p: str) -> str:
+            # Windows paths compare case-insensitively
+            return os.path.normcase(os.path.abspath(p))
+
+        target = norm(path)
+        dropped: List[_Entry] = []
         with self._guard:
             for handle, entry in list(self._entries.items()):
-                if ((entry.path and os.path.abspath(entry.path) == target)
+                if ((entry.path and norm(entry.path) == target)
                         or getattr(entry, "source", None) == path):
                     del self._entries[handle]
-                    closed.append(handle)
-                    with entry.lock:
-                        entry.doc.close()
-            if closed:
+                    dropped.append(entry)
+            if dropped:
+                gone = {e.handle for e in dropped}
                 self._by_key = {k: h for k, h in self._by_key.items()
-                                if h not in closed}
-        return closed
+                                if h not in gone}
+        # Closed outside the toolkit's guard: a long read on one document
+        # holds its lock, and must not stall every other tool meanwhile.
+        for entry in dropped:
+            with entry.lock:
+                entry.doc.close()
+        return [e.handle for e in dropped]
 
     def close(self) -> None:
         with self._guard:
@@ -1497,6 +1541,7 @@ class ReviewToolkit:
         # sheet can carry hundreds of them.
         if len(out.get("unmatched_labels", [])) > 50:
             out["unmatched_labels"] = out["unmatched_labels"][:50]
+        out = _cut_styles(out)
         out = _compact_choices(dict(out, symbols=[]), self._budget(400)) | {
             "symbols": out["symbols"]}
         rest = dict(out, symbols=[], truncated="x" * 80)
@@ -1569,12 +1614,41 @@ class ReviewToolkit:
             out["points"] = rows
             if handle is not None and page is not None:
                 entry = self._entry(handle)
+                page = int(page)
                 with entry.lock:
-                    found = find_plan_symbols(entry.doc, int(page))
+                    if not 0 <= page < entry.doc.n_pages:
+                        raise ToolError(
+                            f"page {page} is out of range",
+                            hint=f"pages run 0-{entry.doc.n_pages - 1}")
+                    found = find_plan_symbols(entry.doc, page)
                 flags = check_plan_points(points, found)
                 if flags:
                     out["point_flags"] = flags
-        return _compact_choices(out, self._budget(100))
+        out = _compact_choices(out, self._budget(100))
+        # A plan can carry a hundred explorations: keep whole rows, flags
+        # first, and say how many more to convert in a second call.
+        base = dict(out, point_flags=[], points=[], truncated="x" * 90)
+        room = self._budget(reserve=len(json.dumps(
+            base, ensure_ascii=False, separators=(",", ":"))) + 50)
+        cut = {}
+        for key in ("point_flags", "points"):
+            rows = out.get(key) or []
+            kept = []
+            for row in rows:
+                size = len(json.dumps(row, ensure_ascii=False,
+                                      separators=(",", ":"))) + 1
+                if size > room:
+                    break
+                kept.append(row)
+                room -= size
+            if len(kept) < len(rows):
+                cut[key] = len(rows) - len(kept)
+                out[key] = kept
+        if cut:
+            out["truncated"] = "; ".join(
+                f"{n} more {k.replace('_', ' ')}" for k, n in cut.items()
+            ) + ": convert the rest in another call"
+        return out
 
     def _tool_measure(self, handle: str, page: int, bbox: Any = None,
                       image: Optional[str] = None, image_box: Any = None,

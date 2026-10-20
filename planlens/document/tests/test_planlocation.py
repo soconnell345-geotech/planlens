@@ -220,3 +220,90 @@ def test_tool_results_fit_the_limit(max_chars):
             assert "truncated" in out
     finally:
         tk.close()
+
+
+def _busy_sheet(rotation=0):
+    """Five labelled borings among what a real site plan also draws: 40
+    filled triangles (arrowheads) in 40 sizes and 4,000 short segments."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=1224, height=792)
+    for k in range(5):
+        x, y = 150 + 200 * k, 200
+        page.draw_circle((x, y), 5.0, color=(0, 0, 0), width=0.5)
+        page.insert_text((x + 9, y - 6), f"B-{k + 1}", fontsize=7)
+    for k in range(40):
+        s = 3.0 + 0.23 * k
+        x, y = 60 + 28 * k, 500
+        page.draw_polyline([(x, y), (x + s, y), (x + s / 2, y - s), (x, y)],
+                           color=(0, 0, 0), fill=(0, 0, 0))
+    shape = page.new_shape()
+    for k in range(4000):
+        x, y = 40 + (k % 100) * 11.5, 560 + (k // 100) * 5.5
+        shape.draw_line((x, y), (x + 8, y + 1))
+    shape.finish(color=(0.5, 0.5, 0.5), width=0.2)
+    shape.commit()
+    if rotation:
+        page.set_rotation(rotation)
+    pdf = doc.tobytes()
+    doc.close()
+    return pdf
+
+
+def test_a_busy_sheet_is_not_compared_all_against_all(monkeypatch):
+    # The field session's site plan (257,000 paths, 331,000 segments) took
+    # 473 s when every symbol was tested against every segment; 8 s with
+    # the segments bucketed round each symbol.
+    from planlens.document import planlocation as pl
+    calls = []
+    real = pl._through_centre
+
+    def counted(seg, c, r):
+        calls.append(1)
+        return real(seg, c, r)
+    monkeypatch.setattr(pl, "_through_centre", counted)
+    with Document(content=_busy_sheet(), name="busy.pdf") as doc:
+        found = find_plan_symbols(doc, 0)
+    assert {f"B-{k}" for k in range(1, 6)} <= set(found.by_label())
+    assert len(found.symbols) == 45
+    assert len(calls) < 2000        # all against all: 45 x 4,000
+
+
+@pytest.mark.parametrize("rotation", [0, 90])
+def test_many_styles_are_cut_to_fit_and_keep_every_shape(rotation):
+    from planlens.tools import ReviewToolkit
+    pdf = _busy_sheet(rotation)
+    tk = ReviewToolkit(resolve_source=lambda s: pdf)
+    try:
+        h = tk.call("open_document", {"source": "busy.pdf"})["handle"]
+        raw = tk.call_json("plan_symbols", {"handle": h, "page": 0})
+        out = json.loads(raw)
+        assert "error" not in out and len(raw) <= tk.max_chars
+        assert out["styles"]["circle 10.0 pt"] == 5
+        assert len(out["styles"]) <= 24
+        assert "filled triangle 40" in out["styles_cut"]
+        assert {s.get("label") for s in out["symbols"]} >= {
+            f"B-{k}" for k in range(1, 6)}
+    finally:
+        tk.close()
+
+
+def test_plan_grid_cuts_a_long_point_list_to_fit():
+    from planlens.tools import ReviewToolkit
+    gt = build_plan_location_sheet()
+    tk = ReviewToolkit(resolve_source=lambda s: gt.pdf)
+    try:
+        pts = [{"name": f"B-{k}", "page": [100 + k, 200 + k]}
+               for k in range(200)]
+        raw = tk.call_json("plan_grid", {"controls": gt.controls,
+                                         "points": pts})
+        out = json.loads(raw)
+        assert "error" not in out and len(raw) <= tk.max_chars
+        assert 0 < len(out["points"]) < 200
+        assert f"{200 - len(out['points'])} more points" in out["truncated"]
+        h = tk.call("open_document", {"source": "plan.pdf"})["handle"]
+        bad = tk.call("plan_grid", {"controls": gt.controls, "points": pts,
+                                    "handle": h, "page": 5})
+        assert "out of range" in bad["error"]
+    finally:
+        tk.close()

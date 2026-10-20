@@ -185,11 +185,19 @@ def markup_divider_title(markups, n_words: int
     A scanned tab sheet carries no text layer; when someone labelled it with
     a text box or a stamp, that markup is the page's title. The rules are
     :func:`divider_title`'s, read over the drawn markups largest first, each
-    no longer than :data:`DIVIDER_MARKUP_MAX_WORDS` words.
+    no longer than :data:`DIVIDER_MARKUP_MAX_WORDS` words. A callout (``/IT
+    /FreeTextCallout``: it points at something on the page) and a markup in a
+    reply thread are a reviewer's comments, not a tab's title: on a scanned
+    page they otherwise read as one ("Figures need a scale bar" titled a
+    segment). The intent is the test, not ``points_at``: PyMuPDF writes a
+    ``/CL`` on every text box it adds, callout or not.
     """
     cands = []
     for m in markups:
         if m.kind not in DIVIDER_MARKUP_KINDS:
+            continue
+        if ("callout" in (m.intent or "").lower()
+                or m.in_reply_to or m.replies):
             continue
         text = " ".join((m.text or m.appearance_text or "").split())
         if not text or len(text.split()) > DIVIDER_MARKUP_MAX_WORDS:

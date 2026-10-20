@@ -190,7 +190,8 @@ def _close(a: Point, b: Point, tol: float = 0.05) -> bool:
 def _subpaths(items) -> Tuple[List[Tuple[List[Point], int, bool]],
                               List[Tuple[Point, Point]]]:
     """A path's items as closed point rings ``(points, n_curves, closed)``
-    and its single straight segments."""
+    and its single straight segments. Items are ``get_cdrawings()``'s (plain
+    tuples) or ``get_drawings()``'s (Point / Rect / Quad): both index alike."""
     rings: List[Tuple[List[Point], int, bool]] = []
     segments: List[Tuple[Point, Point]] = []
     cur: List[Point] = []
@@ -221,25 +222,25 @@ def _subpaths(items) -> Tuple[List[Tuple[List[Point], int, bool]],
         if op == "re":
             flush()
             r = it[1]
-            rings.append(([(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1),
-                           (r.x0, r.y1)], 0, True))
+            rings.append(([(r[0], r[1]), (r[2], r[1]), (r[2], r[3]),
+                           (r[0], r[3])], 0, True))
             continue
         if op == "qu":
             flush()
-            q = it[1]
-            rings.append(([(q.ul.x, q.ul.y), (q.ur.x, q.ur.y),
-                           (q.lr.x, q.lr.y), (q.ll.x, q.ll.y)], 0, True))
+            q = it[1]               # ul, ur, ll, lr
+            rings.append(([(q[0][0], q[0][1]), (q[1][0], q[1][1]),
+                           (q[3][0], q[3][1]), (q[2][0], q[2][1])], 0, True))
             continue
-        a = (it[1].x, it[1].y)
+        a = (it[1][0], it[1][1])
         if cur and not _close(cur[-1], a):
             flush()
         if not cur:
             cur.append(a)
         if op == "l":
-            cur.append((it[2].x, it[2].y))
+            cur.append((it[2][0], it[2][1]))
             lines += 1
         elif op == "c":
-            p0, p1, p2, p3 = ((p.x, p.y) for p in it[1:5])
+            p0, p1, p2, p3 = ((p[0], p[1]) for p in it[1:5])
             for t in (0.25, 0.5, 0.75):
                 cur.append(_bezier(p0, p1, p2, p3, t))
             cur.append(p3)
@@ -290,23 +291,63 @@ def _classify_ring(pts: List[Point], n_curves: int, closed: bool,
     return None
 
 
-def _shapes_and_segments(page) -> Tuple[List[_Shape],
-                                        List[Tuple[Point, Point]]]:
+def _shapes_and_segments(page, min_size: float = DEFAULT_MIN_SIZE,
+                         max_size: float = DEFAULT_MAX_SIZE
+                         ) -> Tuple[List[_Shape], List[Tuple[Point, Point]]]:
+    """The page's small closed shapes, and the straight segments that could
+    cross one (:func:`_through_centre`), in the displayed frame.
+
+    A plan sheet holds hundreds of thousands of paths (the field session's
+    site plan: 257,000 paths, 331,000 segments), so what can never be part
+    of a symbol is dropped BEFORE it is converted or classified: a ring wider
+    than ``max_size`` across, and a segment shorter than ``0.6 * min_size``
+    or longer than ``1.7 * max_size`` (a crossing line is 1.2 to 3.4 radii
+    long). Both tests are on lengths, which ``/Rotate`` (a multiple of 90
+    degrees) does not change.
+    """
     shapes: List[_Shape] = []
     segments: List[Tuple[Point, Point]] = []
-    for path in page.get_drawings():
+    seg_lo, seg_hi = 0.6 * min_size, 1.7 * max_size
+    for path in page.get_cdrawings():
         filled = path.get("fill") is not None and path.get("type") in (
             "f", "fs")
         rings, segs = _subpaths(path.get("items") or [])
         for pts, n_curves, closed in rings:
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            if (max(xs) - min(xs) + max(ys) - min(ys)) / 2.0 > max_size:
+                continue
             disp = [to_display_point(page, x, y) for x, y in pts]
             sh = _classify_ring(disp, n_curves, closed, filled)
             if sh is not None:
                 shapes.append(sh)
         for a, b in segs:
+            if not seg_lo <= math.hypot(b[0] - a[0], b[1] - a[1]) <= seg_hi:
+                continue
             segments.append((to_display_point(page, *a),
                              to_display_point(page, *b)))
     return shapes, segments
+
+
+def _cells(points: Sequence[Point], cell: float) -> Dict[Tuple[int, int],
+                                                          List[int]]:
+    """Indices of ``points`` bucketed on a square grid of side ``cell``."""
+    grid: Dict[Tuple[int, int], List[int]] = {}
+    for k, (x, y) in enumerate(points):
+        grid.setdefault((int(math.floor(x / cell)),
+                         int(math.floor(y / cell))), []).append(k)
+    return grid
+
+
+def _near(grid: Dict[Tuple[int, int], List[int]], c: Point,
+          cell: float) -> List[int]:
+    """Indices in the 3 x 3 cells round ``c``: everything within ``cell``."""
+    i, j = int(math.floor(c[0] / cell)), int(math.floor(c[1] / cell))
+    out: List[int] = []
+    for di in (-1, 0, 1):
+        for dj in (-1, 0, 1):
+            out.extend(grid.get((i + di, j + dj), ()))
+    return out
 
 
 def _through_centre(seg, c: Point, r: float) -> bool:
@@ -330,6 +371,15 @@ def _compose(shapes: List[_Shape], segments, min_size: float,
     cand.sort(key=lambda s: -s.size)
     used = [False] * len(cand)
     out = []
+    # Spatial buckets, so a sheet with thousands of small shapes and
+    # hundreds of thousands of segments is not compared all against all:
+    # a concentric shape is within 0.2 r <= 0.1 max_size of the centre, a
+    # crossing segment's midpoint within 1.7 r <= 0.85 max_size.
+    c_cell = max(0.1 * max_size, 1e-3)
+    s_cell = max(0.85 * max_size, 1e-3)
+    by_centre = _cells([s.center for s in cand], c_cell)
+    by_mid = _cells([((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+                     for a, b in segments], s_cell)
     for i, s in enumerate(cand):
         if used[i] or s.size < min_size:
             continue
@@ -337,8 +387,8 @@ def _compose(shapes: List[_Shape], segments, min_size: float,
         r = s.size / 2.0
         filled = s.filled
         inner = []
-        for j in range(i + 1, len(cand)):
-            if used[j]:
+        for j in sorted(_near(by_centre, s.center, c_cell)):
+            if j <= i or used[j]:
                 continue
             o = cand[j]
             if math.hypot(o.center[0] - s.center[0],
@@ -350,7 +400,8 @@ def _compose(shapes: List[_Shape], segments, min_size: float,
             else:
                 inner.append(o)
         name = s.kind
-        crossing = [seg for seg in segments if _through_centre(seg, s.center, r)]
+        crossing = [segments[k] for k in _near(by_mid, s.center, s_cell)
+                    if _through_centre(segments[k], s.center, r)]
         if len(crossing) >= 2:
             angles = sorted(math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
                             % 180.0 for a, b in crossing)
@@ -441,7 +492,8 @@ def find_plan_symbols(document, page: int, *,
     pat = re.compile(label_pattern, re.I)
     fpage = document._doc[page]
     _markups, cad = document._page_annots(page)
-    raw_shapes, segments = _shapes_and_segments(fpage)
+    raw_shapes, segments = _shapes_and_segments(fpage, float(min_size),
+                                                float(max_size))
     composed = [c for c in _compose(raw_shapes, segments, float(min_size),
                                     float(max_size))
                 if _in_region(c[1], region)]

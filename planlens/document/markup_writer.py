@@ -63,6 +63,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -1267,6 +1268,7 @@ def _add_label(page, shape, text: str, near: BBox, author: str,
         rotate=(int(page.rotation) + int(reads)) % 360)
     annot.set_info(title=author, content=text, subject="Label",
                    creationDate=created, modDate=created)
+    _name_uniquely(annot)
     annot.update()
     # PyMuPDF 1.27 writes a default /CL (a leader from the page corner) on
     # every FreeText, callout or not. Nothing draws it, but a reader takes it
@@ -1277,11 +1279,24 @@ def _add_label(page, shape, text: str, near: BBox, author: str,
     return annot, box, int(reads)
 
 
+def _name_uniquely(annot) -> None:
+    """Give a new annotation a ``/NM`` no other will ever have (PL-06).
+
+    PyMuPDF names a new annotation with the first free ``fitz-A<n>`` on its
+    page, so a mark written after a deletion takes the deleted one's name,
+    and a stable id (:attr:`Markup.uid`) held from before would then name the
+    new mark. Measured: delete ``fitz-A0``, write a note, and the note is
+    ``p0.nfitz-A0``."""
+    annot.parent.parent.xref_set_key(
+        annot.xref, "NM", f"(planlens-{uuid.uuid4().hex[:16]})")
+
+
 def _finish(annot, spec: MarkupSpec, author: str, created: str) -> None:
     """The fields every viewer reads: who, when, what it says, what type."""
     annot.set_info(title=author, content=spec.comment,
                    subject=KIND_SUBJECT[spec.kind], creationDate=created,
                    modDate=created)
+    _name_uniquely(annot)
 
 
 def _add_popup(annot, page, bbox: BBox) -> None:
