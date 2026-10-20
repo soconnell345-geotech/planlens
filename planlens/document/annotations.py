@@ -30,6 +30,7 @@ Coordinates are converted from PyMuPDF's unrotated space to the displayed frame.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -138,6 +139,28 @@ def _drawn_after(other: Markup, m: Markup, order: Dict[str, int]) -> bool:
     return order[other.id] > order[m.id]
 
 
+def stable_markup_id(page_index: int, name: Optional[str], kind: str,
+                     bbox, created: Optional[str], author: Optional[str],
+                     text: str) -> str:
+    """A markup id that survives a re-read and an edit of the file (PL-06).
+
+    The positional ``Markup.id`` (``p3.m2``) moves when an earlier markup on
+    the page is deleted. This one is built from the annotation's own ``/NM``,
+    which the PDF reference defines as "the annotation name, a text string
+    uniquely identifying it among all the annotations on its page" and which
+    Bluebeam, Acrobat and PyMuPDF write and keep on save: ``p3.n<NM>``. An
+    annotation without ``/NM`` gets ``p3.h<hash>`` of its kind, box (to the
+    point), creation date, author and comment — stable across re-reads, and
+    across edits to OTHER markups, but not across an edit of its own comment
+    or position.
+    """
+    if name:
+        return f"p{page_index}.n{name}"
+    key = "|".join([kind, ",".join(str(int(round(v))) for v in bbox),
+                    created or "", author or "", text or ""])
+    return f"p{page_index}.h{hashlib.sha1(key.encode('utf-8', 'replace')).hexdigest()[:10]}"
+
+
 def extract_annotations(page, page_index: int
                         ) -> Tuple[List[Markup], List[TextLine]]:
     """Review markups and hidden CAD text lines for one ``fitz.Page``."""
@@ -146,6 +169,7 @@ def extract_annotations(page, page_index: int
     cad_lines: List[TextLine] = []
     xref_to_id: Dict[int, str] = {}
     irt_of: Dict[str, int] = {}
+    seen_uids = set()
 
     for annot in page.annots() or []:
         kind = annot.type[1]
@@ -207,6 +231,13 @@ def extract_annotations(page, page_index: int
             measure=measure,
             xref=xref,
         )
+        mk.uid = stable_markup_id(page_index, info.get("id") or None, kind,
+                                  bbox, mk.created, author, mk.text)
+        if mk.uid in seen_uids:
+            # Two annotations on one page sharing /NM (a copy-paste in some
+            # viewers) or identical in every keyed field: keep ids unique.
+            mk.uid = f"{mk.uid}.{len(markups)}"
+        seen_uids.add(mk.uid)
         markups.append(mk)
         xref_to_id[xref] = mk.id
         kind_irt, val_irt = doc.xref_get_key(xref, "IRT")

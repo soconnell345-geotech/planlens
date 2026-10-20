@@ -35,8 +35,8 @@ highlights, boxes and callouts in the comments list like anybody else's.
     the mark, or one that is the whole view, is REFUSED with a reason
     (:func:`_view_anchor_problem`): zoom on the thing and anchor on the zoom.
 ``reply_to``
-    an existing markup's :attr:`~planlens.document.model.Markup.id`, which
-    becomes a PDF reply link (``/IRT``) — the same link
+    an existing markup's :attr:`~planlens.document.model.Markup.id` or its
+    stable :attr:`~planlens.document.model.Markup.uid`, which becomes a PDF reply link (``/IRT``) — the same link
     :attr:`Markup.in_reply_to` reads back.
 
 Pages are 0-based, as :attr:`Markup.page` and every tool in this package are.
@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -230,7 +231,7 @@ SQUARE_RECT_PAD = 1.0
 #: Border width drawn on a Square or a callout.
 BORDER_WIDTH = 1.5
 
-_ID = re.compile(r"^p(\d+)\.m\d+$")
+_ID = re.compile(r"^p(\d+)\.[mnh]")
 
 #: A box read off a rendered image is only as good as the VIEW it was read
 #: off, because the error grows with the view, not with the thing. Measured
@@ -532,6 +533,9 @@ class WrittenMarkup:
     #: The position of the spec this came from in the caller's list (rows
     #: leave the skipped specs out, so a row's place is not its index).
     index: Optional[int] = None
+    #: The annotation's ``/NM`` as the stable id a re-read reports
+    #: (:attr:`Markup.uid`), so a reply can name it in a later call.
+    uid: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -555,6 +559,8 @@ class WrittenMarkup:
             out["in_reply_to"] = self.in_reply_to
         if self.score is not None:
             out["score"] = round(float(self.score), 1)
+        if self.uid:
+            out["uid"] = self.uid
         return out
 
 
@@ -949,8 +955,8 @@ def _resolve_anchor(spec: MarkupSpec, reader_for_quote, markups_on_page,
     if spec.kind == "reply":
         if spec.reply_to is None:
             return None, "a reply needs reply_to: the id of the markup it answers"
-        parent = next((m for m in markups_on_page() if m.id == spec.reply_to),
-                      None)
+        parent = next((m for m in markups_on_page()
+                       if spec.reply_to in (m.id, m.uid)), None)
         if parent is None:
             page_of = _ID.match(spec.reply_to)
             if page_of and int(page_of.group(1)) != spec.page:
@@ -1536,7 +1542,9 @@ def write_markups(source: Union[str, bytes],
                         if spec.kind in LABELLED_KINDS and anchor.boxes
                         else None),
                 label=spec.label, label_bbox=label_box,
-                label_reads=label_reads, index=index))
+                label_reads=label_reads, index=index,
+                uid=((f"p{spec.page}.n{annot.info.get('id')}")
+                     if annot.info.get("id") else None)))
             # A page whose annotations were just added to must be re-read
             # before the next spec, or a reply naming a markup written in this
             # same call would not find it.
@@ -1545,7 +1553,19 @@ def write_markups(source: Union[str, bytes],
         parent = os.path.dirname(os.path.abspath(output))
         if parent:
             os.makedirs(parent, exist_ok=True)
-        doc.save(output)
+        # Atomic: write beside the output and swap it in, so a crash or a
+        # full disk mid-save never leaves a half-written review copy where
+        # the last good one was (PL-06).
+        fd, tmp = tempfile.mkstemp(prefix=".planlens-", suffix=".pdf",
+                                   dir=parent or None)
+        os.close(fd)
+        try:
+            doc.save(tmp)
+            os.replace(tmp, output)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
     finally:
         doc.close()
         if reader[0] is not None:

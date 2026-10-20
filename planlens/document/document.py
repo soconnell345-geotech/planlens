@@ -44,7 +44,8 @@ from planlens.document.pdf_text import MAX_UNMAPPED_FRACTION, extract_text
 from planlens.document.scale import page_viewports
 from planlens.document.structure import (
     BAND_MAX_CHARS, TEXT_DUP_MIN_WORDS, band_texts, body_word_count,
-    content_hash, divider_title, printed_numbers, segments,
+    content_hash, divider_title, markup_divider_title, printed_numbers,
+    segments,
 )
 from planlens.document.tables import extract_tables
 
@@ -414,6 +415,17 @@ class Document:
         # The calibration the FILE stores, not a reading of a printed note.
         # Measured on the real 260-page submittal: 0.02 s for every page, so it
         # belongs on the cheap page map rather than behind a full page read.
+        page_divider = divider_title(
+            heading, n_words, [ln.text for ln in lines[:3]])
+        if page_divider is None and kind != "drawing_sheet":
+            # A tab whose only words are a markup (PL-02): a scanned divider
+            # someone labelled "APPENDIX B" with a text box or a stamp. The
+            # page's own words still cap it; the markup must be short and
+            # drawn on the page, so a reviewer's comment that happens to
+            # start "Section ..." does not cut the document.
+            page_divider, mk_id = markup_divider_title(markups, n_words)
+            if page_divider is not None:
+                evidence["divider_from_markup"] = mk_id
         viewports, vp_warnings = page_viewports(doc_for_scale, page, index)
         if vp_warnings:
             evidence["viewport_warnings"] = vp_warnings[:3]
@@ -435,8 +447,7 @@ class Document:
             sheet=numbers.get("sheet"),
             scales=scales,
             viewports=viewports,
-            divider_title=divider_title(
-                heading, n_words, [ln.text for ln in lines[:3]]),
+            divider_title=page_divider,
             text_reliable=text_reliable,
             unmapped_fraction=unmapped_fraction,
         )

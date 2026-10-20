@@ -123,6 +123,32 @@ class ToolError(Exception):
         self.hint = hint
 
 
+def _floats(value: Any, n: int) -> Tuple[float, ...]:
+    """``value`` as exactly ``n`` numbers, or a ToolError saying so."""
+    try:
+        out = tuple(float(v) for v in value)
+    except (TypeError, ValueError):
+        out = ()
+    if len(out) != n:
+        raise ToolError(f"expected {n} numbers, got {value!r}")
+    return out
+
+
+def _compact_choices(out: Dict[str, Any], room: int) -> Dict[str, Any]:
+    """``out`` with its ``choices`` cut to choice + value (and then the
+    frame note dropped) when it would not fit ``room`` characters."""
+    def size(d):
+        return len(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
+    if size(out) <= room:
+        return out
+    out = dict(out)
+    out["choices"] = [{"choice": c["choice"], "value": c["value"]}
+                      for c in out.get("choices", [])]
+    if size(out) > room:
+        out.pop("frame", None)
+    return out
+
+
 def _default_resolver(source: str) -> Source:
     if os.path.isfile(source):
         return source
@@ -368,6 +394,31 @@ class ReviewToolkit:
         with self._guard:
             entry = self._entries.get(handle)
             return entry.name if entry is not None else None
+
+    def forget(self, path: str) -> List[str]:
+        """Close every open document read from ``path`` and drop its handles.
+
+        A host calls it when it deletes, replaces or rewrites a file the model
+        has open (an upload removed, a marked-up copy written over), so the
+        file handle is released and the next ``open_document`` reads the file
+        as it now is. ``path`` is matched against the file a document was
+        opened from and against the ``source`` string it was opened under.
+        Returns the handles closed (empty when none was open).
+        """
+        target = os.path.abspath(path)
+        closed: List[str] = []
+        with self._guard:
+            for handle, entry in list(self._entries.items()):
+                if ((entry.path and os.path.abspath(entry.path) == target)
+                        or getattr(entry, "source", None) == path):
+                    del self._entries[handle]
+                    closed.append(handle)
+                    with entry.lock:
+                        entry.doc.close()
+            if closed:
+                self._by_key = {k: h for k, h in self._by_key.items()
+                                if h not in closed}
+        return closed
 
     def close(self) -> None:
         with self._guard:
@@ -1416,6 +1467,114 @@ class ReviewToolkit:
         if res["warnings"]:
             out["warnings"] = res["warnings"]
         return out
+
+    def _tool_plan_symbols(self, handle: str, page: int,
+                           label_pattern: Optional[str] = None,
+                           shapes: Any = None,
+                           min_size: Optional[float] = None,
+                           max_size: Optional[float] = None,
+                           max_label_gap: Optional[float] = None,
+                           bbox: Any = None) -> Dict[str, Any]:
+        from planlens.document.planlocation import find_plan_symbols
+        entry = self._entry(handle)
+        page = int(page)
+        with entry.lock:
+            if not 0 <= page < entry.doc.n_pages:
+                raise ToolError(f"page {page} is out of range",
+                                hint=f"pages run 0-{entry.doc.n_pages - 1}")
+            try:
+                found = find_plan_symbols(
+                    entry.doc, page, label_pattern=label_pattern,
+                    shapes=([shapes] if isinstance(shapes, str) else shapes),
+                    min_size=min_size, max_size=max_size,
+                    max_label_gap=max_label_gap,
+                    region=(_floats(bbox, 4) if bbox is not None else None))
+            except re.error as exc:
+                raise ToolError(f"label_pattern is not a valid regular "
+                                f"expression: {exc}")
+        out = found.to_dict()
+        # Keep the result inside the limit: symbols are compact, but a plan
+        # sheet can carry hundreds of them.
+        if len(out.get("unmatched_labels", [])) > 50:
+            out["unmatched_labels"] = out["unmatched_labels"][:50]
+        out = _compact_choices(dict(out, symbols=[]), self._budget(400)) | {
+            "symbols": out["symbols"]}
+        rest = dict(out, symbols=[], truncated="x" * 80)
+        room = self._budget(reserve=len(json.dumps(
+            rest, ensure_ascii=False, separators=(",", ":"))) + 50)
+        rows, used = [], 0
+        for row in out["symbols"]:
+            size = len(json.dumps(row, separators=(",", ":"))) + 1
+            if used + size > room:
+                break
+            rows.append(row)
+            used += size
+        if len(rows) < len(out["symbols"]):
+            out["truncated"] = (f"{len(out['symbols']) - len(rows)} more "
+                                "symbols: narrow with bbox or shapes")
+            out["symbols"] = rows
+        return out
+
+    def _tool_plan_grid(self, controls: Any = None,
+                        north: Any = None, scale: Optional[float] = None,
+                        origin: Any = None, points: Any = None,
+                        on_mirror: Optional[str] = None,
+                        units: Optional[str] = None,
+                        handle: Optional[str] = None,
+                        page: Optional[int] = None) -> Dict[str, Any]:
+        from planlens.document.planlocation import (
+            PlanGridError, check_plan_points, find_plan_symbols,
+            fit_plan_grid, grid_from_north)
+        try:
+            if controls:
+                grid = fit_plan_grid(controls, on_mirror=on_mirror,
+                                     scale=scale, units=units)
+            elif north is not None and scale is not None and origin:
+                n = _floats(north, 4)
+                if isinstance(origin, dict):
+                    o_page = _floats(origin.get("page"), 2)
+                    o_local = _floats(origin.get("local", [0, 0]), 2)
+                else:
+                    o_page, o_local = _floats(origin, 2), (0.0, 0.0)
+                grid = grid_from_north((n[0], n[1]), (n[2], n[3]),
+                                       float(scale), o_page, o_local,
+                                       units=units)
+            else:
+                raise ToolError(
+                    "give controls (two or more), or north + scale + origin",
+                    hint="controls: [{name, page: [x, y], local: [E, N]}]; "
+                         "north: [x_tail, y_tail, x_head, y_head] in page "
+                         "points")
+        except PlanGridError as exc:
+            out: Dict[str, Any] = {"error": str(exc)}
+            if exc.details:
+                d = exc.details
+                out["right_handed_rms"] = round(d["right_handed_rms"], 4)
+                out["mirror_rms"] = round(d["mirror_rms"], 4)
+                out["right_handed_residuals"] = {
+                    k: round(v, 4)
+                    for k, v in d["right_handed_residuals"].items()}
+            return out
+        out = grid.to_dict()
+        if points:
+            rows = []
+            for i, p in enumerate(points):
+                if not isinstance(p, dict) or p.get("page") is None:
+                    raise ToolError("each point is {name, page: [x, y]}")
+                x, y = _floats(p["page"], 2)
+                e, nn = grid.to_local(x, y)
+                rows.append({"name": p.get("name", f"p{i}"),
+                             "page": [round(x, 2), round(y, 2)],
+                             "easting": round(e, 3), "northing": round(nn, 3)})
+            out["points"] = rows
+            if handle is not None and page is not None:
+                entry = self._entry(handle)
+                with entry.lock:
+                    found = find_plan_symbols(entry.doc, int(page))
+                flags = check_plan_points(points, found)
+                if flags:
+                    out["point_flags"] = flags
+        return _compact_choices(out, self._budget(100))
 
     def _tool_measure(self, handle: str, page: int, bbox: Any = None,
                       image: Optional[str] = None, image_box: Any = None,

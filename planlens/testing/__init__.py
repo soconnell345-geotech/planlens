@@ -77,6 +77,10 @@ from planlens.testing.visual_scale_fixtures import (
     plan_variants,
     plot_variants,
 )
+from planlens.testing.plan_location_fixtures import (
+    PlanLocationGT,
+    build_plan_location_sheet,
+)
 from planlens.testing.leader_fixtures import (
     ARROW_HALF_WIDTH,
     ARROW_LENGTH,
@@ -87,6 +91,8 @@ from planlens.testing.leader_fixtures import (
 )
 
 __all__ = [
+    "PlanLocationGT",
+    "build_plan_location_sheet",
     "LogVariant",
     "OcrLines",
     "PlanVariant",

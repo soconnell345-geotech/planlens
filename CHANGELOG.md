@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- **Plan locations (app BACKLOG PL-25).** New optional tools `plan_symbols`
+  and `plan_grid` (and `planlens.document.find_plan_symbols`,
+  `fit_plan_grid`, `grid_from_north`, `check_plan_points`). `plan_symbols`
+  lists a vector plan's exploration symbols by drawn type (circle,
+  circle-cross, circle-dot, square, diamond, triangle), fill and size, each
+  centre exact from the PDF's paths in displayed page points, with the label
+  beside it and a pairing confidence. `plan_grid` turns page points into a
+  RIGHT-HANDED local grid from two or more control points or a north arrow +
+  scale + origin, reports residuals per control, and refuses a mirrored
+  control set (three or more points off a line) unless
+  `on_mirror="warn"`. No existing number moves.
+
+- **A markup-only divider page starts and titles a segment (PL-02).** A tab
+  with no text layer whose only words are a FreeText or Stamp markup of at
+  most 8 words ("APPENDIX B") now gets that `divider_title` (evidence
+  `divider_from_markup`), so the segment starts there and carries the title.
+  Before: such a page joined the previous segment, untitled.
+
+- **Stable markup ids, an atomic save, `ReviewToolkit.forget` (PL-06).**
+  `Markup.uid` (`p3.n<NM>` from the annotation's `/NM`, else `p3.h<hash>`)
+  survives a re-read and the deletion of an earlier markup; `id` stays
+  positional, and `reply_to` takes either. `write_markups` writes to a
+  temporary file beside the output and renames it over, so a failed save
+  leaves the last good copy. `ReviewToolkit.forget(path)` closes every
+  handle opened from a file and drops it, for a host that rewrites or deletes
+  that file.
+
 - **Tables read the same on PyMuPDF 2.0 as on 1.x, and the `<2` cap is
   lifted (app BACKLOG INF-17).** PyMuPDF 2.0 (2026-10-19) imports
   `pymupdf4llm` and its ONNX layout analyser inside `import pymupdf`. The

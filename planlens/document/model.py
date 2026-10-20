@@ -230,6 +230,11 @@ class Markup:
     in_reply_to: Optional[str] = None
     replies: List[str] = field(default_factory=list)
     measure: Optional["MarkupMeasure"] = None
+    #: An id that survives a re-read and an edit of the file — from the
+    #: annotation's own ``/NM`` where it has one (see
+    #: :func:`planlens.document.annotations.stable_markup_id`). ``id`` stays
+    #: positional; either names the markup to ``reply_to``.
+    uid: Optional[str] = None
     source: str = "pdf_annotation"
     #: PDF object number of the annotation (not serialized): lets a caller
     #: reload it with ``page.load_annot(xref)``.
@@ -238,6 +243,7 @@ class Markup:
     def to_dict(self) -> Dict[str, Any]:
         return _compact({
             "id": self.id,
+            "uid": self.uid,
             "kind": self.kind,
             "intent": self.intent,
             "subject": self.subject,
