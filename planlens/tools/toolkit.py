@@ -123,6 +123,68 @@ class ToolError(Exception):
         self.hint = hint
 
 
+def _floats(value: Any, n: int) -> Tuple[float, ...]:
+    """``value`` as exactly ``n`` numbers, or a ToolError saying so."""
+    try:
+        out = tuple(float(v) for v in value)
+    except (TypeError, ValueError):
+        out = ()
+    if len(out) != n:
+        raise ToolError(f"expected {n} numbers, got {value!r}")
+    return out
+
+
+def _compact_choices(out: Dict[str, Any], room: int) -> Dict[str, Any]:
+    """``out`` with its ``choices`` cut to choice + value (and then the
+    frame note dropped) when it would not fit ``room`` characters."""
+    def size(d):
+        return len(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
+    if size(out) <= room:
+        return out
+    out = dict(out)
+    out["choices"] = [{"choice": c["choice"], "value": c["value"]}
+                      for c in out.get("choices", [])]
+    if size(out) > room:
+        out.pop("frame", None)
+    return out
+
+
+#: Most drawn styles ``plan_symbols`` lists one by one.
+PLAN_STYLE_ROWS = 24
+
+
+def _cut_styles(out: Dict[str, Any]) -> Dict[str, Any]:
+    """``plan_symbols``' ``styles`` cut to :data:`PLAN_STYLE_ROWS`, taken in
+    turn from each shape (each shape's commonest sizes first), with the
+    symbols per shape said for the rest. A site plan's arrowheads and
+    hatching are small closed shapes too: the field session's sheet drew 390
+    styles, nearly all of them filled triangles (2,290 of them), beside its
+    53 boring symbols in four sizes, and a list by count alone was nothing
+    but triangles (and, uncut, over the result limit)."""
+    styles = out.get("styles") or {}
+    if len(styles) <= PLAN_STYLE_ROWS:
+        return out
+    by_shape: Dict[str, List[Tuple[str, int]]] = {}
+    for style, n in styles.items():          # commonest first already
+        by_shape.setdefault(style.rsplit(" ", 2)[0], []).append((style, n))
+    order = sorted(by_shape, key=lambda k: -sum(n for _s, n in by_shape[k]))
+    kept: List[Tuple[str, int]] = []
+    rank = 0
+    while len(kept) < PLAN_STYLE_ROWS:
+        row = [by_shape[k][rank] for k in order if rank < len(by_shape[k])]
+        if not row:
+            break
+        kept.extend(row[:PLAN_STYLE_ROWS - len(kept)])
+        rank += 1
+    out = dict(out)
+    out["styles"] = dict(sorted(kept, key=lambda kv: -kv[1]))
+    out["styles_cut"] = (
+        f"{len(styles) - len(kept)} more styles. Symbols per shape: "
+        + ", ".join(f"{k} {sum(n for _s, n in by_shape[k])}" for k in order)
+        + ". Narrow with shapes or bbox")
+    return out
+
+
 def _default_resolver(source: str) -> Source:
     if os.path.isfile(source):
         return source
@@ -368,6 +430,39 @@ class ReviewToolkit:
         with self._guard:
             entry = self._entries.get(handle)
             return entry.name if entry is not None else None
+
+    def forget(self, path: str) -> List[str]:
+        """Close every open document read from ``path`` and drop its handles.
+
+        A host calls it when it deletes, replaces or rewrites a file the model
+        has open (an upload removed, a marked-up copy written over), so the
+        file handle is released and the next ``open_document`` reads the file
+        as it now is. ``path`` is matched against the file a document was
+        opened from and against the ``source`` string it was opened under.
+        Returns the handles closed (empty when none was open).
+        """
+        def norm(p: str) -> str:
+            # Windows paths compare case-insensitively
+            return os.path.normcase(os.path.abspath(p))
+
+        target = norm(path)
+        dropped: List[_Entry] = []
+        with self._guard:
+            for handle, entry in list(self._entries.items()):
+                if ((entry.path and norm(entry.path) == target)
+                        or getattr(entry, "source", None) == path):
+                    del self._entries[handle]
+                    dropped.append(entry)
+            if dropped:
+                gone = {e.handle for e in dropped}
+                self._by_key = {k: h for k, h in self._by_key.items()
+                                if h not in gone}
+        # Closed outside the toolkit's guard: a long read on one document
+        # holds its lock, and must not stall every other tool meanwhile.
+        for entry in dropped:
+            with entry.lock:
+                entry.doc.close()
+        return [e.handle for e in dropped]
 
     def close(self) -> None:
         with self._guard:
@@ -1415,6 +1510,144 @@ class ReviewToolkit:
             out["candidates_truncated_after"] = nxt
         if res["warnings"]:
             out["warnings"] = res["warnings"]
+        return out
+
+    def _tool_plan_symbols(self, handle: str, page: int,
+                           label_pattern: Optional[str] = None,
+                           shapes: Any = None,
+                           min_size: Optional[float] = None,
+                           max_size: Optional[float] = None,
+                           max_label_gap: Optional[float] = None,
+                           bbox: Any = None) -> Dict[str, Any]:
+        from planlens.document.planlocation import find_plan_symbols
+        entry = self._entry(handle)
+        page = int(page)
+        with entry.lock:
+            if not 0 <= page < entry.doc.n_pages:
+                raise ToolError(f"page {page} is out of range",
+                                hint=f"pages run 0-{entry.doc.n_pages - 1}")
+            try:
+                found = find_plan_symbols(
+                    entry.doc, page, label_pattern=label_pattern,
+                    shapes=([shapes] if isinstance(shapes, str) else shapes),
+                    min_size=min_size, max_size=max_size,
+                    max_label_gap=max_label_gap,
+                    region=(_floats(bbox, 4) if bbox is not None else None))
+            except re.error as exc:
+                raise ToolError(f"label_pattern is not a valid regular "
+                                f"expression: {exc}")
+        out = found.to_dict()
+        # Keep the result inside the limit: symbols are compact, but a plan
+        # sheet can carry hundreds of them.
+        if len(out.get("unmatched_labels", [])) > 50:
+            out["unmatched_labels"] = out["unmatched_labels"][:50]
+        out = _cut_styles(out)
+        out = _compact_choices(dict(out, symbols=[]), self._budget(400)) | {
+            "symbols": out["symbols"]}
+        rest = dict(out, symbols=[], truncated="x" * 80)
+        room = self._budget(reserve=len(json.dumps(
+            rest, ensure_ascii=False, separators=(",", ":"))) + 50)
+        rows, used = [], 0
+        for row in out["symbols"]:
+            size = len(json.dumps(row, separators=(",", ":"))) + 1
+            if used + size > room:
+                break
+            rows.append(row)
+            used += size
+        if len(rows) < len(out["symbols"]):
+            out["truncated"] = (f"{len(out['symbols']) - len(rows)} more "
+                                "symbols: narrow with bbox or shapes")
+            out["symbols"] = rows
+        return out
+
+    def _tool_plan_grid(self, controls: Any = None,
+                        north: Any = None, scale: Optional[float] = None,
+                        origin: Any = None, points: Any = None,
+                        on_mirror: Optional[str] = None,
+                        units: Optional[str] = None,
+                        handle: Optional[str] = None,
+                        page: Optional[int] = None) -> Dict[str, Any]:
+        from planlens.document.planlocation import (
+            PlanGridError, check_plan_points, find_plan_symbols,
+            fit_plan_grid, grid_from_north)
+        try:
+            if controls:
+                grid = fit_plan_grid(controls, on_mirror=on_mirror,
+                                     scale=scale, units=units)
+            elif north is not None and scale is not None and origin:
+                n = _floats(north, 4)
+                if isinstance(origin, dict):
+                    o_page = _floats(origin.get("page"), 2)
+                    o_local = _floats(origin.get("local", [0, 0]), 2)
+                else:
+                    o_page, o_local = _floats(origin, 2), (0.0, 0.0)
+                grid = grid_from_north((n[0], n[1]), (n[2], n[3]),
+                                       float(scale), o_page, o_local,
+                                       units=units)
+            else:
+                raise ToolError(
+                    "give controls (two or more), or north + scale + origin",
+                    hint="controls: [{name, page: [x, y], local: [E, N]}]; "
+                         "north: [x_tail, y_tail, x_head, y_head] in page "
+                         "points")
+        except PlanGridError as exc:
+            out: Dict[str, Any] = {"error": str(exc)}
+            if exc.details:
+                d = exc.details
+                out["right_handed_rms"] = round(d["right_handed_rms"], 4)
+                out["mirror_rms"] = round(d["mirror_rms"], 4)
+                out["right_handed_residuals"] = {
+                    k: round(v, 4)
+                    for k, v in d["right_handed_residuals"].items()}
+            return out
+        out = grid.to_dict()
+        if points:
+            rows = []
+            for i, p in enumerate(points):
+                if not isinstance(p, dict) or p.get("page") is None:
+                    raise ToolError("each point is {name, page: [x, y]}")
+                x, y = _floats(p["page"], 2)
+                e, nn = grid.to_local(x, y)
+                rows.append({"name": p.get("name", f"p{i}"),
+                             "page": [round(x, 2), round(y, 2)],
+                             "easting": round(e, 3), "northing": round(nn, 3)})
+            out["points"] = rows
+            if handle is not None and page is not None:
+                entry = self._entry(handle)
+                page = int(page)
+                with entry.lock:
+                    if not 0 <= page < entry.doc.n_pages:
+                        raise ToolError(
+                            f"page {page} is out of range",
+                            hint=f"pages run 0-{entry.doc.n_pages - 1}")
+                    found = find_plan_symbols(entry.doc, page)
+                flags = check_plan_points(points, found)
+                if flags:
+                    out["point_flags"] = flags
+        out = _compact_choices(out, self._budget(100))
+        # A plan can carry a hundred explorations: keep whole rows, flags
+        # first, and say how many more to convert in a second call.
+        base = dict(out, point_flags=[], points=[], truncated="x" * 90)
+        room = self._budget(reserve=len(json.dumps(
+            base, ensure_ascii=False, separators=(",", ":"))) + 50)
+        cut = {}
+        for key in ("point_flags", "points"):
+            rows = out.get(key) or []
+            kept = []
+            for row in rows:
+                size = len(json.dumps(row, ensure_ascii=False,
+                                      separators=(",", ":"))) + 1
+                if size > room:
+                    break
+                kept.append(row)
+                room -= size
+            if len(kept) < len(rows):
+                cut[key] = len(rows) - len(kept)
+                out[key] = kept
+        if cut:
+            out["truncated"] = "; ".join(
+                f"{n} more {k.replace('_', ' ')}" for k, n in cut.items()
+            ) + ": convert the rest in another call"
         return out
 
     def _tool_measure(self, handle: str, page: int, bbox: Any = None,

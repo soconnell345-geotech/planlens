@@ -78,6 +78,16 @@ from planlens.document.model import (
     TextBlock,
     TextLine,
 )
+from planlens.document.planlocation import (
+    PlanGrid,
+    PlanGridError,
+    PlanSymbol,
+    PlanSymbols,
+    check_plan_points,
+    find_plan_symbols,
+    fit_plan_grid,
+    grid_from_north,
+)
 from planlens.document.quantities import (
     KINDS as QUANTITY_KINDS,
     QuantityMention,
@@ -112,6 +122,14 @@ __all__ = [
     "parse_pages",
     "fuzzy_search_available",
     "DEFAULT_FUZZY_MIN_SCORE",
+    "PlanGrid",
+    "PlanGridError",
+    "PlanSymbol",
+    "PlanSymbols",
+    "check_plan_points",
+    "find_plan_symbols",
+    "fit_plan_grid",
+    "grid_from_north",
     "QuantityMention",
     "QUANTITY_KINDS",
     "scan_text",

@@ -696,4 +696,102 @@ TOOL_SPECS = [
             "required": [],
         },
     },
+    {
+        "name": "plan_symbols",
+        "description": (
+            "Exploration locations off a VECTOR plan sheet: every small "
+            "symbol (circle, circle-cross, circle-dot, square, diamond, "
+            "triangle) with its exact centre from the PDF's own paths, its "
+            "size and fill, and the label beside it (B-1, TP-1, CPT-3 ...), "
+            "with a confidence for the pairing. Use it instead of reading "
+            "locations off an image: a picture read lands on the label, "
+            "several metres off the symbol. 'styles' counts each drawn type "
+            "and size; one program's symbols usually share one, so say which "
+            "program each style is. Centres are PDF points on the displayed "
+            "page (top-left origin, y down); page counts from 0. Symbols "
+            "with no label, labels with no symbol and labels on two symbols "
+            "are reported. Returns nothing useful on a scan."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "page": {"type": "integer", "minimum": 0},
+                "label_pattern": {"type": "string",
+                                  "description": "Regular expression a whole "
+                                                 "label must match (default: "
+                                                 "exploration IDs like B-1, "
+                                                 "BH-2, TP-1, CPT-3A)."},
+                "shapes": {"type": "array", "items": {"type": "string"},
+                           "description": "Keep only these shapes "
+                                          "(\"circle\" keeps circle-cross "
+                                          "too)."},
+                "min_size": {"type": "number",
+                             "description": "Smallest symbol, points "
+                                            "across (default 3)."},
+                "max_size": {"type": "number",
+                             "description": "Largest symbol, points across "
+                                            "(default 36)."},
+                "max_label_gap": {"type": "number",
+                                  "description": "Farthest a label may sit "
+                                                 "from its symbol's edge, "
+                                                 "points (default 3 symbol "
+                                                 "widths, at least 20)."},
+                "bbox": {"type": "array", "items": {"type": "number"},
+                         "minItems": 4, "maxItems": 4,
+                         "description": "Only this part of the page, PDF "
+                                        "points, displayed page."},
+            },
+            "required": ["handle", "page"],
+        },
+    },
+    {
+        "name": "plan_grid",
+        "description": (
+            "Turn page points into local easting / northing, RIGHT-HANDED "
+            "(east 90 deg clockwise from north as the page is viewed), and "
+            "say so: never write the rotation by hand, since the page's y "
+            "runs down and a rotation of it mirrors the map. Give controls "
+            "— two or more points with both page position and local "
+            "coordinates (grid intersections, coordinate labels, surveyed "
+            "points) — or north (the arrow, tail then head, page points) + "
+            "scale (local units per point, from the scale bar) + origin. "
+            "With three or more controls not in a line it tests handedness: "
+            "a mirrored control set (easting and northing swapped, or a y "
+            "read downward) is refused unless on_mirror='warn'. Returns the "
+            "transform, residuals per control, the check, and each of "
+            "points converted; with handle + page it also flags points not "
+            "on a plan_symbols symbol (on a label, or two names at one "
+            "point)."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "controls": {"type": "array", "items": {"type": "object"},
+                             "description": "[{name, page: [x, y], local: "
+                                            "[easting, northing]}]"},
+                "north": {"type": "array", "items": {"type": "number"},
+                          "minItems": 4, "maxItems": 4,
+                          "description": "North arrow [x_tail, y_tail, "
+                                         "x_head, y_head], page points."},
+                "scale": {"type": "number",
+                          "description": "Local units per page point. With "
+                                         "controls it is checked against "
+                                         "the fit."},
+                "origin": {"type": "object",
+                           "description": "With north: {page: [x, y], "
+                                          "local: [easting, northing]}."},
+                "points": {"type": "array", "items": {"type": "object"},
+                           "description": "[{name, page: [x, y]}] to "
+                                          "convert (plan_symbols centres)."},
+                "on_mirror": {"type": "string", "enum": ["refuse", "warn"],
+                              "description": "Default refuse."},
+                "units": {"type": "string",
+                          "description": "Name of the local unit (m, ft)."},
+                "handle": HANDLE_SCHEMA,
+                "page": {"type": "integer", "minimum": 0,
+                         "description": "With handle: check points against "
+                                        "this page's symbols."},
+            },
+            "required": [],
+        },
+    },
 ]

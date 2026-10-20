@@ -169,6 +169,48 @@ def divider_title(heading: Optional[str], n_words: int,
     return None
 
 
+#: Markup kinds whose words are DRAWN on the page, as a tab's title is: a
+#: text box or a stamp (a sticky note's words sit in a pop-up).
+DIVIDER_MARKUP_KINDS = ("FreeText", "Stamp")
+
+#: Most words a markup may have and still be a tab's title.
+DIVIDER_MARKUP_MAX_WORDS = 8
+
+
+def markup_divider_title(markups, n_words: int
+                         ) -> Tuple[Optional[str], Optional[str]]:
+    """``(title, markup id)`` when a markup titles a divider page, else
+    ``(None, None)`` (PL-02).
+
+    A scanned tab sheet carries no text layer; when someone labelled it with
+    a text box or a stamp, that markup is the page's title. The rules are
+    :func:`divider_title`'s, read over the drawn markups largest first, each
+    no longer than :data:`DIVIDER_MARKUP_MAX_WORDS` words. A callout (``/IT
+    /FreeTextCallout``: it points at something on the page) and a markup in a
+    reply thread are a reviewer's comments, not a tab's title: on a scanned
+    page they otherwise read as one ("Figures need a scale bar" titled a
+    segment). The intent is the test, not ``points_at``: PyMuPDF writes a
+    ``/CL`` on every text box it adds, callout or not.
+    """
+    cands = []
+    for m in markups:
+        if m.kind not in DIVIDER_MARKUP_KINDS:
+            continue
+        if ("callout" in (m.intent or "").lower()
+                or m.in_reply_to or m.replies):
+            continue
+        text = " ".join((m.text or m.appearance_text or "").split())
+        if not text or len(text.split()) > DIVIDER_MARKUP_MAX_WORDS:
+            continue
+        x0, y0, x1, y1 = m.bbox
+        cands.append(((x1 - x0) * (y1 - y0), text, m.id))
+    for _area, text, mid in sorted(cands, key=lambda c: -c[0]):
+        title = divider_title(None, n_words, [text])
+        if title is not None:
+            return title, mid
+    return None, None
+
+
 def content_hash(kind: str, lines: Sequence[TextLine], n_paths: int) -> str:
     h = hashlib.sha1()
     h.update(kind.encode())

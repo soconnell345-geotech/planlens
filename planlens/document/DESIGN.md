@@ -83,6 +83,7 @@ vertices, colour. Relationships come only from explicit PDF data:
 | `points_at` | FreeText callout: the start of `/CL` (PDF spec: the end at the target). Line/PolyLine: the end with a line ending, when exactly one end has one. Verified by rendering real Bluebeam markups: callout starts sit on the commented text, the arrowhead end on its target. Never inferred from proximity. |
 | `points_to_markup` | the smallest other markup whose box CONTAINS `points_at`, skipping the markup's own /IRT companions (Bluebeam ties the cloud a responder draws around the original comment to the response by /IRT; the tip lands inside that cloud too) and every markup drawn AFTER it (by creation date, else by its place in the page's annotation list): a callout aims at what was there when it was drawn, never at a box added round its target later. On the real submittal this links contractor replies to reviewer comments. |
 | `in_reply_to` / `replies` | the PDF `/IRT` link and its inverse. |
+| `uid` | an id that survives a re-read and an edit (PL-06): `p<page>.n<NM>` from the annotation's own `/NM` ("the annotation name, a text string uniquely identifying it among all the annotations on its page" in the PDF reference; Bluebeam, Acrobat and PyMuPDF write it and keep it on save), else `p<page>.h<hash>` of kind, box to the point, creation date, author and comment. Every annotation `write_markups` adds gets its own `/NM` (`planlens-<16 hex>`), because PyMuPDF names a new one with the first free `fitz-A<n>` on the page and a mark written after a deletion took the deleted one's uid. `id` stays positional (`p3.m2`, which moves when an earlier markup is deleted); `reply_to` takes either. |
 | `appearance_text` | text the annotation's OWN appearance draws (`annot.get_text`), kept when it differs from the comment field: review-stamp wording, what a snapshot stamp copied. Per-annotation, so overlapping markups cannot swap text (an earlier box-containment version did). Capped at 400 chars. |
 
 ## Writing markups (2026-09-21)
@@ -460,6 +461,18 @@ full of labels), and where printed numbering restarts at 1 (a nested
 document). A segment reports its pages, title (divider > running header >
 footer with numbering stripped > first heading; a drawing set by its sheets),
 kinds, `printed_pages`/`printed_of`, header, footer, sheets, first heading.
+
+A tab with no text layer of its own — a scanned divider someone labelled with
+a text box or a stamp — is titled by that markup (PL-02): a FreeText or Stamp
+of at most 8 words, read through the same divider rules, largest first, on a
+page that is not a drawing sheet and has no more than 60 words of its own. The
+page's evidence names it (`divider_from_markup`). A sticky note does not count
+(its words sit in a pop-up, not on the page), nor a longer comment that
+happens to start "Section ...", nor a callout (`/IT /FreeTextCallout`) or a
+markup in a reply thread: on a scanned page a reviewer's "Figures need a
+scale bar" otherwise titled a segment. A short plain text box that reads like
+a title ("Section 3 incomplete") still does; nothing on the page tells it
+from a tab's label.
 
 Measured on the real 260-page submittal: 29 segments — transmittal, review
 letter, tabs, the seven-sheet drawing set as one segment, the calc package
@@ -1424,6 +1437,67 @@ precision: the grid emits every text line on the page, and the hand truth
 states only samples, layers, index values and fields, so a description line,
 an elevation, a date and a ruler tick all count as unmatched by
 construction.
+
+## Plan locations (2026-10-20, BACKLOG PL-25)
+
+A field session located explorations from label positions read off vision
+prose, in four frames: a median 8.8 pt (4.7 m at 1:1500) off the symbol
+centres the PDF holds exactly, most of them on the label beside the symbol.
+Its grid was a rotation written by hand from the north arrow in the page
+frame, whose y runs down: the mirror image, every easting with the wrong
+sign. `planlocation.py` makes both steps code.
+
+**Symbols** (`find_plan_symbols`, tool `plan_symbols`). The page's own paths
+are split into sub-paths; a closed ring is a circle (round to 8%, square box,
+four or more curves or eight or more vertices), a square, a diamond or a
+triangle (its centroid, not its box centre). Shapes drawn at one centre are
+one symbol: two straight lines through the centre at more than 60 degrees
+make it `-cross`; a small filled concentric circle makes it `-dot`; the same
+outline drawn twice (a fill and a stroke) is one shape. Sizes are the width
+across, 3 to 36 pt by default, so a tank or a road bend is not a symbol.
+Labels are words matching an exploration-ID pattern (B-1, BH-2, TP-1, CPT-3A
+...), from the text layer and from hidden CAD text. Pairing is one label per
+symbol, the closest gaps (symbol edge to label box) first, within three
+symbol widths (at least 20 pt). The pairing's confidence falls with the gap
+and with a competitor nearly as close (named in `alternative`). `styles`
+counts type + fill + size, which is how a plan tells its programs apart; the
+model says which program each is. A label on two symbols, symbols with no
+label and labels with no symbol are reported.
+
+Measured on the field session's real site plan (257,000 paths, 331,000
+segments): the 53 boring symbols in their four sizes (12.6 pt x 10, 10.2 x
+21, 9.5 x 4, 9.0 x 18, as the trace review counted them), 8 s for the page.
+Testing every symbol against every segment took 473 s; segments too short or
+too long to cross a symbol are dropped first and the rest bucketed round each
+symbol. The sheet's IDs are drawn as strokes, so no label pairs and the
+result says so: the model reads the IDs by looking and matches them to the
+centres. The same sheet drew 2,290 small filled triangles (arrowheads) in
+368 styles; the tool lists 24 styles taken in turn from each shape and
+counts the rest per shape, so the borings' styles are not crowded out.
+
+**Grid** (`fit_plan_grid`, `grid_from_north`, tool `plan_grid`). A
+similarity — one scale, one rotation, a shift — fitted by least squares in
+complex numbers, `E + iN = a (x - i y) + b`: the `-y` makes it right-handed
+in the y-down frame, so east is 90 degrees clockwise from north as viewed,
+and `check()` prints that rule with both azimuths. The mirror image
+`a (x + i y) + b` is fitted too. Two controls, or controls in a line, fit
+both equally, so handedness is then ASSUMED (right) and said so. Three or
+more controls off a line test it: when the right-handed fit misses by more
+than three times the mirror's rms (and more than 0.2% of the controls'
+spread), the controls are mirrored — easting and northing swapped, or a y
+read growing down — and the fit is refused (`on_mirror="refuse"`, default)
+with both fits' residuals, or returned flagged `LEFT (mirrored)` with a
+warning (`on_mirror="warn"`). Example, the fixture's six grid intersections
+with E and N swapped: right-handed rms 85.3 m, mirror rms 0.0 — refused. A
+stated scale is checked against the fitted one (2%). `grid_from_north` takes
+the arrow's tail and head, a scale and an origin, and is right-handed by
+construction. `check_plan_points` flags written points that sit on a label
+rather than its symbol, two names at one point, and a point on another
+label's symbol — the two faults the trace review found in the session's file.
+
+Not built: finding the control points themselves (grid lines and coordinate
+labels are read by the model and passed in); a leader drawn from a label to
+its symbol; an affine fit for a distorted scan.
 
 ## Not built yet
 

@@ -88,7 +88,11 @@ located, attributed data:
   claims with the drawing's geometry. `log_grid` hands back one
   boring or test-pit log as columns, a depth ruler, placed cells, layers,
   each sample's interval read off its drawn box, and header fields, with
-  compact rows so a long log fits one result. And `annotate_document` sends the review BACK: notes,
+  compact rows so a long log fits one result. `plan_symbols` lists a vector
+  plan's exploration symbols by drawn type and size, each centre exact from
+  the PDF's paths with the label beside it, and `plan_grid` turns page points
+  into a right-handed local grid from control points or a north arrow and a
+  scale, refusing a mirrored control set and reporting its residuals. And `annotate_document` sends the review BACK: notes,
   highlights over the words quoted, boxes, callouts and replies written onto a
   NEW copy of the PDF as ordinary annotations, anchored to text that is
   searched for rather than to coordinates guessed at, with anything it could
