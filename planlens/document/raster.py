@@ -86,11 +86,11 @@ def ink(page, dpi: float, clip=None):
     the frame ``page.get_pixmap(clip=...)`` uses. Moved here from
     :mod:`planlens.document.findlike`, which still imports it as ``_ink``.
     """
-    import fitz
+    import pymupdf
     np = _np()
     z = dpi / 72.0
-    pix = page.get_pixmap(matrix=fitz.Matrix(z, z), colorspace=fitz.csGRAY,
-                          clip=fitz.Rect(clip) if clip is not None else None,
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(z, z), colorspace=pymupdf.csGRAY,
+                          clip=pymupdf.Rect(clip) if clip is not None else None,
                           alpha=False)
     img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
         pix.height, pix.stride)[:, :pix.width]
@@ -197,7 +197,7 @@ def render(page, dpi: float = DEFAULT_DPI, clip: Optional[Sequence[float]] = Non
     read off the pixmap itself (``pix.x``, ``pix.y``), because a clip's pixel
     rectangle is rounded outward and its corner is not the clip's corner.
     """
-    import fitz
+    import pymupdf
     np = _np()
     if clip is not None:
         w = abs(clip[2] - clip[0])
@@ -206,8 +206,8 @@ def render(page, dpi: float = DEFAULT_DPI, clip: Optional[Sequence[float]] = Non
         w, h = page.rect.width, page.rect.height
     dpi = _capped_dpi(w, h, dpi)
     z = dpi / 72.0
-    pix = page.get_pixmap(matrix=fitz.Matrix(z, z), colorspace=fitz.csGRAY,
-                          clip=fitz.Rect(clip) if clip is not None else None,
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(z, z), colorspace=pymupdf.csGRAY,
+                          clip=pymupdf.Rect(clip) if clip is not None else None,
                           alpha=False)
     grey = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
         pix.height, pix.stride)[:, :pix.width].copy()

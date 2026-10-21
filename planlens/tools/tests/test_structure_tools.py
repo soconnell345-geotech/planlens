@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.testing.submittal_fixtures import build_synthetic_submittal  # noqa: E402
 from planlens.tools import ReviewToolkit  # noqa: E402

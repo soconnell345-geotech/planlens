@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens import opencv  # noqa: E402
 from planlens.document import findlike  # noqa: E402

@@ -100,7 +100,7 @@ def build_synthetic_scaled_sheet_pdf(rotation: int = 0) -> ScaledSheetGT:
     are always written in UNROTATED user space, which is where the format puts
     them; only the returned truth moves into the displayed frame.
     """
-    import fitz
+    import pymupdf
 
     rotation = int(rotation) % 360
     gt = ScaledSheetGT(pdf=b"", rotation=rotation)
@@ -128,7 +128,7 @@ def build_synthetic_scaled_sheet_pdf(rotation: int = 0) -> ScaledSheetGT:
     gt.page_size = ((h_un, w_un) if rotation in (90, 270) else (w_un, h_un))
     gt.viewport_bbox_displayed = to_display_box(gt.viewport_bbox_unrotated)
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=w_un, height=h_un)
 
     # Enough separate paths that the page classifies as a drawing sheet: the
@@ -155,7 +155,7 @@ def build_synthetic_scaled_sheet_pdf(rotation: int = 0) -> ScaledSheetGT:
     gt.stated_text = f"{gt.length_ft:.2f} ft"
     gt.markup_vertices = tuple(to_display(*p) for p in verts_unrot)
 
-    annot = page.add_polyline_annot([fitz.Point(*p) for p in verts_unrot])
+    annot = page.add_polyline_annot([pymupdf.Point(*p) for p in verts_unrot])
     annot.set_info(title=gt.markup_author, content=gt.stated_text,
                    subject="Polylength")
     annot.update()
@@ -189,10 +189,10 @@ def build_synthetic_uncalibrated_sheet_pdf() -> ScaledSheetGT:
     ``/X [<</C .01389/U( )>>]`` with ``/R ( )`` — a viewport that exists and
     says nothing, which is the case a reader must not mistake for a scale.
     """
-    import fitz
+    import pymupdf
 
     gt = build_synthetic_scaled_sheet_pdf(rotation=0)
-    doc = fitz.open(stream=gt.pdf, filetype="pdf")
+    doc = pymupdf.open(stream=gt.pdf, filetype="pdf")
     page = doc[0]
     identity = ("<< /Type /Measure /Subtype /RL /R ( ) "
                 "/X [ << /C .01389 /U ( ) >> ] "

@@ -86,8 +86,8 @@ def _arrowhead_at(tip: Tuple[float, float], direction: Point,
 
 
 def _pt(xy):
-    import fitz
-    return fitz.Point(*xy)
+    import pymupdf
+    return pymupdf.Point(*xy)
 
 
 def _plant_leader(page, shape, tail_pdf, bend_pdf, tip_pdf, label,
@@ -156,9 +156,9 @@ def build_synthetic_leader_pdf(
           "n_decoy_shapes": int,
         }
     """
-    import fitz
+    import pymupdf
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
 
     labels = ["SAE", "TYP", "SEE NOTE 3", "SAE", "MATCH LINE", "EOR"]
@@ -207,8 +207,8 @@ def build_synthetic_leader_pdf(
         n_decoy_shapes += 1
 
         # A detail-bubble decoy: circle with a number inside (keynote-style).
-        page.draw_circle(fitz.Point(500, 500), 12, color=(0, 0, 0))
-        page.insert_text(fitz.Point(496, 504), "3", fontsize=8)
+        page.draw_circle(pymupdf.Point(500, 500), 12, color=(0, 0, 0))
+        page.insert_text(pymupdf.Point(496, 504), "3", fontsize=8)
 
     path = str(tmp_path / "leader_sheet.pdf")
     doc.save(path)

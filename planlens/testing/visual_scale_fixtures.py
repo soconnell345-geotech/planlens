@@ -169,13 +169,13 @@ class _Turn:
 
 
 def _render_grey(pdf: bytes, dpi: float):
-    import fitz
+    import pymupdf
     import numpy as np
-    doc = fitz.open(stream=pdf, filetype="pdf")
+    doc = pymupdf.open(stream=pdf, filetype="pdf")
     try:
         z = dpi / 72.0
-        pix = doc[0].get_pixmap(matrix=fitz.Matrix(z, z),
-                                colorspace=fitz.csGRAY, alpha=False)
+        pix = doc[0].get_pixmap(matrix=pymupdf.Matrix(z, z),
+                                colorspace=pymupdf.csGRAY, alpha=False)
         img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
             pix.height, pix.stride)[:, :pix.width].astype(np.float32)
     finally:
@@ -244,16 +244,16 @@ def _image_pdf(grey, page_size: Tuple[float, float], jpeg: int,
     would move content by up to a pixel across the sheet — a fixture error,
     not a finder's).
     """
-    import fitz
+    import pymupdf
     import numpy as np
     h, w = grey.shape
-    pix = fitz.Pixmap(fitz.csGRAY, w, h, np.ascontiguousarray(grey).tobytes(),
+    pix = pymupdf.Pixmap(pymupdf.csGRAY, w, h, np.ascontiguousarray(grey).tobytes(),
                       False)
     data = pix.tobytes("jpeg", jpg_quality=int(jpeg))
-    doc = fitz.open()
+    doc = pymupdf.open()
     W, H = page_size
     z = dpi / 72.0
-    disp = fitz.Rect(0, 0, w / z, h / z)
+    disp = pymupdf.Rect(0, 0, w / z, h / z)
     if rotate270:
         # Stored landscape, displayed portrait, the way the real scans are;
         # the image goes in turned so that the DISPLAYED page is upright
@@ -310,14 +310,14 @@ class OcrLines:
 def _text_ink_box(x: float, baseline: float, text: str, size: float,
                   font: str = "helv") -> BBox:
     """The ink box of a run of digits drawn at ``(x, baseline)``."""
-    import fitz
-    w = fitz.get_text_length(text, fontname=font, fontsize=size)
+    import pymupdf
+    w = pymupdf.get_text_length(text, fontname=font, fontsize=size)
     return (x, baseline - DIGIT_HEIGHT * size, x + w, baseline)
 
 
 def _text_width(text: str, size: float, font: str = "helv") -> float:
-    import fitz
-    return fitz.get_text_length(text, fontname=font, fontsize=size)
+    import pymupdf
+    return pymupdf.get_text_length(text, fontname=font, fontsize=size)
 
 
 # ---------------------------------------------------------------------------
@@ -428,7 +428,7 @@ def _hatch(shape, x0: float, y0: float, x1: float, y1: float, kind: int):
 
 def build_log(v: LogVariant) -> ScaleFixture:
     """One sheet of a boring log drawn per ``v``, with every answer stated."""
-    import fitz
+    import pymupdf
     W, H = A4
     left, right = 40.0, 555.0
     head_top, body_top = 175.0, 220.0
@@ -455,7 +455,7 @@ def build_log(v: LogVariant) -> ScaleFixture:
         edges.append(edges[-1] + wd * scale_x)
     band = {name: (edges[i], edges[i + 1]) for i, (name, _) in enumerate(cols)}
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=W, height=H)
     turn = _Turn(v.skew_deg if v.raster else 0.0, W / 2.0, H / 2.0)
     ocr: List[Tuple[str, BBox]] = []
@@ -721,9 +721,9 @@ def build_pit_sketch(raster: bool = True, skew_deg: float = 0.3
     sketch, so they do not step evenly down the page. A finder must refuse
     to make a scale of them (and say to use the printed depths).
     """
-    import fitz
+    import pymupdf
     W, H = A4
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=W, height=H)
     page.insert_text((230, 110), "RECORD OF TRIAL PIT", fontsize=12,
                      fontname="hebo")
@@ -820,7 +820,7 @@ class _PlotSpec:
 
 def _draw_plot(page, spec: _PlotSpec, turn: _Turn, labels: List[TruthLabel],
                ocr: List[Tuple[str, BBox]], vector_text: bool = True) -> None:
-    import fitz
+    import pymupdf
     x0, y0, x1, y1 = spec.frame
     X, Y = spec.x, spec.y
     sh = page.new_shape()
@@ -860,7 +860,7 @@ def _draw_plot(page, spec: _PlotSpec, turn: _Turn, labels: List[TruthLabel],
             p = Y.pos(v)
             sh.draw_line((x0, p), (x0 + 5.0, p))
         sh.finish(color=(0, 0, 0), width=0.6)
-    sh.draw_rect(fitz.Rect(x0, y0, x1, y1))
+    sh.draw_rect(pymupdf.Rect(x0, y0, x1, y1))
     sh.finish(color=(0, 0, 0), width=0.9)
     sh.commit()
     if spec.broken_title:
@@ -868,7 +868,7 @@ def _draw_plot(page, spec: _PlotSpec, turn: _Turn, labels: List[TruthLabel],
         # gridline in two, and a length filter would drop it.
         yb = Y.pos(Y.major[len(Y.major) // 2])
         bx = (x0 + 6, yb - 6, x0 + 0.42 * (x1 - x0), yb + 6)
-        page.draw_rect(fitz.Rect(*bx), color=None, fill=(1, 1, 1))
+        page.draw_rect(pymupdf.Rect(*bx), color=None, fill=(1, 1, 1))
         page.insert_text((bx[0] + 3, yb + 3), "Percentage finer", fontsize=8)
     fs = spec.label_size
     for v in X.major:
@@ -919,7 +919,7 @@ def _draw_plot(page, spec: _PlotSpec, turn: _Turn, labels: List[TruthLabel],
     for xv, yv in spec.markers:
         px, py = X.pos(xv), Y.pos(yv)
         if spec.marker == "square":
-            page.draw_rect(fitz.Rect(px - 2.2, py - 2.2, px + 2.2, py + 2.2),
+            page.draw_rect(pymupdf.Rect(px - 2.2, py - 2.2, px + 2.2, py + 2.2),
                            color=(0, 0, 0), fill=(0, 0, 0))
         elif spec.marker == "circle":
             page.draw_circle((px, py), 2.4, color=(0, 0, 0), fill=(0, 0, 0))
@@ -996,9 +996,9 @@ class PlotVariant:
 
 def build_plot(v: PlotVariant) -> ScaleFixture:
     """A plot page per ``v`` with its axes, markers and curves stated."""
-    import fitz
+    import pymupdf
     W, H = A4
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=W, height=H)
     turn = _Turn(v.skew_deg if v.raster else 0.0, W / 2.0, H / 2.0)
     labels: List[TruthLabel] = []
@@ -1133,9 +1133,9 @@ def build_profile(raster: bool = False, skew_deg: float = 0.0,
     1 in = 10 ft up — separate x and y scales, which a single isotropic
     factor cannot express.
     """
-    import fitz
+    import pymupdf
     W, H = TABLOID_LANDSCAPE
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=W, height=H)
     turn = _Turn(skew_deg if raster else 0.0, W / 2.0, H / 2.0)
     x0, x1 = 200.0, 200.0 + 500.0 * 72.0 / 50.0          # 720 pt
@@ -1166,7 +1166,7 @@ def build_profile(raster: bool = False, skew_deg: float = 0.0,
     bs = 250.0
     bx = X.pos(bs)
     gtop = ground(bs)
-    page.draw_rect(fitz.Rect(bx - 4, Y.pos(gtop), bx + 4, Y.pos(95.0)),
+    page.draw_rect(pymupdf.Rect(bx - 4, Y.pos(gtop), bx + 4, Y.pos(95.0)),
                    color=(0, 0, 0), width=0.7)
     contacts = (gtop - 7.5, gtop - 13.0)
     readings: List[TruthReading] = []
@@ -1213,9 +1213,9 @@ def build_chart_family(kind: str = "semilog", raster: bool = True,
     Most reference charts are images (71 % of catalogued figure pages), so
     the default is a scan.
     """
-    import fitz
+    import pymupdf
     W, H = LETTER
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=W, height=H)
     turn = _Turn(skew_deg if raster else 0.0, W / 2.0, H / 2.0)
     frame = (130.0, 200.0, 500.0, 560.0)
@@ -1293,9 +1293,9 @@ def build_plan(v: PlanVariant) -> ScaleFixture:
     re-plot onto smaller paper does: the printed note still says 1 in = 20 ft
     and is now wrong; the graphic bar shrank with the drawing and is right.
     """
-    import fitz
+    import pymupdf
     W, H = TABLOID_LANDSCAPE
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=W, height=H)
     turn = _Turn(v.skew_deg if v.raster else 0.0, W / 2.0, H / 2.0)
     f = float(v.replot)
@@ -1373,7 +1373,7 @@ def build_plan(v: PlanVariant) -> ScaleFixture:
         xs = [bar_x0 + t / ft_per_pt for t in ticks]
         if v.bar == "blocks":
             for i, (a, b) in enumerate(zip(xs, xs[1:])):
-                page.draw_rect(fitz.Rect(a, bar_y, b, bar_y + 5.0),
+                page.draw_rect(pymupdf.Rect(a, bar_y, b, bar_y + 5.0),
                                color=(0, 0, 0),
                                fill=(0, 0, 0) if i % 2 == 0 else None,
                                width=0.6)

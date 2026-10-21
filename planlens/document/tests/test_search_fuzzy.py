@@ -13,7 +13,7 @@ found, that a different word is not, that exact search is untouched.
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 pytest.importorskip("rapidfuzz")
 
 from planlens.document import (  # noqa: E402
@@ -36,7 +36,7 @@ CAD_CORRUPT = "QUILLMARC TIEBACK ANCHOR"
 
 @pytest.fixture(scope="module")
 def sheet_pdf():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=1224, height=792)
     page.insert_text((72, 100), GOOD, fontsize=12)
     page.insert_text((72, 140), CORRUPT, fontsize=12)
@@ -46,11 +46,11 @@ def sheet_pdf():
     for n, ch in enumerate("ABCDE"):
         page.insert_text((72 + 40 * n, 220), ch, fontsize=12)
     for text, y in ((CAD_GOOD, 300), (CAD_CORRUPT, 340)):
-        annot = page.add_rect_annot(fitz.Rect(72, y - 12, 400, y + 4))
+        annot = page.add_rect_annot(pymupdf.Rect(72, y - 12, 400, y + 4))
         annot.set_info(title="AutoCAD SHX Text", content=text)
         annot.set_border(width=0)
         annot.update(opacity=0)
-    note = page.add_freetext_annot(fitz.Rect(600, 400, 900, 460),
+    note = page.add_freetext_annot(pymupdf.Rect(600, 400, 900, 460),
                                    "Check the TREMBLIB strut connection.",
                                    fontsize=11)
     note.set_info(title="Reviewer Q", subject="Callout")

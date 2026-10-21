@@ -2,7 +2,7 @@
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.pdf.extractor import (
     discover_pdf_content,
@@ -21,19 +21,19 @@ from planlens.pdf.results import PdfParseResult
 
 def _make_simple_pdf(tmp_path, lines=None, texts=None):
     """Create a minimal PDF with colored lines and text."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=400, height=300)
 
     if lines:
         for (x0, y0, x1, y1), color in lines:
             shape = page.new_shape()
-            shape.draw_line(fitz.Point(x0, y0), fitz.Point(x1, y1))
+            shape.draw_line(pymupdf.Point(x0, y0), pymupdf.Point(x1, y1))
             shape.finish(color=color, width=1)
             shape.commit()
 
     if texts:
         for text, (x, y), size in texts:
-            page.insert_text(fitz.Point(x, y), text, fontsize=size)
+            page.insert_text(pymupdf.Point(x, y), text, fontsize=size)
 
     path = tmp_path / "test.pdf"
     doc.save(str(path))
@@ -43,7 +43,7 @@ def _make_simple_pdf(tmp_path, lines=None, texts=None):
 
 def _make_cross_section_pdf(tmp_path):
     """Create PDF with a cross-section: surface (black), boundary (gray), gwt (blue)."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=500, height=400)
     shape = page.new_shape()
 
@@ -51,7 +51,7 @@ def _make_cross_section_pdf(tmp_path):
     # Engineering: surface at z=10, which in PDF-space is y=100 from top
     surface_pts = [(50, 100), (150, 100), (300, 200), (450, 200)]
     for i in range(len(surface_pts) - 1):
-        shape.draw_line(fitz.Point(*surface_pts[i]), fitz.Point(*surface_pts[i + 1]))
+        shape.draw_line(pymupdf.Point(*surface_pts[i]), pymupdf.Point(*surface_pts[i + 1]))
     shape.finish(color=(0, 0, 0), width=2)
     shape.commit()
 
@@ -59,7 +59,7 @@ def _make_cross_section_pdf(tmp_path):
     shape = page.new_shape()
     boundary_pts = [(50, 200), (150, 200), (300, 250), (450, 250)]
     for i in range(len(boundary_pts) - 1):
-        shape.draw_line(fitz.Point(*boundary_pts[i]), fitz.Point(*boundary_pts[i + 1]))
+        shape.draw_line(pymupdf.Point(*boundary_pts[i]), pymupdf.Point(*boundary_pts[i + 1]))
     shape.finish(color=(0.5, 0.5, 0.5), width=1)
     shape.commit()
 
@@ -67,12 +67,12 @@ def _make_cross_section_pdf(tmp_path):
     shape = page.new_shape()
     gwt_pts = [(50, 150), (150, 150), (300, 220), (450, 220)]
     for i in range(len(gwt_pts) - 1):
-        shape.draw_line(fitz.Point(*gwt_pts[i]), fitz.Point(*gwt_pts[i + 1]))
+        shape.draw_line(pymupdf.Point(*gwt_pts[i]), pymupdf.Point(*gwt_pts[i + 1]))
     shape.finish(color=(0, 0, 1), width=1)
     shape.commit()
 
     # Text annotation
-    page.insert_text(fitz.Point(200, 170), "Stiff Clay", fontsize=10)
+    page.insert_text(pymupdf.Point(200, 170), "Stiff Clay", fontsize=10)
 
     path = tmp_path / "cross_section.pdf"
     doc.save(str(path))
@@ -164,7 +164,7 @@ class TestDiscoverPdfContent:
             discover_pdf_content(filepath=path, page=5)
 
     def test_empty_page(self, tmp_path):
-        doc = fitz.open()
+        doc = pymupdf.open()
         doc.new_page()
         path = tmp_path / "empty.pdf"
         doc.save(str(path))
@@ -274,12 +274,12 @@ class TestExtractVectorGeometry:
 
 class TestLayersAndFill:
     def _pdf(self, tmp_path):
-        doc = fitz.open()
+        doc = pymupdf.open()
         page = doc.new_page(width=200, height=200)
-        page.draw_line(fitz.Point(10, 10), fitz.Point(90, 10), color=(0, 0, 0),
+        page.draw_line(pymupdf.Point(10, 10), pymupdf.Point(90, 10), color=(0, 0, 0),
                        oc=doc.add_ocg("EXISTING", on=True))
         sh = page.new_shape()
-        sh.draw_rect(fitz.Rect(20, 40, 60, 80))
+        sh.draw_rect(pymupdf.Rect(20, 40, 60, 80))
         sh.finish(color=(0, 0, 0), fill=(1.0, 0.0, 0.0))
         sh.commit()
         path = tmp_path / "layered.pdf"

@@ -225,8 +225,8 @@ def test_tool_results_fit_the_limit(max_chars):
 def _busy_sheet(rotation=0):
     """Five labelled borings among what a real site plan also draws: 40
     filled triangles (arrowheads) in 40 sizes and 4,000 short segments."""
-    import fitz
-    doc = fitz.open()
+    import pymupdf
+    doc = pymupdf.open()
     page = doc.new_page(width=1224, height=792)
     for k in range(5):
         x, y = 150 + 200 * k, 200

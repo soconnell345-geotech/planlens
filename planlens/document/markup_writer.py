@@ -730,7 +730,7 @@ def _ink_rows(page, box: BBox) -> List[Tuple[BBox, float]]:
     row that carry ink — measures how much lettering the row holds, gaps and
     indents left out. Empty when the box cannot be rendered.
     """
-    import fitz
+    import pymupdf
     import numpy as np
 
     x0, y0, x1, y1 = box
@@ -739,8 +739,8 @@ def _ink_rows(page, box: BBox) -> List[Tuple[BBox, float]]:
         return []
     scale = min(ROW_RENDER_PX_PER_PT, ROW_RENDER_MAX_PX / max(w, h))
     try:
-        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale),
-                              clip=fitz.Rect(*box), colorspace=fitz.csGRAY,
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale),
+                              clip=pymupdf.Rect(*box), colorspace=pymupdf.csGRAY,
                               alpha=False, annots=False)
     except Exception:  # pragma: no cover - a render failure keeps the box
         return []
@@ -862,7 +862,7 @@ def _quote_anchor(reader: Document, spec: MarkupSpec, page=None
     box per line the match touches, narrowed to the matched words where the
     page's own word boxes can say which those are, and to the printed row
     the quote is on where a line with no word boxes spans several
-    (:func:`_quoted_rows`; ``page`` is the ``fitz.Page`` whose ink is read).
+    (:func:`_quoted_rows`; ``page`` is the ``pymupdf.Page`` whose ink is read).
     """
     res = reader.search(spec.quote, pages=spec.page, include_markups=False,
                         max_hits=1)
@@ -948,7 +948,7 @@ def _view_anchor_problem(spec: MarkupSpec) -> Optional[str]:
 def _resolve_anchor(spec: MarkupSpec, reader_for_quote, markups_on_page,
                     page=None) -> Tuple[Optional[_Anchor], Optional[str]]:
     """The one anchor a spec names, or the reason it could not be used.
-    ``page`` (the ``fitz.Page`` being written) lets a quote on a multi-row
+    ``page`` (the ``pymupdf.Page`` being written) lets a quote on a multi-row
     text object find its printed row."""
     named = [n for n, v in (("quote", spec.quote), ("bbox", spec.bbox),
                             ("point", spec.point),
@@ -1100,14 +1100,14 @@ def _label_box(text: str, near: BBox, page_box: BBox, reads: int = 0
 def _text_lines(page) -> List[Tuple[BBox, Optional[int], int]]:
     """The page's text lines as ``(displayed box, reading angle snapped to a
     multiple of 90 or None, letters)``."""
-    import fitz
+    import pymupdf
     from planlens.document.frame import direction_to_rotation
     from planlens.pymupdf_settings import line_boxes
     out: List[Tuple[BBox, Optional[int], int]] = []
     try:
         # text only: "dict" would otherwise copy every image's bytes
         with line_boxes():
-            data = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
+            data = page.get_text("dict", flags=pymupdf.TEXTFLAGS_TEXT)
     except Exception:  # pragma: no cover - an unreadable text layer says nothing
         return out
     for block in data.get("blocks", ()):
@@ -1159,7 +1159,7 @@ def _ink_grid(page, region: BBox):
     """``(ink mask, region, px per pt)`` of the page's own ink over
     ``region`` (displayed frame), rendered without annotations; None when
     the region cannot be rendered."""
-    import fitz
+    import pymupdf
     import numpy as np
 
     x0, y0, x1, y1 = region
@@ -1167,8 +1167,8 @@ def _ink_grid(page, region: BBox):
         return None
     scale = LABEL_INK_PX_PER_PT
     try:
-        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale),
-                              clip=fitz.Rect(*region), colorspace=fitz.csGRAY,
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale),
+                              clip=pymupdf.Rect(*region), colorspace=pymupdf.csGRAY,
                               alpha=False, annots=False)
     except Exception:  # pragma: no cover - placement falls back to order
         return None
@@ -1210,10 +1210,10 @@ def _covered(box: BBox, others: Sequence[BBox]) -> float:
 def _other_marks(page) -> List[BBox]:
     """The displayed boxes of the markups already on the page (popups, which
     are not drawn, left out)."""
-    import fitz
+    import pymupdf
     out: List[BBox] = []
     for a in page.annots():
-        if a.type[0] == fitz.PDF_ANNOT_POPUP:
+        if a.type[0] == pymupdf.PDF_ANNOT_POPUP:
             continue
         out.append(to_display_bbox(page, a.rect))
     return out
@@ -1315,20 +1315,20 @@ def _add_popup(annot, page, bbox: BBox) -> None:
 
 
 def _rect(page, bbox: Sequence[float]):
-    import fitz
-    return fitz.Rect(*bbox)
+    import pymupdf
+    return pymupdf.Rect(*bbox)
 
 
 def _place(page, spec: MarkupSpec, anchor: _Anchor, author: str, created: str
            ) -> Tuple[Optional[Any], Optional[str]]:
     """Put one markup on one page. Returns ``(annot, reason it was skipped)``."""
-    import fitz
+    import pymupdf
 
     if spec.kind == "highlight":
         if not anchor.boxes:
             return None, ("a highlight needs text to sit over: anchor it with "
                           "a quote, or give a bbox")
-        quads = [fitz.Quad(*(fitz.Point(*p)
+        quads = [pymupdf.Quad(*(pymupdf.Point(*p)
                              for p in from_display_corners(page, b)))
                  for b in anchor.boxes]
         annot = page.add_highlight_annot(quads=quads)
@@ -1403,9 +1403,9 @@ def _place(page, spec: MarkupSpec, anchor: _Anchor, author: str, created: str
             # /Rotate 0, 90, 180 and 270, the rendered region is then
             # pixel-identical to the same callout on an unrotated page.
             rotate=int(page.rotation) % 360,
-            callout=tuple(fitz.Point(*from_display_point(page, *p))
+            callout=tuple(pymupdf.Point(*from_display_point(page, *p))
                           for p in (tip, knee, edge)),
-            line_end=fitz.PDF_ANNOT_LE_OPEN_ARROW)
+            line_end=pymupdf.PDF_ANNOT_LE_OPEN_ARROW)
         # A FreeText takes no set_colors and no border_color outside rich text:
         # its ``/DA`` colour draws the lettering, the frame AND the leader, so
         # the kind's colour is passed as the text colour and the box is filled
@@ -1470,7 +1470,7 @@ def write_markups(source: Union[str, bytes],
     existing ``output`` is the base, so a second call adds to the first call's
     file; with ``append=False`` it is overwritten from ``source``.
     """
-    import fitz
+    import pymupdf
 
     if _same_file(source, output):
         raise ValueError(
@@ -1484,7 +1484,7 @@ def write_markups(source: Union[str, bytes],
                          appended=appended)
     report.adjusted = [{"index": i, "notes": list(s.adjustments)}
                        for i, s in enumerate(specs) if s.adjustments]
-    doc = fitz.open(stream=base, filetype="pdf")
+    doc = pymupdf.open(stream=base, filetype="pdf")
     reader: List[Optional[Document]] = [None]
     annots_by_page: Dict[int, List[Markup]] = {}
     # A page's text lines, read once for every label on it (the direction a

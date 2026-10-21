@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.testing import (  # noqa: E402
     build_synthetic_review_document, build_synthetic_submittal,
@@ -177,7 +177,7 @@ def test_paging_is_lossless(gt, with_locations):
 
 
 def test_overlong_line_is_marked_not_overflowed():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=14400, height=200)
     page.insert_text((10, 100), "NOTE " + "x" * 2400, fontsize=4)
     data = doc.tobytes()

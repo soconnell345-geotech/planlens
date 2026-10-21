@@ -59,9 +59,9 @@ class TestEffectiveDpi:
 class TestRenderContract:
     def test_render_returns_the_effective_dpi(self):
         """The 5th element is the dpi used — the caller scales by it."""
-        fitz = pytest.importorskip("fitz")
+        pymupdf = pytest.importorskip("pymupdf")
         from planlens.ocr import _render_page_png
-        doc = fitz.open()
+        doc = pymupdf.open()
         doc.new_page(width=D_SHEET[0], height=D_SHEET[1])
         blob = doc.tobytes()
         doc.close()
@@ -74,11 +74,11 @@ class TestRenderContract:
 
     def test_rendered_pixels_match_the_effective_dpi(self):
         """The image really is smaller — not just the reported number."""
-        fitz = pytest.importorskip("fitz")
+        pymupdf = pytest.importorskip("pymupdf")
         cv2 = pytest.importorskip("cv2")
         import numpy as np
         from planlens.ocr import _render_page_png
-        doc = fitz.open()
+        doc = pymupdf.open()
         doc.new_page(width=D_SHEET[0], height=D_SHEET[1])
         blob = doc.tobytes()
         doc.close()

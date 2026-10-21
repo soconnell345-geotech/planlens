@@ -21,24 +21,24 @@ from planlens.pymupdf_settings import line_boxes
 def _import_fitz():
     """Import PyMuPDF with helpful error message."""
     try:
-        import fitz
-        return fitz
+        import pymupdf
+        return pymupdf
     except ImportError:
         raise ImportError(
-            "PyMuPDF (fitz) is required for PDF vector extraction. "
+            "PyMuPDF is required for PDF vector extraction. "
             "Install with: pip install PyMuPDF>=1.23"
         )
 
 
 def _open_document(filepath=None, content=None):
     """Open PDF document from filepath or bytes content."""
-    fitz = _import_fitz()
+    pymupdf = _import_fitz()
     if content is not None:
         if isinstance(content, (bytes, bytearray)):
-            return fitz.open(stream=content, filetype="pdf")
+            return pymupdf.open(stream=content, filetype="pdf")
         raise TypeError("content must be bytes or bytearray")
     if filepath is not None:
-        return fitz.open(filepath)
+        return pymupdf.open(filepath)
     raise ValueError("Provide either filepath or content")
 
 
@@ -105,11 +105,11 @@ def _page_text_dict_without_annotations(page) -> dict:
     reviewer's comment would be ingested as drawing text. See
     ``planlens.document.pdf_text`` for the verification of both properties.
     """
-    fitz = _import_fitz()
-    flags = (fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE
-             | fitz.TEXT_MEDIABOX_CLIP)
+    pymupdf = _import_fitz()
+    flags = (pymupdf.TEXT_PRESERVE_LIGATURES | pymupdf.TEXT_PRESERVE_WHITESPACE
+             | pymupdf.TEXT_MEDIABOX_CLIP)
     stext = page.get_displaylist(annots=False).get_textpage(flags)
-    tp = stext if isinstance(stext, fitz.TextPage) else fitz.TextPage(stext)
+    tp = stext if isinstance(stext, pymupdf.TextPage) else pymupdf.TextPage(stext)
     tp.parent = page
     with line_boxes():
         return page.get_text("dict", textpage=tp)

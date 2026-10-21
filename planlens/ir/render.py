@@ -12,7 +12,7 @@ Coordinate contract
 --------------------
 ``bbox`` and ``marks`` coordinates are **PDF points in PyMuPDF's native page
 space**: origin at the page's TOP-LEFT corner, y increasing DOWNWARD — the same
-frame as ``page.rect`` / ``fitz.Rect`` / ``page.get_pixmap(clip=...)``. This is
+frame as ``page.rect`` / ``pymupdf.Rect`` / ``page.get_pixmap(clip=...)``. This is
 the natural frame for "render this part of the source PDF" and requires no page
 lookup to interpret.
 
@@ -56,16 +56,16 @@ DEFAULT_MARK_RADIUS = 5.0
 
 def _open_document(filepath=None, content=None):
     try:
-        import fitz
+        import pymupdf
     except ImportError as exc:
         raise ImportError(
-            "PyMuPDF (fitz) is required for render_region. "
+            "PyMuPDF is required for render_region. "
             "Install with: pip install PyMuPDF>=1.23"
         ) from exc
     if content is not None:
-        return fitz.open(stream=content, filetype="pdf")
+        return pymupdf.open(stream=content, filetype="pdf")
     if filepath is not None:
-        return fitz.open(filepath)
+        return pymupdf.open(filepath)
     raise ValueError("Provide either filepath or content")
 
 
@@ -108,7 +108,7 @@ def ir_to_page_point(x_ir: float, y_ir: float, page) -> Point:
     Handles page /Rotate correctly: the ingest y-flips UNROTATED
     ``get_drawings()`` coordinates with the ROTATED page height, so the
     inverse is that same un-flip followed by the page's rotation matrix.
-    ``page`` is an open ``fitz.Page``. On rotation-0 pages this reduces to
+    ``page`` is an open ``pymupdf.Page``. On rotation-0 pages this reduces to
     the classic ``(x, height - y)``.
     """
     y_unrot = page.rect.height - float(y_ir)
@@ -222,10 +222,10 @@ def render_region(
             _draw_marks(pg, marks, mark_radius, mark_color,
                        fill_color=None, text_color=mark_color)
 
-        import fitz
+        import pymupdf
         zoom = dpi / 72.0
-        matrix = fitz.Matrix(zoom, zoom)
-        pix = pg.get_pixmap(matrix=matrix, clip=fitz.Rect(*clip))
+        matrix = pymupdf.Matrix(zoom, zoom)
+        pix = pg.get_pixmap(matrix=matrix, clip=pymupdf.Rect(*clip))
         return pix.tobytes("png")
     finally:
         doc.close()  # any mark annotations are discarded, never saved

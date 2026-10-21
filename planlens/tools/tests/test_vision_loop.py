@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import Document, open_document, page_advice  # noqa: E402
 from planlens.testing import build_synthetic_review_document  # noqa: E402
@@ -53,7 +53,7 @@ def test_page_advice_names_the_pages_text_cannot_represent(gt):
 
 
 def test_sparse_grid_advice():
-    doc = fitz.open()
+    doc = pymupdf.open()
     p = doc.new_page()
     xs = [72 + 40 * i for i in range(9)]
     ys = [100 + 20 * i for i in range(7)]
@@ -148,7 +148,7 @@ def test_render_region_shows_the_marked_spot(kit, gt):
                marks=[[tx, ty, "A"]], pad_frac=0.0)
     assert out["dpi"] == 200.0
     assert out["marks"] == [[tx, ty, "A"]]
-    pix = fitz.Pixmap(out["image_path"])
+    pix = pymupdf.Pixmap(out["image_path"])
     # The circle drawn at the target sits at the crop's centre, which the
     # fixture left blank apart from a small ring: the crop must contain ink
     # in the fixture's black AND the mark's red.
@@ -198,7 +198,7 @@ def test_toolkit_render_returns_bytes_for_hosts(gt):
 # -- image input -------------------------------------------------------------------------------
 
 def test_an_image_opens_as_a_one_page_scanned_document(gt, tmp_path):
-    src = fitz.open("pdf", gt.pdf)
+    src = pymupdf.open("pdf", gt.pdf)
     png = src[gt.scanned_page].get_pixmap(dpi=40).tobytes("png")
     jpg = src[gt.sheet_page].get_pixmap(dpi=20).tobytes("jpeg")
     src.close()

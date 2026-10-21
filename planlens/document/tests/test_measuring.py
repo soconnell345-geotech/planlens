@@ -201,8 +201,8 @@ def test_a_point_on_a_plan_names_the_scale_and_the_distance_call():
 def test_a_point_off_every_scale_still_says_points():
     """No scale at all: a point is in page points and says the scale is not
     known (the plan note is for a plan only)."""
-    import fitz
-    d = fitz.open()
+    import pymupdf
+    d = pymupdf.open()
     p = d.new_page()
     p.draw_circle((300, 300), 2, fill=(0, 0, 0))
     from planlens.document import Document
@@ -235,8 +235,8 @@ def test_a_short_contact_on_a_narrow_boring_stick():
 
 
 def test_no_scale_on_the_page_means_points():
-    import fitz
-    d = fitz.open()
+    import pymupdf
+    d = pymupdf.open()
     p = d.new_page()
     p.draw_line((100, 300), (400, 300))
     from planlens.document import Document

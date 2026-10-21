@@ -10,7 +10,7 @@ any amount.
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document  # noqa: E402
 from planlens.document.advice import page_advice  # noqa: E402
@@ -115,7 +115,7 @@ def test_parse_pdf_object_tolerates_nonsense():
 @pytest.mark.parametrize("rotation", [0, 90])
 def test_viewport_read_in_the_displayed_frame(rotation):
     gt = build_synthetic_scaled_sheet_pdf(rotation)
-    doc = fitz.open(stream=gt.pdf, filetype="pdf")
+    doc = pymupdf.open(stream=gt.pdf, filetype="pdf")
     try:
         viewports, warnings = page_viewports(doc, doc[0], 0)
         assert warnings == []
@@ -149,7 +149,7 @@ def test_viewport_bbox_actually_moves_with_rotation():
 
 
 def test_no_viewports_is_an_empty_list_not_a_warning():
-    doc = fitz.open()
+    doc = pymupdf.open()
     doc.new_page()
     try:
         viewports, warnings = page_viewports(doc, doc[0], 0)
@@ -161,7 +161,7 @@ def test_no_viewports_is_an_empty_list_not_a_warning():
 
 def test_empty_vp_array_is_normal():
     """Seven sheets of a real submittal carry /VP [] — not an error."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page()
     doc.xref_set_key(page.xref, "VP", "[]")
     try:
@@ -175,7 +175,7 @@ def test_empty_vp_array_is_normal():
 def test_identity_viewport_is_read_but_not_called_a_scale():
     """The 1:1 default a real sheet stores: present, and not a drawing scale."""
     gt = build_synthetic_uncalibrated_sheet_pdf()
-    doc = fitz.open(stream=gt.pdf, filetype="pdf")
+    doc = pymupdf.open(stream=gt.pdf, filetype="pdf")
     try:
         viewports, _ = page_viewports(doc, doc[0], 0)
         assert len(viewports) == 1
@@ -193,7 +193,7 @@ def test_identity_viewport_is_read_but_not_called_a_scale():
 
 
 def test_geo_measure_is_reported_not_parsed():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page()
     doc.xref_set_key(page.xref, "VP",
                      "[ << /Type /Viewport /Name (Layer) /BBox [0 0 612 792] "
@@ -225,7 +225,7 @@ def test_geo_measure_is_reported_not_parsed():
      "/X [ << /C 0.5 /U (ft) >> ] >>", "disagree"),
 ])
 def test_malformed_measure_warns_and_does_not_raise(measure, expect):
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page()
     doc.xref_set_key(page.xref, "VP",
                      f"[ << /Type /Viewport /BBox [0 0 612 792] "
@@ -240,7 +240,7 @@ def test_malformed_measure_warns_and_does_not_raise(measure, expect):
 
 
 def test_viewport_without_a_bbox_governs_the_page():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=612, height=792)
     doc.xref_set_key(page.xref, "VP",
                      "[ << /Type /Viewport /Measure << /Type /Measure "
@@ -340,9 +340,9 @@ def test_ordinary_markups_carry_no_measure():
 
 
 def test_dimension_intent_without_a_measure_says_so():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=612, height=792)
-    annot = page.add_line_annot(fitz.Point(100, 100), fitz.Point(200, 100))
+    annot = page.add_line_annot(pymupdf.Point(100, 100), pymupdf.Point(200, 100))
     annot.set_info(title="Someone", content="10 ft")
     annot.update()
     doc.xref_set_key(annot.xref, "IT", "/LineDimension")
@@ -357,9 +357,9 @@ def test_dimension_intent_without_a_measure_says_so():
 
 
 def test_a_disagreeing_markup_is_reported_not_reconciled():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=612, height=792)
-    annot = page.add_line_annot(fitz.Point(100, 100), fitz.Point(172, 100))
+    annot = page.add_line_annot(pymupdf.Point(100, 100), pymupdf.Point(172, 100))
     annot.set_info(title="Someone", content="99 ft")   # 72 pt = 20 ft at 1"=20'
     annot.update()
     doc.xref_set_key(annot.xref, "IT", "/LineDimension")
@@ -382,7 +382,7 @@ def test_a_disagreeing_markup_is_reported_not_reconciled():
 
 def test_to_quantity_converts_points_through_a_stored_scale():
     gt = build_synthetic_scaled_sheet_pdf(0)
-    doc = fitz.open(stream=gt.pdf, filetype="pdf")
+    doc = pymupdf.open(stream=gt.pdf, filetype="pdf")
     try:
         vp = page_viewports(doc, doc[0], 0)[0][0]
     finally:

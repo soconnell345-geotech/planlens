@@ -66,14 +66,14 @@ def _report_page(doc, gt: SubmittalGT, n: int) -> None:
     p.insert_text((72, 40), gt.report_header, fontsize=8)
     p.insert_text((72, 90), f"{n}. Subsurface Conditions", fontsize=14,
                   fontname="hebo")
-    import fitz
-    p.insert_textbox(fitz.Rect(72, 110, 540, 720), PROSE * 4, fontsize=10)
+    import pymupdf
+    p.insert_textbox(pymupdf.Rect(72, 110, 540, 720), PROSE * 4, fontsize=10)
     p.insert_text((72, 770), f"Project 1234 | Page {n} | June 2026",
                   fontsize=8)
 
 
 def _form_page(doc, gt: SubmittalGT, n: int) -> None:
-    import fitz
+    import pymupdf
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
     p.insert_text((72, 60), f"Log of Boring B-{n}", fontsize=12,
                   fontname="hebo")
@@ -100,7 +100,7 @@ def _divider(doc, title: str, subtitle: Optional[str] = None) -> None:
 
 
 def _sheet(doc, gt: SubmittalGT, n: int) -> None:
-    import fitz
+    import pymupdf
     p = doc.new_page(width=SHEET[0], height=SHEET[1])
     shape = p.new_shape()
     for i in range(300):
@@ -108,7 +108,7 @@ def _sheet(doc, gt: SubmittalGT, n: int) -> None:
         y = 100 + (i // 30) * 120
         shape.draw_line((x, y), (x + 40, y + 20))
         shape.finish(color=(0, 0, 0), width=0.5)
-    shape.draw_rect(fitz.Rect(SHEET[0] - 700, SHEET[1] - 200,
+    shape.draw_rect(pymupdf.Rect(SHEET[0] - 700, SHEET[1] - 200,
                               SHEET[0] - 50, SHEET[1] - 50))
     shape.finish(color=(0, 0, 0), width=1)
     shape.commit()
@@ -121,9 +121,9 @@ def _sheet(doc, gt: SubmittalGT, n: int) -> None:
 
 
 def build_synthetic_submittal() -> SubmittalGT:
-    import fitz
+    import pymupdf
     gt = SubmittalGT(pdf=b"")
-    doc = fitz.open()
+    doc = pymupdf.open()
     _divider(doc, "Project Alpha", "Cover - Geotechnical Submittal")
     for n in (1, 2, 3):
         _report_page(doc, gt, n)

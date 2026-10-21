@@ -92,7 +92,7 @@ def test_image_box_to_page_orders_and_clamps():
 
 # -- Document.render with a budget ------------------------------------------------
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 
 @pytest.fixture(scope="module")
@@ -117,7 +117,7 @@ def test_a_page_render_fills_its_budget_exactly(doc, gt, name):
     assert bud.fits(w, h)
     fw, fh = fit_size(*_clip_size(info), bud)
     assert fw - w <= 3 and fh - h <= 3             # filled, to the pixel or so
-    pix = fitz.Pixmap(data)                        # the bytes ARE that size
+    pix = pymupdf.Pixmap(data)                        # the bytes ARE that size
     assert (pix.width, pix.height) == (w, h)
     assert info["budget"] == name
 
@@ -175,7 +175,7 @@ def test_marks_render_at_the_budget(doc, gt):
     tx, ty = gt.reviewer_target
     data, info = doc.render(gt.sheet_page, bbox=(tx - 40, ty - 40, tx + 40, ty + 40),
                             marks=[(tx, ty, "A")], budget="openai-high")
-    pix = fitz.Pixmap(data)
+    pix = pymupdf.Pixmap(data)
     assert (pix.width, pix.height) == (info["width_px"], info["height_px"])
     s, n = pix.samples, pix.n
     reds = sum(1 for i in range(0, len(s), n)
@@ -185,7 +185,7 @@ def test_marks_render_at_the_budget(doc, gt):
 
 def test_without_a_budget_the_page_is_the_size_it_says(doc, gt):
     data, info = doc.render(gt.sheet_page)
-    pix = fitz.Pixmap(data)
+    pix = pymupdf.Pixmap(data)
     assert max(pix.width, pix.height) == 2000
     assert (pix.width, pix.height) == (info["width_px"], info["height_px"])
     assert "budget" not in info
@@ -278,7 +278,7 @@ def test_text_size_and_text_px(doc, gt):
 
 
 def test_text_size_weights_lines_by_their_characters():
-    import fitz as _fitz
+    import pymupdf as _fitz
     from planlens.document import Document
     pdf = _fitz.open()
     page = pdf.new_page(width=612, height=792)

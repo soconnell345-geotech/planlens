@@ -10,7 +10,7 @@ reader weighs "the same words" and "the same picture" differently.
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document                      # noqa: E402
 from planlens.document.imagehash import (                        # noqa: E402
@@ -24,11 +24,11 @@ from planlens.testing.submittal_fixtures import (                # noqa: E402
 LETTER = (612.0, 792.0)
 
 
-def _drawn(shift: float = 0.0, label: str = "A") -> "fitz.Pixmap":
+def _drawn(shift: float = 0.0, label: str = "A") -> "pymupdf.Pixmap":
     """Pixels of a page with real ink on it — what a scanner would return."""
-    src = fitz.open()
+    src = pymupdf.open()
     page = src.new_page(width=LETTER[0], height=LETTER[1])
-    page.draw_rect(fitz.Rect(40, 40 + shift, 572, 300 + shift),
+    page.draw_rect(pymupdf.Rect(40, 40 + shift, 572, 300 + shift),
                    color=(0, 0, 0), fill=(0.1, 0.1, 0.1), width=2)
     page.insert_text((60, 420 + shift), f"LOG OF BORING {label}", fontsize=36)
     for i in range(12):
@@ -41,7 +41,7 @@ def _drawn(shift: float = 0.0, label: str = "A") -> "fitz.Pixmap":
 
 def _scan_doc(pixmaps, rotations=None):
     """A PDF whose pages are nothing but placed images: no text layer."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     for n, pix in enumerate(pixmaps):
         page = doc.new_page(width=LETTER[0], height=LETTER[1])
         page.insert_image(page.rect, pixmap=pix)
@@ -92,7 +92,7 @@ def test_a_page_with_no_picture_gets_no_hash():
     Withholding the hash is what stops two different near-blank scans being
     called the same page (:data:`MIN_CONFIDENT_BITS`).
     """
-    doc = fitz.open()
+    doc = pymupdf.open()
     doc.new_page(width=LETTER[0], height=LETTER[1])
     page = doc[0]
     page.draw_rect(page.rect, color=None, fill=(0.97, 0.97, 0.97))
@@ -101,11 +101,11 @@ def test_a_page_with_no_picture_gets_no_hash():
     doc.close()
 
 
-def _divider(title: str) -> "fitz.Pixmap":
+def _divider(title: str) -> "pymupdf.Pixmap":
     """A scanned appendix divider: white paper, a printed rule, two words."""
-    src = fitz.open()
+    src = pymupdf.open()
     page = src.new_page(width=LETTER[0], height=LETTER[1])
-    page.draw_rect(fitz.Rect(36, 36, 576, 756), color=(0, 0, 0), width=1)
+    page.draw_rect(pymupdf.Rect(36, 36, 576, 756), color=(0, 0, 0), width=1)
     page.insert_text((230, 380), title, fontsize=13)
     pix = page.get_pixmap(dpi=96)
     src.close()
@@ -123,7 +123,7 @@ def test_a_rule_and_two_words_of_type_is_not_a_picture():
     scan of one scores at least 10.
     """
     data = _scan_doc([_divider("APPENDIX D"), _divider("APPENDIX E")])
-    raw = fitz.open(stream=data, filetype="pdf")
+    raw = pymupdf.open(stream=data, filetype="pdf")
     # Hashed anyway, the two would have been the same picture at distance 0.
     forced = [page_dhash(p, guard=False) for p in raw]
     assert hamming(*forced) <= DUP_HASH_DISTANCE
@@ -163,7 +163,7 @@ def test_two_different_scans_are_not_duplicates():
 
 
 def test_blank_pages_are_never_duplicates_of_each_other():
-    doc = fitz.open()
+    doc = pymupdf.open()
     for _ in range(3):
         doc.new_page(width=LETTER[0], height=LETTER[1])
     data = doc.tobytes()
@@ -254,11 +254,11 @@ def test_an_image_duplicate_segments_exactly_like_a_text_one():
 
 def test_the_hash_is_withheld_rather_than_guessed_on_a_flat_scan():
     """Two DIFFERENT near-blank scans must not become one page."""
-    src = fitz.open()
+    src = pymupdf.open()
     page = src.new_page(width=LETTER[0], height=LETTER[1])
     page.draw_rect(page.rect, color=None, fill=(0.98, 0.98, 0.98))
     faint = page.get_pixmap(dpi=96)
-    page.draw_rect(fitz.Rect(0, 0, 612, 300), color=None,
+    page.draw_rect(pymupdf.Rect(0, 0, 612, 300), color=None,
                    fill=(0.99, 0.99, 0.99))
     fainter = page.get_pixmap(dpi=96)
     src.close()
@@ -270,7 +270,7 @@ def test_the_hash_is_withheld_rather_than_guessed_on_a_flat_scan():
     assert MIN_CONFIDENT_BITS > 0
 
 
-def _lab_sheet(sample: str, values, curve: bool = True) -> "fitz.Pixmap":
+def _lab_sheet(sample: str, values, curve: bool = True) -> "pymupdf.Pixmap":
     """One filled-in copy of a printed laboratory form, under a watermark.
 
     The template — the rules, the boxes, the headings, the diagonal DRAFT —
@@ -279,21 +279,21 @@ def _lab_sheet(sample: str, values, curve: bool = True) -> "fitz.Pixmap":
     the ink, which is exactly the proportion that makes a filled-in form the
     hard case for a picture hash.
     """
-    src = fitz.open()
+    src = pymupdf.open()
     page = src.new_page(width=LETTER[0], height=LETTER[1])
-    page.draw_rect(fitz.Rect(60, 56, 552, 84), color=None,
+    page.draw_rect(pymupdf.Rect(60, 56, 552, 84), color=None,
                    fill=(0.75, 0.75, 0.75))
     page.insert_text((120, 76), "FOUNDATION INDICATOR TEST RESULTS",
                      fontsize=16)
-    page.draw_rect(fitz.Rect(60, 90, 552, 150), color=(0, 0, 0), width=1.6)
+    page.draw_rect(pymupdf.Rect(60, 90, 552, 150), color=(0, 0, 0), width=1.6)
     page.insert_text((70, 110), "CLIENT   Example Client Ltd", fontsize=12)
     page.insert_text((70, 132), "BOREHOLE", fontsize=12)
-    page.draw_rect(fitz.Rect(60, 160, 552, 430), color=(0, 0, 0), width=1.6)
+    page.draw_rect(pymupdf.Rect(60, 160, 552, 430), color=(0, 0, 0), width=1.6)
     for i in range(13):                       # the template's own ruling
         page.draw_line((60, 160 + i * 22.5), (552, 160 + i * 22.5), width=1.6)
     for x in (180, 300, 430):
         page.draw_line((x, 160), (x, 430), width=1.6)
-    page.draw_rect(fitz.Rect(60, 450, 552, 720), color=(0, 0, 0), width=1.6)
+    page.draw_rect(pymupdf.Rect(60, 450, 552, 720), color=(0, 0, 0), width=1.6)
     page.insert_text((210, 468), "PARTICLE SIZE ANALYSIS", fontsize=14)
     for i in range(9):
         page.draw_line((90 + i * 55, 480), (90 + i * 55, 710), width=1.6)
@@ -353,7 +353,7 @@ def test_filled_in_copies_of_one_form_are_not_the_same_page():
     assert min(fine) > DUP_HASH_DISTANCE
 
     # ... and the coarser grid this replaced could not tell them apart.
-    raw = fitz.open(stream=data, filetype="pdf")
+    raw = pymupdf.open(stream=data, filetype="pdf")
     coarse = [page_dhash(p, side=8, guard=False) for p in raw]
     raw.close()
     assert min(hamming(coarse[a], coarse[b]) for a, b in pairs) \

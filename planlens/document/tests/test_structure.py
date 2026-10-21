@@ -7,7 +7,7 @@ which are dividers, which sheet is which, and which page repeats another.
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document  # noqa: E402
 from planlens.document.structure import (  # noqa: E402
@@ -133,6 +133,6 @@ def test_thumbnail_sheets_cover_every_page_in_order(doc):
     png, info = sheets[0]
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
     assert info["columns"] == 4 and info["width_px"] == 4 * 110 + 10
-    pix = fitz.Pixmap(png)
+    pix = pymupdf.Pixmap(png)
     assert (pix.width, pix.height) == (info["width_px"], info["height_px"])
     assert "red frame" in info["legend"]

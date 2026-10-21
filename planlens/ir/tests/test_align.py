@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.ir import from_pdf_vector
 from planlens.ir.align import _rot_xy, fit_plot_transform
@@ -83,13 +83,13 @@ class TestDegenerateScaleGuard:
         # endpoints to "match".
         import random
 
-        import fitz
+        import pymupdf
 
         from planlens.ir.tests.leader_fixtures import (
             PAGE_HEIGHT, PAGE_WIDTH, _draw_shaft)
 
         rng = random.Random(11)
-        doc = fitz.open()
+        doc = pymupdf.open()
         page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
         for _ in range(600):
             x, y = rng.uniform(20, 880), rng.uniform(20, 640)

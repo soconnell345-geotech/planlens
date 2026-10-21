@@ -27,7 +27,7 @@ def _cell(v) -> Optional[str]:
 
 
 def extract_tables(page, page_index: int) -> Tuple[List[Table], List[str]]:
-    """Detected tables for one ``fitz.Page`` plus any warnings.
+    """Detected tables for one ``pymupdf.Page`` plus any warnings.
 
     Read on the ruling lines with line-high character boxes, the same on
     PyMuPDF 1.x and 2.x (:mod:`planlens.pymupdf_settings`).

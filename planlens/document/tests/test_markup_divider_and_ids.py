@@ -9,8 +9,8 @@ from planlens.document import Document
 
 
 def _report(tab_markup=None, kind="freetext"):
-    import fitz
-    doc = fitz.open()
+    import pymupdf
+    doc = pymupdf.open()
     for i in range(3):
         p = doc.new_page(width=612, height=792)
         p.insert_text((72, 30), "Geotechnical Report  Project 101", fontsize=9)
@@ -23,7 +23,7 @@ def _report(tab_markup=None, kind="freetext"):
     # a scanned-looking tab: no text layer, just a markup
     tab = doc.new_page(width=612, height=792)
     if tab_markup:
-        r = fitz.Rect(150, 330, 460, 400)
+        r = pymupdf.Rect(150, 330, 460, 400)
         if kind == "freetext":
             tab.add_freetext_annot(r, tab_markup, fontsize=24)
         else:
@@ -71,15 +71,15 @@ def test_a_callout_or_a_reply_thread_is_not_a_divider(how):
     # On a scanned page a reviewer's short comment reads like a tab title
     # ("Figures need a scale bar"); a callout points at something, and a
     # markup in a reply thread is a discussion.
-    import fitz
-    doc = fitz.open(stream=_report(None))
+    import pymupdf
+    doc = pymupdf.open(stream=_report(None))
     tab = doc[3]
-    r = fitz.Rect(150, 330, 460, 400)
+    r = pymupdf.Rect(150, 330, 460, 400)
     if how == "callout":
         tab.add_freetext_annot(r, "Figures need a scale bar", fontsize=12,
                                callout=((100, 200), (150, 360)))
     else:
-        a = tab.add_freetext_annot(fitz.Rect(150, 200, 460, 260),
+        a = tab.add_freetext_annot(pymupdf.Rect(150, 200, 460, 260),
                                    "Appendix B is missing its stamp",
                                    fontsize=12)
         b = tab.add_freetext_annot(r, "Stamp added", fontsize=12)
@@ -91,12 +91,12 @@ def test_a_callout_or_a_reply_thread_is_not_a_divider(how):
 
 
 def _with_markups(n):
-    import fitz
-    doc = fitz.open()
+    import pymupdf
+    doc = pymupdf.open()
     p = doc.new_page()
     p.insert_text((72, 72), "The bearing pressure is 2,500 psf.")
     for i in range(n):
-        p.add_freetext_annot(fitz.Rect(72, 100 + 40 * i, 300, 130 + 40 * i),
+        p.add_freetext_annot(pymupdf.Rect(72, 100 + 40 * i, 300, 130 + 40 * i),
                              f"comment {i}")
     out = doc.tobytes()
     doc.close()
@@ -104,7 +104,7 @@ def _with_markups(n):
 
 
 def test_uid_survives_a_reread_and_deleting_an_earlier_markup(tmp_path):
-    import fitz
+    import pymupdf
     pdf = _with_markups(3)
     with Document(content=pdf, name="a.pdf") as d:
         first = {m.text: m for m in d.markups()}
@@ -114,7 +114,7 @@ def test_uid_survives_a_reread_and_deleting_an_earlier_markup(tmp_path):
         {k: m.uid for k, m in again.items()}
     assert len({m.uid for m in first.values()}) == 3
     # delete the first comment: positional ids shift, uids do not
-    doc = fitz.open(stream=pdf)
+    doc = pymupdf.open(stream=pdf)
     page = doc[0]
     page.delete_annot(next(iter(page.annots())))
     edited = doc.tobytes(garbage=3)
@@ -160,7 +160,7 @@ def test_a_uid_is_never_given_to_a_later_mark(tmp_path):
     # PyMuPDF names a new annotation with the first free fitz-A<n> on the
     # page: delete a mark, write another, and the new one would take the
     # deleted one's /NM, so an id held from before would name it.
-    import fitz
+    import pymupdf
     from planlens.document.markup_writer import write_markups
     src = tmp_path / "a.pdf"
     src.write_bytes(_with_markups(0))
@@ -169,7 +169,7 @@ def test_a_uid_is_never_given_to_a_later_mark(tmp_path):
         {"kind": "note", "page": 0, "quote": "bearing pressure",
          "comment": "first"}])
     old = rep.written[0].uid
-    doc = fitz.open(str(one))
+    doc = pymupdf.open(str(one))
     doc[0].delete_annot(next(iter(doc[0].annots())))
     gone = tmp_path / "gone.pdf"
     doc.save(str(gone))
@@ -184,7 +184,7 @@ def test_a_uid_is_never_given_to_a_later_mark(tmp_path):
 
 
 def test_failed_save_leaves_the_last_good_copy(tmp_path, monkeypatch):
-    import fitz
+    import pymupdf
     from planlens.document.markup_writer import write_markups
     src = tmp_path / "a.pdf"
     src.write_bytes(_with_markups(1))
@@ -196,7 +196,7 @@ def test_failed_save_leaves_the_last_good_copy(tmp_path, monkeypatch):
 
     def boom(self, *a, **k):
         raise OSError("disk full")
-    monkeypatch.setattr(fitz.Document, "save", boom)
+    monkeypatch.setattr(pymupdf.Document, "save", boom)
     with pytest.raises(OSError):
         write_markups(str(src), str(out), [
             {"kind": "note", "page": 0, "quote": "bearing pressure",

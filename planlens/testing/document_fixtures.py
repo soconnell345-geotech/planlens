@@ -41,9 +41,9 @@ def _u(xd: float, yd: float) -> Point:
 
 
 def _u_rect(x0: float, y0: float, x1: float, y1: float):
-    import fitz
+    import pymupdf
     (ax, ay), (bx, by) = _u(x0, y0), _u(x1, y1)
-    return fitz.Rect(min(ax, bx), min(ay, by), max(ax, bx), max(ay, by))
+    return pymupdf.Rect(min(ax, bx), min(ay, by), max(ax, bx), max(ay, by))
 
 
 @dataclass
@@ -92,10 +92,10 @@ class DocumentGT:
 
 
 def build_synthetic_review_document() -> DocumentGT:
-    import fitz
+    import pymupdf
 
     gt = DocumentGT(pdf=b"")
-    doc = fitz.open()
+    doc = pymupdf.open()
 
     # -- page 0: report text --------------------------------------------------
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
@@ -107,10 +107,10 @@ def build_synthetic_review_document() -> DocumentGT:
         "extended to depths of 20 to 35 feet below existing grade. "
         "Groundwater was encountered in four of the borings. "
         "Standard penetration tests were performed at 5-foot intervals. ") * 3
-    p.insert_textbox(fitz.Rect(72, 120, 540, 700), body, fontsize=10,
+    p.insert_textbox(pymupdf.Rect(72, 120, 540, 700), body, fontsize=10,
                      fontname="helv")
-    stamp = p.add_stamp_annot(fitz.Rect(400, 700, 560, 760),
-                              stamp=fitz.STAMP_Approved)
+    stamp = p.add_stamp_annot(pymupdf.Rect(400, 700, 560, 760),
+                              stamp=pymupdf.STAMP_Approved)
     stamp.set_info(title=gt.stamp_author)
     stamp.update()
     # PyMuPDF fills /Contents with the stamp name and ignores content="";
@@ -140,7 +140,7 @@ def build_synthetic_review_document() -> DocumentGT:
         _u_rect(*gt.reviewer_box), gt.reviewer_comment, fontsize=12,
         callout=(_u(*gt.reviewer_target), _u(1700.0, 1000.0),
                  _u(gt.reviewer_box[0], 1260.0)),
-        line_end=fitz.PDF_ANNOT_LE_OPEN_ARROW)
+        line_end=pymupdf.PDF_ANNOT_LE_OPEN_ARROW)
     rev.set_info(title=gt.reviewer, subject="Callout",
                  creationDate="D:20260825160934-04'00'")
     rev.update()
@@ -149,7 +149,7 @@ def build_synthetic_review_document() -> DocumentGT:
         _u_rect(*gt.reply_box), gt.reply_comment, fontsize=12,
         callout=(_u(*gt.reply_tip), _u(2240.0, 1300.0),
                  _u(gt.reply_box[0], 1400.0)),
-        line_end=fitz.PDF_ANNOT_LE_OPEN_ARROW)
+        line_end=pymupdf.PDF_ANNOT_LE_OPEN_ARROW)
     reply.set_info(title=gt.contractor, subject="Cloud+")
     reply.update()
 
@@ -161,7 +161,7 @@ def build_synthetic_review_document() -> DocumentGT:
     cloud.set_irt_xref(reply.xref)
 
     arrow = s.add_line_annot(_u(*gt.arrow_tail), _u(*gt.arrow_tip))
-    arrow.set_line_ends(fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_OPEN_ARROW)
+    arrow.set_line_ends(pymupdf.PDF_ANNOT_LE_NONE, pymupdf.PDF_ANNOT_LE_OPEN_ARROW)
     arrow.set_info(title=gt.contractor, subject="Arrow")
     arrow.update()
 
@@ -170,7 +170,7 @@ def build_synthetic_review_document() -> DocumentGT:
     hidden.set_border(width=0)
     hidden.update(opacity=0)
     # The same string as a text-layer line, at the same spot: must be dropped.
-    tb = fitz.Rect(*gt.sheet_text_upright_origin, 0, 0)
+    tb = pymupdf.Rect(*gt.sheet_text_upright_origin, 0, 0)
     dup = s.add_rect_annot(_u_rect(tb.x0 - 2, tb.y0 - 14, tb.x0 + 120,
                                    tb.y0 + 4))
     dup.set_info(title="AutoCAD SHX Text", content=gt.sheet_text_upright)
@@ -193,7 +193,7 @@ def build_synthetic_review_document() -> DocumentGT:
     # -- page 3: blank; page 4: scanned image ---------------------------------
     doc.new_page(width=LETTER[0], height=LETTER[1])
     sc = doc.new_page(width=LETTER[0], height=LETTER[1])
-    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 85, 110), False)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 85, 110), False)
     pix.set_rect(pix.irect, (235, 235, 230))
     sc.insert_image(sc.rect, pixmap=pix)
 

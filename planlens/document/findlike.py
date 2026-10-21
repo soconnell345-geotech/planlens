@@ -322,7 +322,7 @@ def available() -> Tuple[bool, str]:
         ok, why = opencv.available()
         return (True, "") if ok else (False, f"{BACKEND_ENV}=opencv, but {why}")
     try:
-        import fitz  # noqa: F401
+        import pymupdf  # noqa: F401
         import numpy.fft  # noqa: F401
     except ImportError as exc:                       # pragma: no cover
         return False, f"find_like needs numpy and PyMuPDF ({exc})"
@@ -748,7 +748,7 @@ def _max_filter(a, ry: int, rx: int):
 
 def _paths(page) -> List[List[Point]]:
     """Every drawn path's vertices, in the displayed frame."""
-    import fitz
+    import pymupdf
     m = page.rotation_matrix
     out = []
     for d in page.get_cdrawings():
@@ -766,7 +766,7 @@ def _paths(page) -> List[List[Point]]:
                 q = it[1]
                 pts += [tuple(q[0]), tuple(q[1]), tuple(q[3]), tuple(q[2])]
         if pts:
-            out.append([tuple(fitz.Point(p) * m) for p in pts])
+            out.append([tuple(pymupdf.Point(p) * m) for p in pts])
     return out
 
 
@@ -882,7 +882,7 @@ def find_like(doc, page: int, bbox: Sequence[float], pages=None, *,
               backend: Optional[str] = None) -> Dict[str, Any]:
     """Every copy of the mark boxed at ``bbox`` on ``page``, on ``pages``.
 
-    ``doc`` is a :class:`~planlens.document.Document` (or a ``fitz.Document``);
+    ``doc`` is a :class:`~planlens.document.Document` (or a ``pymupdf.Document``);
     ``bbox`` is in the displayed frame (PDF points, top-left origin) and
     should hug the mark — a leader or a table rule inside it makes the
     example worse. ``pages`` is a page spec (default: every page).
@@ -1020,16 +1020,16 @@ def _frame(img, x0: int, y0: int, x1: int, y1: int, grey: int) -> None:
 def _stamp(img, text: str, x: int, baseline: int, size: float) -> None:
     """``text`` in bold Helvetica, ``size`` px, its baseline at ``baseline``,
     darkened onto the grey image (PyMuPDF rasterises the glyphs)."""
-    import fitz
+    import pymupdf
     import numpy as np
-    font = fitz.Font("hebo")
+    font = pymupdf.Font("hebo")
     w = int(math.ceil(font.text_length(text, fontsize=size))) + 4
     h = int(math.ceil(1.3 * size))
-    tmp = fitz.open()
+    tmp = pymupdf.open()
     try:
         pg = tmp.new_page(width=w, height=h)
         pg.insert_text((2, size), text, fontsize=size, fontname="hebo")
-        pix = pg.get_pixmap(colorspace=fitz.csGRAY, alpha=False)
+        pix = pg.get_pixmap(colorspace=pymupdf.csGRAY, alpha=False)
         glyphs = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
             pix.height, pix.stride)[:, :pix.width]
     finally:
@@ -1045,10 +1045,10 @@ def _stamp(img, text: str, x: int, baseline: int, size: float) -> None:
 
 def _png(img) -> bytes:
     """A grey uint8 image as PNG bytes (PyMuPDF's encoder)."""
-    import fitz
+    import pymupdf
     import numpy as np
     img = np.ascontiguousarray(img, dtype=np.uint8)
-    pix = fitz.Pixmap(fitz.csGRAY, img.shape[1], img.shape[0], img.tobytes(),
+    pix = pymupdf.Pixmap(pymupdf.csGRAY, img.shape[1], img.shape[0], img.tobytes(),
                       False)
     return pix.tobytes("png")
 

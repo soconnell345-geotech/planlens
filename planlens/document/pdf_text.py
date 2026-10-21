@@ -53,10 +53,10 @@ MAX_UNMAPPED_FRACTION = 0.10
 
 
 def _text_flags():
-    import fitz
+    import pymupdf
     # No TEXT_PRESERVE_IMAGES: image blocks are not text and cost memory.
-    return (fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE
-            | fitz.TEXT_MEDIABOX_CLIP)
+    return (pymupdf.TEXT_PRESERVE_LIGATURES | pymupdf.TEXT_PRESERVE_WHITESPACE
+            | pymupdf.TEXT_MEDIABOX_CLIP)
 
 
 def _hex(color: Any) -> str:
@@ -94,9 +94,9 @@ def _textpage(page, flags):
     removed its words from ``get_text()``. Review markups reach the reader
     through :mod:`planlens.document.annotations` instead, attributed.
     """
-    import fitz
+    import pymupdf
     stext = page.get_displaylist(annots=False).get_textpage(flags)
-    tp = stext if isinstance(stext, fitz.TextPage) else fitz.TextPage(stext)
+    tp = stext if isinstance(stext, pymupdf.TextPage) else pymupdf.TextPage(stext)
     # PyMuPDF checks the text page belongs to the page it is used with; a text
     # page made from a display list does not record one.
     tp.parent = page
@@ -124,7 +124,7 @@ def _overprints(earlier: Optional[List[TextLine]],
 
 def extract_text(page, page_index: int, words: bool = False
                  ) -> Tuple[List[TextLine], List[TextBlock], Dict[str, Any]]:
-    """Lines, blocks and text statistics for one ``fitz.Page``.
+    """Lines, blocks and text statistics for one ``pymupdf.Page``.
 
     ``words=True`` also attaches each line's words with their own boxes — useful
     for pinpointing a value inside a long line, and roughly doubles the payload.

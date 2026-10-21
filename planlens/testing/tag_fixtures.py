@@ -138,13 +138,13 @@ def build_synthetic_tag_set(n_pages: int = 3, cap_in: float = 0.06,
     it (with a leader), drawn after the sheet's own tags so the rest of the
     layout is unchanged — a rare tag on a few sheets of a long set is what a
     "which sheets have X" question has to find by looking at every sheet."""
-    import fitz
+    import pymupdf
 
     rnd = random.Random(seed)
     cap = cap_in * 72.0
     lcap = (legend_cap_in or cap_in) * 72.0
     W, H = 1224.0, 792.0
-    doc = fitz.open()
+    doc = pymupdf.open()
     gt = TagSetGT(pdf=b"", cap_pt=cap, n_pages=n_pages)
     lx0, ly0 = W - 300.0, 60.0                    # legend table, top-right
     row = 2.6 * lcap
@@ -215,7 +215,7 @@ def build_synthetic_tag_set(n_pages: int = 3, cap_in: float = 0.06,
             _leader(sh, start, tip, cap)
             gt.tags.append(TagTruth(p, t, box, 0, "callout", tip))
         # a title block with stroked lettering
-        sh.draw_rect(fitz.Rect(W - 300, H - 90, W - 40, H - 40))
+        sh.draw_rect(pymupdf.Rect(W - 300, H - 90, W - 40, H - 40))
         sh.finish(color=(0, 0, 0), width=0.8)
         draw_text(sh, "TYPE-GPE-XPC", W - 290, H - 75, 1.5 * cap)
         sh.commit()

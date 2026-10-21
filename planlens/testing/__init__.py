@@ -19,7 +19,7 @@ builder that a DIFFERENT distribution imports is public API of this one;
 ``planlens.ir.tests`` keeps thin re-export shims for the transition.
 
 Nothing here imports pytest, so this adds no test-only dependency to the
-runtime package; ``fitz`` (PyMuPDF, a hard dependency) is imported lazily
+runtime package; ``pymupdf`` (PyMuPDF, a hard dependency) is imported lazily
 inside the builders.
 """
 

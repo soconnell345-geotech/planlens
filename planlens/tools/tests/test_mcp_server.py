@@ -18,7 +18,7 @@ import sys
 
 import pytest
 
-pytest.importorskip("fitz")
+pytest.importorskip("pymupdf")
 mcp = pytest.importorskip("mcp",
                           reason="the MCP server needs planlens[mcp]")
 

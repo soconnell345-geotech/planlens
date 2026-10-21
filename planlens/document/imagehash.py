@@ -173,14 +173,14 @@ def _gray_grid(page, width: int, height: int):
     back a grid one pixel out (a page whose rect does not start at the origin),
     so the result is sampled to the exact shape when that happens.
     """
-    import fitz
+    import pymupdf
     import numpy as np
     rect = page.rect
     if rect.is_empty or rect.width <= 0 or rect.height <= 0:
         return None
-    matrix = fitz.Matrix(width / rect.width, height / rect.height)
+    matrix = pymupdf.Matrix(width / rect.width, height / rect.height)
     try:
-        pix = page.get_pixmap(matrix=matrix, colorspace=fitz.csGRAY,
+        pix = page.get_pixmap(matrix=matrix, colorspace=pymupdf.csGRAY,
                               alpha=False, annots=False)
     except Exception:       # pragma: no cover - a page MuPDF cannot render
         return None

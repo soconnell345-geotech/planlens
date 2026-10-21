@@ -4,7 +4,7 @@ import io
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.ir.render import (
     DEFAULT_MARK_RADIUS, MIN_CROP_SIZE, clip_rect_for_bbox, render_region,
@@ -13,16 +13,16 @@ from planlens.ir.render import (
 
 def _decode(png_bytes):
     """Decode PNG bytes -> a PyMuPDF Pixmap (no new dependency for tests)."""
-    return fitz.Pixmap(io.BytesIO(png_bytes))
+    return pymupdf.Pixmap(io.BytesIO(png_bytes))
 
 
 @pytest.fixture
 def sheet_pdf(tmp_path):
     """A 400x300 pt page with a small black square at (100,100)-(120,120)."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=400, height=300)
     sh = page.new_shape()
-    sh.draw_rect(fitz.Rect(100, 100, 120, 120))
+    sh.draw_rect(pymupdf.Rect(100, 100, 120, 120))
     sh.finish(color=(0, 0, 0), fill=(0, 0, 0))
     sh.commit()
     path = tmp_path / "sheet.pdf"
