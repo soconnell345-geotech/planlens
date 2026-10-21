@@ -113,12 +113,12 @@ class ReportGT:
 
 
 def _cover(doc) -> None:
-    import fitz
+    import pymupdf
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
     p.insert_text((90, 250), "GEOTECHNICAL ENGINEERING REPORT", fontsize=20,
                   fontname="hebo")
     p.insert_text((90, 285), "Rosewood Terrace Development", fontsize=18)
-    p.insert_textbox(fitz.Rect(90, 420, 520, 620),
+    p.insert_textbox(pymupdf.Rect(90, 420, 520, 620),
                      "Prepared for:\nRosewood Terrace Partners\n\n"
                      "Prepared by:\nSoil & Rock Consulting Engineers\n"
                      "14 March 2026", fontsize=11)
@@ -169,12 +169,12 @@ def _toc(doc) -> None:
 
 
 def _narrative(doc, gt: ReportGT, n: int) -> None:
-    import fitz
+    import pymupdf
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
     p.insert_text((72, 40), gt.header, fontsize=8)
     p.insert_text((72, 100), SECTION_HEADINGS[n - 1], fontsize=14,
                   fontname="hebo")
-    p.insert_textbox(fitz.Rect(72, 120, 540, 720), PROSE * 3, fontsize=10)
+    p.insert_textbox(pymupdf.Rect(72, 120, 540, 720), PROSE * 3, fontsize=10)
     p.insert_text((72, 770), f"Project 26-118 | Page {n} of 3", fontsize=8)
 
 
@@ -194,16 +194,16 @@ def _figure_page(doc) -> None:
 
 
 def _divider(doc, title: str, contents: str = "") -> None:
-    import fitz
+    import pymupdf
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
     p.insert_text((90, 300), title, fontsize=20, fontname="hebo")
     if contents:
-        p.insert_textbox(fitz.Rect(90, 340, 520, 520), contents, fontsize=11)
+        p.insert_textbox(pymupdf.Rect(90, 340, 520, 520), contents, fontsize=11)
 
 
 def _log_page(doc, title: str, number: str, sheet: str, fields) -> None:
     """A ruled log form with a title block and column headings."""
-    import fitz
+    import pymupdf
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
     p.insert_text((72, 46), title, fontsize=13, fontname="hebo")
     p.insert_text((430, 46), number, fontsize=13, fontname="hebo")
@@ -224,7 +224,7 @@ def _log_page(doc, title: str, number: str, sheet: str, fields) -> None:
         p.insert_text((xs[3] + 2, ys[r] + 16), f"{3 + r}-{5 + r}-{7 + r}",
                       fontsize=7)
         p.insert_text((xs[5] + 2, ys[r] + 16), "CL", fontsize=7)
-        p.insert_textbox(fitz.Rect(xs[6] + 2, ys[r] + 6, xs[10], ys[r] + 24),
+        p.insert_textbox(pymupdf.Rect(xs[6] + 2, ys[r] + 6, xs[10], ys[r] + 24),
                          "Brown sandy lean CLAY, stiff, moist", fontsize=6)
     p.insert_text((72, 770), "Drilled by Regional Drilling   Logged by AB",
                   fontsize=7)
@@ -235,22 +235,22 @@ LOG_FIELDS = ("DEPTH (m)", "ELEV (m)", "SAMPLE", "BLOWS N", "RECOVERY",
 
 
 def _photo_page(doc) -> None:
-    import fitz
+    import pymupdf
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
     p.insert_text((72, 60), "Photograph 1 - Test Pit TP-1, view looking north",
                   fontsize=12, fontname="hebo")
-    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 320, 240), False)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 320, 240), False)
     pix.set_rect(pix.irect, (150, 140, 120))
-    p.insert_image(fitz.Rect(90, 90, 520, 410), pixmap=pix)
+    p.insert_image(pymupdf.Rect(90, 90, 520, 410), pixmap=pix)
     p.insert_text((72, 430), "Photograph 2 - stockpiled spoil, view looking "
                              "east", fontsize=12, fontname="hebo")
-    pix2 = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 320, 240), False)
+    pix2 = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 320, 240), False)
     pix2.set_rect(pix2.irect, (110, 150, 130))
-    p.insert_image(fitz.Rect(90, 450, 520, 700), pixmap=pix2)
+    p.insert_image(pymupdf.Rect(90, 450, 520, 700), pixmap=pix2)
 
 
 def _lab_page(doc, title: str, standard: str, rows) -> None:
-    import fitz
+    import pymupdf
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
     p.insert_text((72, 60), title, fontsize=15, fontname="hebo")
     p.insert_text((72, 82), standard, fontsize=9)
@@ -266,28 +266,28 @@ def _lab_page(doc, title: str, standard: str, rows) -> None:
 
 
 def _nested_cover(doc) -> None:
-    import fitz
+    import pymupdf
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
     p.insert_text((90, 250), "GEOTECHNICAL STUDY", fontsize=20, fontname="hebo")
     p.insert_text((90, 285), "Former Owner Site Study", fontsize=18)
-    p.insert_textbox(fitz.Rect(90, 420, 520, 600),
+    p.insert_textbox(pymupdf.Rect(90, 420, 520, 600),
                      "Prepared for:\nThe Former Owner\n\n"
                      "Prepared by:\nOther Geotechnical Consultants\n"
                      "2 June 2019", fontsize=11)
 
 
 def _nested_narrative(doc, gt: ReportGT) -> None:
-    import fitz
+    import pymupdf
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
     p.insert_text((72, 40), gt.nested_header, fontsize=8)
     p.insert_text((72, 100), "2.0 Findings", fontsize=14, fontname="hebo")
-    p.insert_textbox(fitz.Rect(72, 120, 540, 700), NESTED_PROSE * 4,
+    p.insert_textbox(pymupdf.Rect(72, 120, 540, 700), NESTED_PROSE * 4,
                      fontsize=10)
     p.insert_text((72, 770), "Job 19-004 | Page 1 of 1", fontsize=8)
 
 
 def _calc_page(doc, n: int) -> None:
-    import fitz
+    import pymupdf
     p = doc.new_page(width=LETTER[0], height=LETTER[1])
     p.insert_text((72, 50), "LPILE 2022 - Analysis of Piles and Drilled "
                             "Shafts", fontsize=11, fontname="hebo")
@@ -295,7 +295,7 @@ def _calc_page(doc, n: int) -> None:
     body = "\n".join(
         f"  {d:6.2f}   {d * 12.3:10.2f}   {d * 4.1:10.3f}   {d * 0.07:8.4f}"
         for d in [0.5 * i for i in range(1, 34)])
-    p.insert_textbox(fitz.Rect(72, 96, 540, 740),
+    p.insert_textbox(pymupdf.Rect(72, 96, 540, 740),
                      "   DEPTH      MOMENT     SHEAR      DEFLECTION\n" + body,
                      fontsize=8, fontname="cour")
     p.insert_text((72, 770), f"Page {n} of 2", fontsize=8)
@@ -303,9 +303,9 @@ def _calc_page(doc, n: int) -> None:
 
 def build_synthetic_report() -> ReportGT:
     """The report described in this module's docstring, with its answers."""
-    import fitz
+    import pymupdf
     gt = ReportGT(pdf=b"")
-    doc = fitz.open()
+    doc = pymupdf.open()
     _cover(doc)
     _toc(doc)
     for n in (1, 2, 3):

@@ -10,7 +10,7 @@ import copy
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import SOURCE_AZURE_DI, open_document  # noqa: E402
 from planlens.document.azure_di import (  # noqa: E402

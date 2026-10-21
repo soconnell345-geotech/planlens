@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import Document  # noqa: E402
 from planlens.document.markup_writer import (  # noqa: E402
@@ -31,9 +31,9 @@ AI = "planlens test"
 
 @pytest.fixture
 def sheet():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=1224, height=792)
-    page.draw_rect(fitz.Rect(640, 515, 662, 535), color=(0, 0, 0))
+    page.draw_rect(pymupdf.Rect(640, 515, 662, 535), color=(0, 0, 0))
     data = doc.tobytes()
     doc.close()
     return data
@@ -146,7 +146,7 @@ def _notes_sheet(rotation: int = 0):
     a CAD program plots a landscape sheet. Returns the PDF and each printed
     row's band (displayed y0, y1)."""
     from planlens.document.frame import from_display_bbox
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=612, height=792)
     page.set_rotation(rotation)
     x0, y = 60.0, 100.0
@@ -156,12 +156,12 @@ def _notes_sheet(rotation: int = 0):
         for i, ch in enumerate(text):
             if ch != " ":
                 cx = x0 + indent + i * ADVANCE
-                page.draw_rect(fitz.Rect(*from_display_bbox(
+                page.draw_rect(pymupdf.Rect(*from_display_bbox(
                     page, (cx, y, cx + LETTER_W, y + LETTER_H))),
                     color=(0, 0, 0), width=0.6)
         bands.append((y, y + LETTER_H))
         y += LETTER_H + gap
-    hidden = page.add_rect_annot(fitz.Rect(*from_display_bbox(
+    hidden = page.add_rect_annot(pymupdf.Rect(*from_display_bbox(
         page, (x0 - 2, 98, 260, y))))
     hidden.set_info(title="AutoCAD SHX Text", content=HIDDEN)
     hidden.set_border(width=0)
@@ -212,7 +212,7 @@ def test_lettering_that_reads_up_the_page_keeps_the_block(tmp_path):
     AS DISPLAYED its lettering reads up the page, so there are no rows of
     lettering across it and the object's own box is kept, never a guess."""
     data, _bands = _notes_sheet()
-    doc = fitz.open(stream=data, filetype="pdf")
+    doc = pymupdf.open(stream=data, filetype="pdf")
     doc[0].set_rotation(90)
     turned = doc.tobytes()
     doc.close()
@@ -229,14 +229,14 @@ def test_lettering_that_reads_up_the_page_keeps_the_block(tmp_path):
 
 
 def test_a_one_row_object_keeps_its_box(tmp_path):
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=612, height=792)
     for i, ch in enumerate("RAMP SLOPE UP TO 7.5%"):
         if ch != " ":
-            page.draw_rect(fitz.Rect(100 + i * ADVANCE, 300,
+            page.draw_rect(pymupdf.Rect(100 + i * ADVANCE, 300,
                                      100 + i * ADVANCE + LETTER_W, 305),
                            color=(0, 0, 0), width=0.6)
-    hidden = page.add_rect_annot(fitz.Rect(98, 298, 200, 307))
+    hidden = page.add_rect_annot(pymupdf.Rect(98, 298, 200, 307))
     hidden.set_info(title="AutoCAD SHX Text", content="RAMP SLOPE UP TO 7.5%")
     hidden.set_border(width=0)
     hidden.update(opacity=0)
@@ -263,7 +263,7 @@ def test_a_doubled_first_line_is_read_once():
 
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
 def test_a_note_hangs_from_its_spot_on_every_rotation(tmp_path, rotation):
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=600, height=400)
     page.insert_text((50, 50), "hello")
     page.set_rotation(rotation)

@@ -14,7 +14,7 @@ import random
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document                      # noqa: E402
 from planlens.document.imagehash import (                        # noqa: E402
@@ -50,7 +50,7 @@ def _stroke_sheet(doc, variant="base", seed=5, typed_title=False):
     for j in range(8):
         sh.draw_line((40, 40 + j * 90), (850, 40 + j * 90))
     sh.finish(color=(0, 0, 0), width=0.8)
-    sh.draw_rect(fitz.Rect(W - 300, H - 150, W - 40, H - 100))
+    sh.draw_rect(pymupdf.Rect(W - 300, H - 150, W - 40, H - 100))
     sh.finish(color=(0, 0, 0), width=0.8)
     draw_text(sh, "TYPE-GPE-XPC", W - 290, H - 135, 6.5)
     rnd = random.Random(seed)
@@ -62,12 +62,12 @@ def _stroke_sheet(doc, variant="base", seed=5, typed_title=False):
         draw_text(sh, tag, x, y, 4.3)
     sh.commit()
     if typed_title:
-        page.insert_textbox(fitz.Rect(W - 300, H - 230, W - 40, H - 155),
+        page.insert_textbox(pymupdf.Rect(W - 300, H - 230, W - 40, H - 155),
                             TITLE_BLOCK, fontsize=7)
 
 
 def _pdf(*variants, typed_title=False, seeds=None):
-    doc = fitz.open()
+    doc = pymupdf.open()
     for n, v in enumerate(variants):
         _stroke_sheet(doc, v, seed=(seeds[n] if seeds else 5),
                       typed_title=typed_title)
@@ -79,8 +79,8 @@ def _pdf(*variants, typed_title=False, seeds=None):
 def _placed_twice(pdf: bytes, page: int) -> bytes:
     """``pdf`` with its page ``page`` copied onto the end, as an assembler
     binds a sheet in twice."""
-    src = fitz.open(stream=pdf, filetype="pdf")
-    out = fitz.open()
+    src = pymupdf.open(stream=pdf, filetype="pdf")
+    out = pymupdf.open()
     out.insert_pdf(src)
     out.insert_pdf(src, from_page=page, to_page=page)
     data = out.tobytes()
@@ -179,7 +179,7 @@ def test_the_earliest_page_is_named_whatever_order_pages_are_read_in():
 
 def test_the_fine_render_is_exact_for_a_page_placed_twice():
     data = _placed_twice(_pdf("base", "letter"), 0)
-    raw = fitz.open(stream=data, filetype="pdf")
+    raw = pymupdf.open(stream=data, filetype="pdf")
     try:
         grids = [fine_grid(p) for p in raw]
     finally:

@@ -99,16 +99,16 @@ def _render_page_png(filepath: Optional[str], content: Optional[bytes],
     /Rotate=90/270 position bug lived in cls-flipped CORNER ORDER, not
     here (see the flip correction in :func:`ocr_text_items`).
     """
-    import fitz
+    import pymupdf
 
-    doc = (fitz.open(stream=content, filetype="pdf") if content is not None
-           else fitz.open(filepath))
+    doc = (pymupdf.open(stream=content, filetype="pdf") if content is not None
+           else pymupdf.open(filepath))
     try:
         pg = doc[page]
         rect = pg.rect
         dpi_eff = _effective_dpi(rect.width, rect.height, dpi, max_megapixels)
         zoom = dpi_eff / 72.0
-        pix = pg.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+        pix = pg.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom))
         m = pg.derotation_matrix
         return (pix.tobytes("png"), rect.width, rect.height,
                 (m.a, m.b, m.c, m.d, m.e, m.f), dpi_eff)
@@ -352,9 +352,9 @@ def augment_ir_with_ocr(ir: DrawingIR,
             t.bbox = t.compute_bbox()
     dpi_used = dpi
     try:                                  # cheap: report the dpi ACTUALLY used
-        import fitz
-        doc = (fitz.open(stream=content, filetype="pdf") if content is not None
-               else fitz.open(filepath))
+        import pymupdf
+        doc = (pymupdf.open(stream=content, filetype="pdf") if content is not None
+               else pymupdf.open(filepath))
         try:
             r = doc[page].rect
             dpi_used = _effective_dpi(r.width, r.height, dpi, max_megapixels)

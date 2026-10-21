@@ -10,7 +10,7 @@ import math
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 pytest.importorskip("rapidocr_onnxruntime")
 
 from planlens.ir import from_pdf_vector
@@ -22,15 +22,15 @@ LABEL_PDF_XY = (150.0, 300.0)  # insert_text point, PDF top-left frame
 
 
 def _build(tmp_path, rotate_text=0):
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=W, height=H)
-    page.insert_text(fitz.Point(*LABEL_PDF_XY), LABEL, fontsize=14,
+    page.insert_text(pymupdf.Point(*LABEL_PDF_XY), LABEL, fontsize=14,
                      rotate=rotate_text)
-    page.insert_text(fitz.Point(120.0, 500.0), "SCALE 1:100", fontsize=12,
+    page.insert_text(pymupdf.Point(120.0, 500.0), "SCALE 1:100", fontsize=12,
                      rotate=rotate_text)
     # a bit of linework so the page is not text-only
     s = page.new_shape()
-    s.draw_line(fitz.Point(100, 600), fitz.Point(400, 600))
+    s.draw_line(pymupdf.Point(100, 600), pymupdf.Point(400, 600))
     s.finish(color=(0, 0, 0), width=1.0)
     s.commit()
     p = str(tmp_path / f"ocr_fixture_{rotate_text}.pdf")
@@ -127,10 +127,10 @@ class TestRotationAndClsFlip:
     @pytest.mark.parametrize("page_rotate", [0, 90, 180, 270])
     def test_all_page_rotations_land_on_vector_position(self, tmp_path,
                                                         page_rotate):
-        doc = fitz.open()
+        doc = pymupdf.open()
         page = doc.new_page(width=W, height=H)
         author = (360 - page_rotate) % 360
-        page.insert_text(fitz.Point(200.0, 300.0), "CALIBRATION TARGET",
+        page.insert_text(pymupdf.Point(200.0, 300.0), "CALIBRATION TARGET",
                          fontsize=18, rotate=author)
         page.set_rotation(page_rotate)
         p = str(tmp_path / f"pgrot_{page_rotate}.pdf")
@@ -149,12 +149,12 @@ class TestRotationAndClsFlip:
             f"vector-ingest position (cls-flip / frame regression)")
 
     def test_single_flipped_line_on_upright_page(self, tmp_path):
-        doc = fitz.open()
+        doc = pymupdf.open()
         page = doc.new_page(width=W, height=H)
-        page.insert_text(fitz.Point(100, 100), "NORMAL HEADING",
+        page.insert_text(pymupdf.Point(100, 100), "NORMAL HEADING",
                          fontsize=16)
-        page.insert_text(fitz.Point(150, 400), "UPRIGHT NOTE", fontsize=14)
-        page.insert_text(fitz.Point(420, 600), "FLIPPED LABEL",
+        page.insert_text(pymupdf.Point(150, 400), "UPRIGHT NOTE", fontsize=14)
+        page.insert_text(pymupdf.Point(420, 600), "FLIPPED LABEL",
                          fontsize=14, rotate=180)
         p = str(tmp_path / "mixed_flip.pdf")
         doc.save(p)
@@ -180,9 +180,9 @@ class TestRotationAndClsFlip:
         # whose corner roles shift by +/-1 (reading up vs down) — the
         # reading-DOWN case was silently ~100 pt off before the
         # role-shift table.
-        doc = fitz.open()
+        doc = pymupdf.open()
         page = doc.new_page(width=W, height=H)
-        page.insert_text(fitz.Point(300.0, 400.0), "MARKER TEXT",
+        page.insert_text(pymupdf.Point(300.0, 400.0), "MARKER TEXT",
                          fontsize=14, rotate=author)
         p = str(tmp_path / f"vert_{author}.pdf")
         doc.save(p)

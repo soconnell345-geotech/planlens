@@ -163,7 +163,7 @@ def stable_markup_id(page_index: int, name: Optional[str], kind: str,
 
 def extract_annotations(page, page_index: int
                         ) -> Tuple[List[Markup], List[TextLine]]:
-    """Review markups and hidden CAD text lines for one ``fitz.Page``."""
+    """Review markups and hidden CAD text lines for one ``pymupdf.Page``."""
     doc = page.parent
     markups: List[Markup] = []
     cad_lines: List[TextLine] = []

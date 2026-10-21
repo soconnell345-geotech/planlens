@@ -57,9 +57,9 @@ def line_boxes() -> Iterator[None]:
     and ``"words"``, and ``find_tables`` with the ``extract()`` of what it
     found.
     """
-    import fitz
+    import pymupdf
     global _depth, _saved
-    tools = fitz.TOOLS
+    tools = pymupdf.TOOLS
     with _lock:
         if _depth == 0:
             _saved = bool(tools.unset_quad_corrections())
@@ -77,10 +77,10 @@ def line_boxes() -> Iterator[None]:
 def _knows_use_layout(page: Any) -> bool:
     global _use_layout_kw
     if _use_layout_kw is None:
-        import fitz
+        import pymupdf
         # ``Page.find_tables`` is a ``**kwargs`` wrapper; the options are on
         # the module function it calls.
-        fn = getattr(getattr(fitz, "table", None), "find_tables", None)
+        fn = getattr(getattr(pymupdf, "table", None), "find_tables", None)
         try:
             params = inspect.signature(fn or page.find_tables).parameters
             _use_layout_kw = "use_layout" in params

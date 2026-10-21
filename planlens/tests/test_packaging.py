@@ -162,7 +162,7 @@ class TestDependencies:
         probe = (
             "import sys; import planlens;"
             "heavy = [m for m in sys.modules"
-            " if m.split('.')[0] in {'cv2', 'rapidfuzz', 'mcp', 'fitz',"
+            " if m.split('.')[0] in {'cv2', 'rapidfuzz', 'mcp', 'pymupdf',"
             " 'pymupdf', 'ezdxf', 'rapidocr_onnxruntime'}];"
             "print(','.join(sorted(heavy)))"
         )

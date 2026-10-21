@@ -92,12 +92,12 @@ def _image_coverage(page) -> float:
         return 0.0
     if not infos:
         return 0.0
-    import fitz
+    import pymupdf
     unrot = page.rect * page.derotation_matrix
     area = abs(unrot.width * unrot.height) or 1.0
     covered = 0.0
     for info in infos:
-        r = fitz.Rect(info.get("bbox", (0, 0, 0, 0))) & unrot
+        r = pymupdf.Rect(info.get("bbox", (0, 0, 0, 0))) & unrot
         if not r.is_empty:
             covered += abs(r.width * r.height)
     return min(1.0, covered / area)
@@ -241,21 +241,21 @@ def _is_pdf(head: bytes) -> bool:
 
 def _open_any(filepath: Optional[str], content: Optional[bytes]):
     """Open a PDF, or an image as a one-page PDF. Returns (doc, kind)."""
-    import fitz
+    import pymupdf
     if content is not None:
         if _is_pdf(content[:1024]):
-            return fitz.open(stream=content, filetype="pdf"), "pdf"
-        img = fitz.open(stream=content)          # format sniffed by MuPDF
+            return pymupdf.open(stream=content, filetype="pdf"), "pdf"
+        img = pymupdf.open(stream=content)          # format sniffed by MuPDF
     else:
         with open(filepath, "rb") as fh:
             head = fh.read(1024)
         if _is_pdf(head):
-            return fitz.open(filepath), "pdf"
-        img = fitz.open(filepath)
+            return pymupdf.open(filepath), "pdf"
+        img = pymupdf.open(filepath)
     if img.page_count < 1:
         img.close()
         raise ValueError("not a PDF and not a readable image")
-    pdf = fitz.open("pdf", img.convert_to_pdf())
+    pdf = pymupdf.open("pdf", img.convert_to_pdf())
     img.close()
     return pdf, "image"
 
@@ -597,7 +597,7 @@ class Document:
         model can take in a long document at a glance and pick out the plan,
         the logs, the tables. Pages with review markups get a red frame.
         Returns one ``(png, info)`` per sheet of ``per_sheet`` pages."""
-        import fitz
+        import pymupdf
         wanted = parse_pages(pages, self.n_pages)
         columns = max(1, min(int(columns), 12))
         thumb = max(60, min(int(thumb_px), 400))
@@ -607,7 +607,7 @@ class Document:
         for start in range(0, len(wanted), per_sheet):
             chunk = wanted[start:start + per_sheet]
             rows = (len(chunk) + columns - 1) // columns
-            sheet = fitz.open()
+            sheet = pymupdf.open()
             canvas = sheet.new_page(width=columns * cell_w + gap,
                                     height=rows * cell_h + gap)
             for n, index in enumerate(chunk):
@@ -616,10 +616,10 @@ class Document:
                 y0 = gap + row * cell_h
                 src = self._doc[index]
                 z = thumb / max(src.rect.width, src.rect.height)
-                pix = src.get_pixmap(matrix=fitz.Matrix(z, z), annots=True)
+                pix = src.get_pixmap(matrix=pymupdf.Matrix(z, z), annots=True)
                 w, h = pix.width, pix.height
                 ox, oy = x0 + (thumb - w) / 2.0, y0 + (thumb - h) / 2.0
-                rect = fitz.Rect(ox, oy, ox + w, oy + h)
+                rect = pymupdf.Rect(ox, oy, ox + w, oy + h)
                 canvas.insert_image(rect, pixmap=pix)
                 summary = self.summary(index)
                 color = (0.85, 0.1, 0.1) if summary.n_markups else (0.6, 0.6, 0.6)
@@ -1089,7 +1089,7 @@ class Document:
         characters its text layer holds (near zero on a sheet whose lettering
         is drawn as strokes).
         """
-        import fitz
+        import pymupdf
         from planlens.document.budget import fit_size, resolve_budget
         from planlens.ir.render import (
             DEFAULT_MARK_RADIUS, _draw_marks, clip_rect_for_bbox)
@@ -1126,14 +1126,14 @@ class Document:
         if marks:
             # Drawing marks writes into the page; render from a fresh copy so
             # the cached document (and its text extraction) stays untouched.
-            src = fitz.open(stream=self._doc.tobytes(), filetype="pdf")
+            src = pymupdf.open(stream=self._doc.tobytes(), filetype="pdf")
             target = src[index]
             _draw_marks(target, [tuple(m) for m in marks], DEFAULT_MARK_RADIUS,
                         (1.0, 0.0, 0.0), fill_color=None,
                         text_color=(1.0, 0.0, 0.0))
         try:
-            pix = target.get_pixmap(matrix=fitz.Matrix(dpi / 72.0, dpi / 72.0),
-                                    clip=fitz.Rect(clip))
+            pix = target.get_pixmap(matrix=pymupdf.Matrix(dpi / 72.0, dpi / 72.0),
+                                    clip=pymupdf.Rect(clip))
             # The clip's pixel rect rounds outward, so an exact fit can come
             # out a pixel over — and one pixel can cost a row of patches.
             for _ in range(4):
@@ -1142,8 +1142,8 @@ class Document:
                     break
                 dpi *= 1.0 - 2.0 / max(pix.width, pix.height)
                 pix = target.get_pixmap(
-                    matrix=fitz.Matrix(dpi / 72.0, dpi / 72.0),
-                    clip=fitz.Rect(clip))
+                    matrix=pymupdf.Matrix(dpi / 72.0, dpi / 72.0),
+                    clip=pymupdf.Rect(clip))
             if fmt == "auto":
                 png = pix.tobytes("png")
                 jpg = pix.tobytes("jpeg", jpg_quality=int(jpeg_quality))

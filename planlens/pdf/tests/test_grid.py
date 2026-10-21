@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-fitz = pytest.importorskip("fitz")   # PyMuPDF required for rendering
+pymupdf = pytest.importorskip("pymupdf")   # PyMuPDF required for rendering
 
 from planlens.pdf.vision import (
     render_page_with_grid, extract_geometry_vision,
@@ -13,7 +13,7 @@ from planlens.pdf.vision import (
 
 
 def _simple_pdf_bytes(w=300, h=200):
-    doc = fitz.open()
+    doc = pymupdf.open()
     pg = doc.new_page(width=w, height=h)
     pg.draw_line((10, 150), (290, 120), color=(0, 0, 0), width=1)
     b = doc.tobytes()

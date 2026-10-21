@@ -12,7 +12,7 @@ import math
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.ir import from_pdf_vector, queries
 from planlens.ir.tests.construct_fixtures import (
@@ -150,10 +150,10 @@ class TestFindTitleBlock:
         assert "PILE SCHEDULE" not in [t["content"] for t in top["texts"]]
 
     def test_fallback_text_cluster_when_no_rectangles(self, tmp_path):
-        doc = fitz.open()
+        doc = pymupdf.open()
         page = doc.new_page(width=900, height=700)
         for i, t in enumerate(["SHEET C-05", "REV 0", "ACME", "NTS"]):
-            page.insert_text(fitz.Point(780, 600 + i * 16), t, fontsize=8)
+            page.insert_text(pymupdf.Point(780, 600 + i * 16), t, fontsize=8)
         p = str(tmp_path / "no_rects.pdf")
         doc.save(p)
         doc.close()

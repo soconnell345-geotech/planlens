@@ -70,16 +70,16 @@ def cross_section_pdf(tmp_path):
     Surface drawn top-left origin: (50,100)->(150,100)->(300,200).
     Text "SCALE 1:100" so the scale module proposes a candidate.
     """
-    import fitz
-    doc = fitz.open()
+    import pymupdf
+    doc = pymupdf.open()
     page = doc.new_page(width=400, height=300)
     sh = page.new_shape()
     pts = [(50, 100), (150, 100), (300, 200), (350, 200)]
     for a, b in zip(pts, pts[1:]):
-        sh.draw_line(fitz.Point(*a), fitz.Point(*b))
+        sh.draw_line(pymupdf.Point(*a), pymupdf.Point(*b))
     sh.finish(color=(0, 0, 0), width=2)
     sh.commit()
-    page.insert_text(fitz.Point(160, 250), "SCALE 1:100", fontsize=10)
+    page.insert_text(pymupdf.Point(160, 250), "SCALE 1:100", fontsize=10)
     path = tmp_path / "section.pdf"
     doc.save(str(path))
     doc.close()

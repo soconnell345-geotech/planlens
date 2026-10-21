@@ -2,7 +2,7 @@
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.ir import DrawingIR, from_pdf_vector
 from planlens.ir.results import Line, Polyline, TextItem
@@ -10,10 +10,10 @@ from planlens.ir.results import Line, Polyline, TextItem
 
 def _single_line_pdf(tmp_path):
     """A 400x300 page with one horizontal line y=100 (top-left) from x=50..150."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=400, height=300)
     sh = page.new_shape()
-    sh.draw_line(fitz.Point(50, 100), fitz.Point(150, 100))
+    sh.draw_line(pymupdf.Point(50, 100), pymupdf.Point(150, 100))
     sh.finish(color=(0, 0, 0), width=1)
     sh.commit()
     path = tmp_path / "line.pdf"

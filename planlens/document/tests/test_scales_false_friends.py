@@ -9,7 +9,7 @@ log axis whose window guessed its decade a little short, and a chart frame
 whose sides a scan broke into pieces.
 """
 
-import fitz
+import pymupdf
 import pytest
 
 from planlens.document import Document
@@ -26,7 +26,7 @@ A4 = (595.0, 842.0)
 
 
 def _pdf(draw) -> bytes:
-    d = fitz.open()
+    d = pymupdf.open()
     p = d.new_page(width=A4[0], height=A4[1])
     draw(p)
     return d.tobytes()

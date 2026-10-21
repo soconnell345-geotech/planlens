@@ -7,7 +7,7 @@ SHX text. Displayed-frame truth is hand-derived in the fixture.
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.ir import from_pdf_vector  # noqa: E402
 from planlens.ir.render import ir_to_page_point  # noqa: E402
@@ -41,7 +41,7 @@ def test_text_direction_is_recorded_in_the_ir_frame(gt):
 def test_text_position_maps_back_to_its_displayed_origin(gt):
     ir = from_pdf_vector(content=gt.pdf, page=gt.sheet_page)
     item = _one(ir, gt.sheet_text_upright)
-    src = fitz.open("pdf", gt.pdf)
+    src = pymupdf.open("pdf", gt.pdf)
     x, y = ir_to_page_point(item.position[0], item.position[1],
                             src[gt.sheet_page])
     src.close()
@@ -82,7 +82,7 @@ def test_cad_hidden_text_is_opt_in(gt):
 
 
 def test_unrotated_page_origins_are_unchanged():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page()
     page.insert_text((100, 200), "Sand", fontsize=12)
     page.insert_text((300, 400), "Clay", fontsize=12, rotate=90)

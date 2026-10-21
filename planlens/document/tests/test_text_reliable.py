@@ -17,7 +17,7 @@ others claim anything about it.
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document                      # noqa: E402
 from planlens.document.advice import page_advice                 # noqa: E402
@@ -64,7 +64,7 @@ def test_a_stray_undecodable_character_does_not_condemn_the_page():
 
 def test_a_page_with_no_text_at_all_is_reliable_by_default():
     """0 of 0 is not a fraction, and a blank page is not a broken one."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     doc.new_page(width=LETTER[0], height=LETTER[1])
     data = doc.tobytes()
     doc.close()

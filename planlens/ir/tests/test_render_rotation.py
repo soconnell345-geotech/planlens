@@ -13,16 +13,16 @@ import io
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.ir import from_pdf_vector
 from planlens.ir.render import ir_to_page_point, render_region
 
 
 def _make_pdf(rotation):
-    doc = fitz.open()
+    doc = pymupdf.open()
     pg = doc.new_page(width=612, height=792)
-    pg.draw_rect(fitz.Rect(100, 200, 120, 220), color=(0, 0, 0),
+    pg.draw_rect(pymupdf.Rect(100, 200, 120, 220), color=(0, 0, 0),
                  fill=(0, 0, 0))
     pg.set_rotation(rotation)
     data = doc.tobytes()
@@ -39,7 +39,7 @@ def _square_ir_bbox(ir):
 
 
 def _dark_fraction(png_bytes):
-    pix = fitz.Pixmap(png_bytes)
+    pix = pymupdf.Pixmap(png_bytes)
     n, step = pix.n, max(1, (pix.width * pix.height) // 5000)
     samples = pix.samples
     dark = total = 0
@@ -78,7 +78,7 @@ def test_naive_yflip_would_miss_on_rotated_pages(rotation):
     ir = from_pdf_vector(content=data)
     x0, y0, x1, y1 = _square_ir_bbox(ir)
 
-    doc = fitz.open(stream=data, filetype="pdf")
+    doc = pymupdf.open(stream=data, filetype="pdf")
     h = doc[0].rect.height
     doc.close()
     naive = (x0, h - y1, x1, h - y0)
@@ -106,7 +106,7 @@ def test_ir_frame_marks_land_on_target(rotation):
 
     png = render_region(content=data, bbox=(x0, y0, x1, y1), dpi=144,
                         pad_frac=1.0, marks=[(cx, cy, "1")], frame="ir")
-    pix = fitz.Pixmap(png)
+    pix = pymupdf.Pixmap(png)
     n = pix.n
     reds = 0
     for i in range(pix.width * pix.height):
@@ -120,7 +120,7 @@ def test_ir_to_page_point_matches_probe():
     """Pin the empirically probed mapping for /Rotate 270: unrotated
     (100, 200) -> IR (100, 412) -> page (200, 512)."""
     data = _make_pdf(270)
-    doc = fitz.open(stream=data, filetype="pdf")
+    doc = pymupdf.open(stream=data, filetype="pdf")
     x, y = ir_to_page_point(100.0, 412.0, doc[0])
     doc.close()
     assert abs(x - 200.0) < 1e-6 and abs(y - 512.0) < 1e-6

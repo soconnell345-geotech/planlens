@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document.annotations import extract_annotations  # noqa: E402
 
@@ -26,15 +26,15 @@ LATE = "D:20261009141000-04'00'"
 
 def _callout(page, created):
     a = page.add_freetext_annot(
-        fitz.Rect(400, 100, 560, 140), "Confirm the pile tip.", fontsize=10,
-        callout=(fitz.Point(*TIP), fitz.Point(400, 140)),
-        line_end=fitz.PDF_ANNOT_LE_OPEN_ARROW)
+        pymupdf.Rect(400, 100, 560, 140), "Confirm the pile tip.", fontsize=10,
+        callout=(pymupdf.Point(*TIP), pymupdf.Point(400, 140)),
+        line_end=pymupdf.PDF_ANNOT_LE_OPEN_ARROW)
     a.set_info(title="Reviewer A", creationDate=created)
     a.update()
 
 
 def _box(page, created):
-    a = page.add_rect_annot(fitz.Rect(*BOX))
+    a = page.add_rect_annot(pymupdf.Rect(*BOX))
     a.set_info(title="Alice via App (AI draft)", content="pile tip",
                creationDate=created)
     a.update()
@@ -42,13 +42,13 @@ def _box(page, created):
 
 def _markups(*draw):
     """The page's markups after calling each ``draw(page)`` in turn."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=612, height=792)
     for d in draw:
         d(page)
     data = doc.tobytes()
     doc.close()
-    doc = fitz.open(stream=data, filetype="pdf")
+    doc = pymupdf.open(stream=data, filetype="pdf")
     try:
         markups, _cad = extract_annotations(doc[0], 0)
     finally:

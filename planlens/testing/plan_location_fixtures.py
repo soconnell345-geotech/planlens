@@ -94,11 +94,11 @@ class PlanLocationGT:
 def build_plan_location_sheet(rotation: int = 0,
                               north_deg: float = 207.0) -> PlanLocationGT:
     """The sheet, on a page displayed with ``/Rotate rotation``."""
-    import fitz
+    import pymupdf
     from planlens.document.frame import from_display_point
 
     W, H = 1224.0, 792.0                 # tabloid landscape, as viewed
-    doc = fitz.open()
+    doc = pymupdf.open()
     if rotation in (90, 270):
         page = doc.new_page(width=H, height=W)
     else:

@@ -311,14 +311,14 @@ def test_a_bare_ratio_is_in_metres_and_says_so():
 
 
 def test_the_stored_viewport_is_a_scale_and_the_identity_is_not():
-    import fitz
+    import pymupdf
     from planlens.document.scale import page_viewports
     from planlens.testing import (build_synthetic_scaled_sheet_pdf,
                                   build_synthetic_uncalibrated_sheet_pdf)
     for builder, expect in ((build_synthetic_scaled_sheet_pdf, True),
                             (build_synthetic_uncalibrated_sheet_pdf, False)):
         gt = builder()
-        doc = fitz.open(stream=gt.pdf, filetype="pdf")
+        doc = pymupdf.open(stream=gt.pdf, filetype="pdf")
         vps, _ = page_viewports(doc, doc[0], 0)
         sc = S.scale_from_viewport(vps[0])
         assert (sc is not None) is expect

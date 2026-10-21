@@ -10,7 +10,7 @@ precision at confidence 0, that is reported, not hidden.
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.ir import from_pdf_vector, queries
 from planlens.ir.tests.leader_fixtures import build_synthetic_leader_pdf

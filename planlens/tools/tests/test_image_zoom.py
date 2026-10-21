@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document.budget import BUDGETS  # noqa: E402
 from planlens.testing import build_synthetic_review_document  # noqa: E402
@@ -139,7 +139,7 @@ def test_host_render_bytes_use_the_toolkit_settings(kit, gt):
 
 
 def test_a_render_warns_when_its_lettering_is_too_small(gt, tmp_path):
-    import fitz as _fitz
+    import pymupdf as _fitz
     pdf = _fitz.open()
     page = pdf.new_page(width=1224, height=792)            # a half-size sheet
     for i in range(20):

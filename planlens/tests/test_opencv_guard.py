@@ -80,7 +80,7 @@ def test_find_like_searches_without_opencv_instead_of_dying(monkeypatch):
     """Where OpenCV cannot load, find_like uses its numpy matcher (it used to
     raise ImportError here, which on a FIPS host meant no find_like at all);
     OpenCV asked for by name still refuses with the reason."""
-    pytest.importorskip("fitz")
+    pytest.importorskip("pymupdf")
     from planlens.document import Document
     from planlens.document import findlike
     from planlens.testing.tag_fixtures import build_synthetic_tag_set

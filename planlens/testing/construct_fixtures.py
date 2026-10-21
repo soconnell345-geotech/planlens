@@ -35,7 +35,7 @@ def _plant_dimension(page, p_a: Point, p_b: Point, value: str,
     """A full dimension at any orientation: extension lines perpendicular to
     the shaft at both ends, arrowheads at both ends pointing outward, and the
     value text near the shaft midpoint."""
-    import fitz  # noqa: F401  (fixture helpers need fitz loaded)
+    import pymupdf  # noqa: F401  (fixture helpers need pymupdf loaded)
 
     axis = _unit(p_b[0] - p_a[0], p_b[1] - p_a[1])
     perp = (-axis[1], axis[0])
@@ -64,9 +64,9 @@ def build_synthetic_dimension_pdf(tmp_path, include_decoys: bool = True
     """A sheet with 2 genuine dimensions (one horizontal, one vertical) plus
     decoys: a TRUE leader (single arrowhead — must NOT surface as a
     dimension) and stray unlabelled lines."""
-    import fitz
+    import pymupdf
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
 
     dims = [
@@ -103,39 +103,39 @@ def build_synthetic_title_block_pdf(tmp_path) -> Tuple[str, Dict[str, Any]]:
     """A bordered sheet with a subdivided title block in the bottom-right
     corner, body content elsewhere, and a mid-sheet labelled box decoy (a
     schedule/detail box that must NOT win over the corner block)."""
-    import fitz
+    import pymupdf
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
 
     # Sheet border (near-page-size rectangle — must be ignored as "the sheet").
-    page.draw_rect(fitz.Rect(20, 20, PAGE_WIDTH - 20, PAGE_HEIGHT - 20),
+    page.draw_rect(pymupdf.Rect(20, 20, PAGE_WIDTH - 20, PAGE_HEIGHT - 20),
                    color=(0, 0, 0))
 
     # Title block: outer rect + 3 cells, bottom-right (PDF top-left coords:
     # large y = visual bottom).
     tb = (620, 560, PAGE_WIDTH - 20, PAGE_HEIGHT - 20)
-    page.draw_rect(fitz.Rect(*tb), color=(0, 0, 0))
-    page.draw_rect(fitz.Rect(620, 560, 880, 600), color=(0, 0, 0))
-    page.draw_rect(fitz.Rect(620, 600, 880, 640), color=(0, 0, 0))
-    page.draw_rect(fitz.Rect(620, 640, 750, 680), color=(0, 0, 0))
+    page.draw_rect(pymupdf.Rect(*tb), color=(0, 0, 0))
+    page.draw_rect(pymupdf.Rect(620, 560, 880, 600), color=(0, 0, 0))
+    page.draw_rect(pymupdf.Rect(620, 600, 880, 640), color=(0, 0, 0))
+    page.draw_rect(pymupdf.Rect(620, 640, 750, 680), color=(0, 0, 0))
     tb_texts = ["ACME ENGINEERING", "RETAINING WALL PLAN", "SHEET S-101",
                 "REV 2", "SCALE: 1\"=20'"]
     for i, t in enumerate(tb_texts):
-        page.insert_text(fitz.Point(630, 578 + i * 20), t, fontsize=8)
+        page.insert_text(pymupdf.Point(630, 578 + i * 20), t, fontsize=8)
 
     # Body content: lines + labels away from the corner.
     for a, b in [((100, 150), (500, 150)), ((100, 300), (500, 320)),
                  ((150, 100), (150, 400))]:
         s = page.new_shape()
         _draw_shaft(s, [a, b])
-    page.insert_text(fitz.Point(250, 90), "PLAN VIEW", fontsize=10)
-    page.insert_text(fitz.Point(520, 250), "EL. 412.5", fontsize=8)
+    page.insert_text(pymupdf.Point(250, 90), "PLAN VIEW", fontsize=10)
+    page.insert_text(pymupdf.Point(520, 250), "EL. 412.5", fontsize=8)
 
     # Mid-sheet labelled box (schedule) — rectangle with text, NOT at an edge.
-    page.draw_rect(fitz.Rect(300, 380, 520, 470), color=(0, 0, 0))
-    page.insert_text(fitz.Point(310, 400), "PILE SCHEDULE", fontsize=8)
-    page.insert_text(fitz.Point(310, 420), "P1  HP12x53", fontsize=8)
+    page.draw_rect(pymupdf.Rect(300, 380, 520, 470), color=(0, 0, 0))
+    page.insert_text(pymupdf.Point(310, 400), "PILE SCHEDULE", fontsize=8)
+    page.insert_text(pymupdf.Point(310, 420), "P1  HP12x53", fontsize=8)
 
     path = str(tmp_path / "title_block_sheet.pdf")
     doc.save(path)
@@ -160,39 +160,39 @@ def build_synthetic_bubble_pdf(tmp_path) -> Tuple[str, Dict[str, Any]]:
     split-circle detail callout) plus decoys: an oversized unlabelled circle
     (a tank/column in plan — bigger than any plausible bubble) and an
     unlabelled bubble-sized circle."""
-    import fitz
+    import pymupdf
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
 
     bubbles: List[Dict[str, Any]] = []
 
     # Keynote: circle + centered number.
-    page.draw_circle(fitz.Point(200, 200), 10, color=(0, 0, 0))
-    page.insert_text(fitz.Point(197, 204), "3", fontsize=9)
+    page.draw_circle(pymupdf.Point(200, 200), 10, color=(0, 0, 0))
+    page.insert_text(pymupdf.Point(197, 204), "3", fontsize=9)
     bubbles.append({"center": _to_ir(200, 200), "radius": 10,
                     "text": "3", "kind": "keynote"})
 
     # Grid bubble: circle + letter + a grid line ending on the ring.
-    page.draw_circle(fitz.Point(500, 80), 12, color=(0, 0, 0))
-    page.insert_text(fitz.Point(496, 84), "A", fontsize=9)
+    page.draw_circle(pymupdf.Point(500, 80), 12, color=(0, 0, 0))
+    page.insert_text(pymupdf.Point(496, 84), "A", fontsize=9)
     s = page.new_shape()
     _draw_shaft(s, [(500, 92), (500, 420)])
     bubbles.append({"center": _to_ir(500, 80), "radius": 12,
                     "text": "A", "kind": "grid_bubble"})
 
     # Detail callout: circle + horizontal chord through center + two labels.
-    page.draw_circle(fitz.Point(700, 500), 18, color=(0, 0, 0))
+    page.draw_circle(pymupdf.Point(700, 500), 18, color=(0, 0, 0))
     s = page.new_shape()
     _draw_shaft(s, [(682, 500), (718, 500)])
-    page.insert_text(fitz.Point(695, 496), "5", fontsize=9)
-    page.insert_text(fitz.Point(686, 514), "S-201", fontsize=7)
+    page.insert_text(pymupdf.Point(695, 496), "5", fontsize=9)
+    page.insert_text(pymupdf.Point(686, 514), "S-201", fontsize=7)
     bubbles.append({"center": _to_ir(700, 500), "radius": 18,
                     "text": "5", "kind": "detail_callout"})
 
     # Decoys.
-    page.draw_circle(fitz.Point(300, 450), 60, color=(0, 0, 0))   # oversized
-    page.draw_circle(fitz.Point(80, 600), 10, color=(0, 0, 0))    # unlabelled
+    page.draw_circle(pymupdf.Point(300, 450), 60, color=(0, 0, 0))   # oversized
+    page.draw_circle(pymupdf.Point(80, 600), 10, color=(0, 0, 0))    # unlabelled
 
     path = str(tmp_path / "bubble_sheet.pdf")
     doc.save(path)
@@ -213,7 +213,7 @@ def _plant_cloud(page, x0: float, y0: float, x1: float, y1: float,
                  scallop: float = 40.0, bump: float = 12.0) -> None:
     """A scalloped revision cloud around a rectangle, one bezier per bump
     bulging OUTWARD (matches how CAD plots a cloud to PDF)."""
-    import fitz
+    import pymupdf
 
     # Boundary sample points, clockwise, roughly `scallop` apart.
     pts: List[Point] = []
@@ -233,7 +233,7 @@ def _plant_cloud(page, x0: float, y0: float, x1: float, y1: float,
         # Outward = away from the cloud center.
         ox, oy = _unit(mx - cx, my - cy)
         ctrl = (mx + ox * bump, my + oy * bump)
-        sh.draw_curve(fitz.Point(*a), fitz.Point(*ctrl), fitz.Point(*b))
+        sh.draw_curve(pymupdf.Point(*a), pymupdf.Point(*ctrl), pymupdf.Point(*b))
     sh.finish(color=(0, 0, 0), closePath=False)
     sh.commit()
 
@@ -248,9 +248,9 @@ def build_synthetic_cloud_pdf(tmp_path) -> Tuple[str, Dict[str, Any]]:
     (labelled triangle, no shaft) plus decoys: a plain rectangle, a smooth
     circle, and a TRUE leader (whose arrowhead has a shaft and must NOT be
     proposed as a delta)."""
-    import fitz
+    import pymupdf
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
 
     cloud_pdf = (250, 150, 470, 290)
@@ -260,11 +260,11 @@ def build_synthetic_cloud_pdf(tmp_path) -> Tuple[str, Dict[str, Any]]:
     tri = ((520, 420), (508, 442), (532, 442))
     sh = page.new_shape()
     _draw_filled_triangle(sh, *tri)
-    page.insert_text(fitz.Point(516, 438), "2", fontsize=8)
+    page.insert_text(pymupdf.Point(516, 438), "2", fontsize=8)
 
     # Decoys.
-    page.draw_rect(fitz.Rect(100, 500, 200, 560), color=(0, 0, 0))
-    page.draw_circle(fitz.Point(650, 200), 15, color=(0, 0, 0))
+    page.draw_rect(pymupdf.Rect(100, 500, 200, 560), color=(0, 0, 0))
+    page.draw_circle(pymupdf.Point(650, 200), 15, color=(0, 0, 0))
     shape = page.new_shape()
     _plant_leader(page, shape, (700, 600), (760, 560), (820, 590), "NOTE 1")
 
@@ -294,9 +294,9 @@ def build_synthetic_drawing_set_pdf(tmp_path) -> Tuple[str, Dict[str, Any]]:
     one labelled 'TYP'; page 1 with one 'W1' leader and a dimension; page 2
     with title-block-ish corner text only. Ground truth = per-page 'W1'
     counts, for the find-across-set aggregation scenario."""
-    import fitz
+    import pymupdf
 
-    doc = fitz.open()
+    doc = pymupdf.open()
 
     # Page 0: two W1 leaders + one TYP.
     page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
@@ -317,7 +317,7 @@ def build_synthetic_drawing_set_pdf(tmp_path) -> Tuple[str, Dict[str, Any]]:
     # Page 2: corner text only.
     page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
     for i, t in enumerate(["SHEET S-103", "REV 1", "AS NOTED", "ACME"]):
-        page.insert_text(fitz.Point(760, 600 + i * 18), t, fontsize=8)
+        page.insert_text(pymupdf.Point(760, 600 + i * 18), t, fontsize=8)
 
     path = str(tmp_path / "drawing_set.pdf")
     doc.save(path)

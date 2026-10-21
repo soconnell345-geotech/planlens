@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document  # noqa: E402
 from planlens.document.frame import bbox_iou  # noqa: E402
@@ -178,7 +178,7 @@ def test_a_quote_across_a_line_break_highlights_both_lines(source, gt,
          "comment": "one sentence, two lines", "quote": quote},
     ], author=AI)
     assert report.n_written == 1
-    doc = fitz.open(out)
+    doc = pymupdf.open(out)
     try:
         annot = next(a for a in doc[gt.narrative_page].annots()
                      if (a.info or {}).get("title") == AI)
@@ -599,7 +599,7 @@ SPOT = (20.0, 590.0)
 def _rotated_sheet(rot, reads=0, lines=None):
     """A sheet shown 792 x 612 at /Rotate ``rot``, with lettering that reads
     ``reads`` degrees as shown (default: across), at displayed spots."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     w, h = (792, 612) if rot in (0, 180) else (612, 792)
     page = doc.new_page(width=w, height=h)
     page.set_rotation(rot)
@@ -638,7 +638,7 @@ def _overlap_share(a, b):
 def _label_directions(path):
     """{label text: the way it reads as shown} — the file baked so each
     label's appearance becomes page text whose direction PyMuPDF reports."""
-    doc = fitz.open(path)
+    doc = pymupdf.open(path)
     doc.bake()
     out = {}
     for page in doc:
@@ -654,7 +654,7 @@ def _label_directions(path):
 
 @pytest.mark.parametrize("rot", [0, 90, 180, 270])
 def test_the_page_box_is_the_page_as_shown(rot):
-    doc = fitz.open(stream=_rotated_sheet(rot), filetype="pdf")
+    doc = pymupdf.open(stream=_rotated_sheet(rot), filetype="pdf")
     assert _page_box(doc[0]) == SHOWN
     doc.close()
 
@@ -798,7 +798,7 @@ def test_a_label_goes_where_it_covers_no_lettering(tmp_path, rot):
         {"kind": "box", "page": 0, "comment": "c", "label": "Sheet 50.03",
          "bbox": list(box)}], author=AI)
     row = report.written[0]
-    doc = fitz.open(out)
+    doc = pymupdf.open(out)
     page = doc[0]
     first = _label_box("Sheet 50.03", row.bbox, SHOWN)
     assert _ink_fraction(_ink_grid(page, first), first) > 0.05  # busy there

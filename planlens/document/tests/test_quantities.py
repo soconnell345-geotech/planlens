@@ -9,7 +9,7 @@ a capability removed, not a test tidied.
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document  # noqa: E402
 from planlens.document.model import SOURCE_CAD_HIDDEN  # noqa: E402
@@ -187,9 +187,9 @@ PROSE = (
 
 @pytest.fixture(scope="module")
 def prose_pdf():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=612, height=792)
-    page.insert_textbox(fitz.Rect(72, 90, 540, 400), PROSE, fontsize=11,
+    page.insert_textbox(pymupdf.Rect(72, 90, 540, 400), PROSE, fontsize=11,
                         fontname="helv")
     out = doc.tobytes()
     doc.close()
@@ -257,9 +257,9 @@ def test_bbox_is_in_the_displayed_frame_on_a_rotated_page():
 
 
 def test_hidden_cad_text_quantities_say_so():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=1224, height=792)
-    annot = page.add_rect_annot(fitz.Rect(72, 100, 400, 120))
+    annot = page.add_rect_annot(pymupdf.Rect(72, 100, 400, 120))
     annot.set_info(title="AutoCAD SHX Text", content="TOP OF WALL EL. 1684")
     annot.set_border(width=0)
     annot.update(opacity=0)
@@ -272,9 +272,9 @@ def test_hidden_cad_text_quantities_say_so():
 
 
 def test_a_reviewers_comment_is_read_for_quantities():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=612, height=792)
-    note = page.add_freetext_annot(fitz.Rect(100, 100, 400, 160),
+    note = page.add_freetext_annot(pymupdf.Rect(100, 100, 400, 160),
                                    "Revise the embedment to 6.5 m.",
                                    fontsize=11)
     note.set_info(title="Reviewer Q", subject="Callout")

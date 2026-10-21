@@ -11,7 +11,7 @@ two facts changed nothing about which entities the leg emits.
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.ir import DrawingIR, from_pdf_vector, queries as q
 from planlens.ir.results import Circle, Line, Polyline, TextItem
@@ -29,28 +29,28 @@ def _scene(tmp_path, name, fill: bool = True) -> str:
     the symbol and the triangle as outlines, which is what makes "fill adds a
     field, not an entity" testable by comparison.
     """
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=400, height=300)
     existing = doc.add_ocg("EXISTING", on=True)
     proposed = doc.add_ocg("PROPOSED", on=True)
     hidden = doc.add_ocg("SUPERSEDED", on=False)
 
-    page.draw_line(fitz.Point(20, 20), fitz.Point(120, 20), color=BLACK,
+    page.draw_line(pymupdf.Point(20, 20), pymupdf.Point(120, 20), color=BLACK,
                    oc=existing)
     sh = page.new_shape()
-    sh.draw_circle(fitz.Point(60, 80), 6)
+    sh.draw_circle(pymupdf.Point(60, 80), 6)
     sh.finish(color=BLACK, fill=BLACK if fill else None, oc=existing)
     sh.commit()
 
     sh = page.new_shape()
-    sh.draw_polyline([fitz.Point(200, 40), fitz.Point(220, 50),
-                      fitz.Point(200, 60)])
+    sh.draw_polyline([pymupdf.Point(200, 40), pymupdf.Point(220, 50),
+                      pymupdf.Point(200, 60)])
     sh.finish(color=BLUE, fill=BLUE if fill else None, closePath=True,
               oc=proposed)
     sh.commit()
 
-    page.draw_rect(fitz.Rect(10, 10, 390, 290), color=(0.5, 0.5, 0.5))
-    page.draw_line(fitz.Point(300, 200), fitz.Point(380, 200), color=(1, 0, 0),
+    page.draw_rect(pymupdf.Rect(10, 10, 390, 290), color=(0.5, 0.5, 0.5))
+    page.draw_line(pymupdf.Point(300, 200), pymupdf.Point(380, 200), color=(1, 0, 0),
                    oc=hidden)
 
     path = tmp_path / name
@@ -61,11 +61,11 @@ def _scene(tmp_path, name, fill: bool = True) -> str:
 
 def _zero_layer_pdf(tmp_path) -> str:
     """One path on a group genuinely NAMED "0" (AutoCAD's default layer)."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=200, height=100)
-    page.draw_line(fitz.Point(10, 10), fitz.Point(90, 10), color=BLACK,
+    page.draw_line(pymupdf.Point(10, 10), pymupdf.Point(90, 10), color=BLACK,
                    oc=doc.add_ocg("0", on=True))
-    page.draw_line(fitz.Point(10, 40), fitz.Point(90, 40), color=BLACK)
+    page.draw_line(pymupdf.Point(10, 40), pymupdf.Point(90, 40), color=BLACK)
     path = tmp_path / "zero_layer.pdf"
     doc.save(str(path))
     doc.close()
@@ -115,9 +115,9 @@ class TestLayers:
                                        "SUPERSEDED": False}
 
     def test_no_ocgs_reports_zero_rather_than_silence(self, tmp_path):
-        doc = fitz.open()
+        doc = pymupdf.open()
         doc.new_page(width=200, height=100).draw_line(
-            fitz.Point(10, 10), fitz.Point(90, 10), color=BLACK)
+            pymupdf.Point(10, 10), pymupdf.Point(90, 10), color=BLACK)
         path = tmp_path / "plain.pdf"
         doc.save(str(path))
         doc.close()

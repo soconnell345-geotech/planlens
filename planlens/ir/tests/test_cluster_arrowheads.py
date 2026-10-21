@@ -12,7 +12,7 @@ import math
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.ir import from_pdf_vector, queries as q
 from planlens.ir.tests.leader_fixtures import (
@@ -35,7 +35,7 @@ def build_cluster_arrowhead_pdf(tmp_path, include_text: bool = True):
     ~150 pt, so the default max_arrowhead_size lands ~35-40 pt and the
     cluster core radius ~15 pt.
     """
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
 
     # --- Leader 1: dot-cluster arrowhead (micro-dot fill style). ---------

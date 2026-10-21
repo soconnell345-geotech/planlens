@@ -145,7 +145,7 @@ def render_page_with_grid(
     Returns PNG bytes. Requires PyMuPDF.
     """
     try:
-        import fitz
+        import pymupdf
     except ImportError:
         raise ImportError("PyMuPDF is required for grid overlay. "
                           "Install with: pip install PyMuPDF>=1.23")
@@ -153,9 +153,9 @@ def render_page_with_grid(
         raise ValueError(f"grid_spacing must be positive, got {grid_spacing}")
 
     if content is not None:
-        doc = fitz.open(stream=content, filetype="pdf")
+        doc = pymupdf.open(stream=content, filetype="pdf")
     elif filepath is not None:
-        doc = fitz.open(filepath)
+        doc = pymupdf.open(filepath)
     else:
         raise ValueError("Provide either filepath or content")
     if page >= len(doc):
@@ -183,7 +183,7 @@ def render_page_with_grid(
         z += grid_spacing
 
     zoom = dpi / 72.0
-    pix = pg.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+    pix = pg.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom))
     png_bytes = pix.tobytes("png")
     doc.close()                     # modifications discarded (never saved)
     return png_bytes
@@ -227,7 +227,7 @@ def _render_pdf_page(
 ) -> bytes:
     """Render a PDF page to PNG bytes using PyMuPDF."""
     try:
-        import fitz
+        import pymupdf
     except ImportError:
         raise ImportError(
             "PyMuPDF is required for PDF rendering. "
@@ -235,9 +235,9 @@ def _render_pdf_page(
         )
 
     if content is not None:
-        doc = fitz.open(stream=content, filetype="pdf")
+        doc = pymupdf.open(stream=content, filetype="pdf")
     else:
-        doc = fitz.open(filepath)
+        doc = pymupdf.open(filepath)
 
     if page >= len(doc):
         doc.close()
@@ -245,7 +245,7 @@ def _render_pdf_page(
 
     pg = doc[page]
     zoom = dpi / 72.0
-    mat = fitz.Matrix(zoom, zoom)
+    mat = pymupdf.Matrix(zoom, zoom)
     pix = pg.get_pixmap(matrix=mat)
     png_bytes = pix.tobytes("png")
     doc.close()

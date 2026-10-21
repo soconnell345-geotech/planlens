@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import (  # noqa: E402
     SOURCE_CAD_HIDDEN, open_document, parse_pages,
@@ -93,9 +93,9 @@ def test_upright_text_on_rotated_sheet(doc, gt):
 def test_reported_box_holds_the_rendered_ink(doc, gt):
     page = doc.page(gt.sheet_page, tables=False)
     x0, y0, x1, y1 = _line(page, gt.sheet_text_upright).bbox
-    src = fitz.open("pdf", gt.pdf)
-    pix = src[gt.sheet_page].get_pixmap(dpi=72, colorspace=fitz.csGRAY,
-                                        clip=fitz.Rect(x0, y0, x1, y1))
+    src = pymupdf.open("pdf", gt.pdf)
+    pix = src[gt.sheet_page].get_pixmap(dpi=72, colorspace=pymupdf.csGRAY,
+                                        clip=pymupdf.Rect(x0, y0, x1, y1))
     dark = sum(1 for v in pix.samples if v < 128)
     src.close()
     assert dark >= 30, f"only {dark} dark pixels inside the reported box"
@@ -260,7 +260,7 @@ def test_text_has_page_headers(doc, gt):
 
 
 def test_ir_frame_round_trip_on_rotated_page(gt):
-    src = fitz.open("pdf", gt.pdf)
+    src = pymupdf.open("pdf", gt.pdf)
     page = src[gt.sheet_page]
     for xd, yd in [(0.0, 0.0), (300.0, 400.0), (2500.0, 1700.0)]:
         xi, yi = to_ir_point(page, xd, yd)
@@ -275,13 +275,13 @@ def test_ir_frame_round_trip_on_rotated_page(gt):
 
 def _layered_sheet(tmp_path, n_extra: int = 0):
     """A sheet whose line-work sits on named optional-content groups."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=400, height=300)
     for i, name in enumerate(["EXISTING", "PROPOSED"] + [f"L{n}" for n in
                                                          range(n_extra)]):
-        page.draw_line(fitz.Point(20, 20 + 5 * i), fitz.Point(120, 20 + 5 * i),
+        page.draw_line(pymupdf.Point(20, 20 + 5 * i), pymupdf.Point(120, 20 + 5 * i),
                        color=(0, 0, 0), oc=doc.add_ocg(name, on=True))
-    page.draw_rect(fitz.Rect(10, 10, 390, 290), color=(0, 0, 0))
+    page.draw_rect(pymupdf.Rect(10, 10, 390, 290), color=(0, 0, 0))
     path = tmp_path / "layered.pdf"
     doc.save(str(path))
     doc.close()

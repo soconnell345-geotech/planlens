@@ -74,15 +74,15 @@ class LogGridGT:
 
 def _turned(page, text: str, x: float, y_bottom: float, size: float) -> None:
     """A header turned to read bottom-to-top, its stripe starting at ``x``."""
-    import fitz
-    page.insert_text(fitz.Point(x, y_bottom), text, fontsize=size,
+    import pymupdf
+    page.insert_text(pymupdf.Point(x, y_bottom), text, fontsize=size,
                      rotate=90)
 
 
 def _draw_form(page, unit: str, ruler_step: float, ticks, per_unit: float,
                contacts, layers, samples, index_tests, ruler: bool = True,
                segmented: bool = False) -> None:
-    import fitz
+    import pymupdf
 
     # -- the fields above the form ----------------------------------------
     page.insert_text((X_LEFT + 2, 40), "BORING LOG NO. B-12", fontsize=13,
@@ -185,8 +185,8 @@ def _draw_form(page, unit: str, ruler_step: float, ticks, per_unit: float,
 def _build(unit: str, per_unit: float, ticks, contacts, layers, samples,
            index_tests, ruler: bool = True, overprint: bool = False,
            title_block: bool = False, segmented: bool = False) -> LogGridGT:
-    import fitz
-    doc = fitz.open()
+    import pymupdf
+    doc = pymupdf.open()
     page = doc.new_page(width=LETTER[0], height=LETTER[1])
     step = ticks[1] - ticks[0]
     _draw_form(page, unit, step, ticks, per_unit, contacts, layers, samples,

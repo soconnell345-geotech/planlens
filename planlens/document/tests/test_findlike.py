@@ -18,7 +18,7 @@ import math
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 np = pytest.importorskip("numpy")
 
 from planlens import opencv  # noqa: E402
@@ -159,9 +159,9 @@ def test_an_empty_box_is_refused(gt, result, backend):
 
 
 def test_a_box_inside_solid_ink_is_refused():
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=200, height=200)
-    page.draw_rect(fitz.Rect(20, 20, 120, 120), color=(0, 0, 0), fill=(0, 0, 0))
+    page.draw_rect(pymupdf.Rect(20, 20, 120, 120), color=(0, 0, 0), fill=(0, 0, 0))
     d = Document(content=doc.tobytes())
     doc.close()
     try:
@@ -179,7 +179,7 @@ def test_contact_sheets_are_numbered_in_hit_order(gt, result, backend):
     assert sheets[0][1][:3] == [1, 2, 3]
     assert sheets[-1][1][-1] == len(cand)
     png, _ = sheets[0]
-    pix = fitz.Pixmap(png)
+    pix = pymupdf.Pixmap(png)
     assert pix.width == 4 * 460
     assert pix.height == 5 * (190 + 30)
 
@@ -359,7 +359,7 @@ def test_the_numpy_path_never_loads_opencv(gt, no_opencv, monkeypatch):
         res = d.find_like(0, gt.example_bbox, pages="0", scales=(0.5, 1.0, 1.5))
         assert res["backend"] == "numpy" and res["counts"]["callout"] >= 5
         sheets = d.like_sheets(res["hits"][:3])
-        assert fitz.Pixmap(sheets[0][0]).width == 4 * 460
+        assert pymupdf.Pixmap(sheets[0][0]).width == 4 * 460
     finally:
         d.close()
 
@@ -428,9 +428,9 @@ def test_a_clean_example_is_unchanged(gt):
 
 def _crossed_mark(line=True):
     """A small square mark, and (``line``) a long rule straight through it."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     page = doc.new_page(width=300, height=200)
-    page.draw_rect(fitz.Rect(100, 90, 112, 102), color=(0, 0, 0), width=1.0)
+    page.draw_rect(pymupdf.Rect(100, 90, 112, 102), color=(0, 0, 0), width=1.0)
     page.draw_line((106, 93), (106, 99), color=(0, 0, 0), width=1.0)
     if line:
         page.draw_line((40, 96), (260, 96), color=(0, 0, 0), width=1.5)
