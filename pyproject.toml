@@ -26,7 +26,12 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-    "numpy>=2.0",
+    # 1.26, not 2.0 (the app's BACKLOG INF-53): Foundry's transforms repos
+    # hold numpy at 1.26.4 (the platform's pyspark needs numpy < 2). planlens
+    # uses no name numpy 2 added, and the full suite passes on 1.26.4 with
+    # OpenCV 4.11.0.86 (4.12 on need numpy 2; the app's
+    # constraints/foundry-numpy126.txt holds it there).
+    "numpy>=1.26",
     "ezdxf>=1.4",
     # 2.x reads the same as 1.x through planlens.pymupdf_settings (the app's
     # BACKLOG INF-17): 2.0 imports pymupdf4llm, which turns the glyph-box
