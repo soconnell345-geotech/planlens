@@ -1779,11 +1779,37 @@ _ITEM_ROLE_KIND = {
 }
 
 
+#: Words that head a number in a letterhead: a telephone or fax number
+#: ("Tel.", "Tél:", "Fax", "Phone", "Tlf") or a post-office box ("P.O. Box
+#: 555"). The title text has its accents and punctuation folded away, so
+#: "Tél: 55 ..." reads "TEL 55 ...", the shape of an exploration id; such a
+#: match is the firm's address, never a hole.
+_LETTERHEAD_WORDS = frozenset({"TEL", "TELF", "TLF", "TFNO", "FAX", "PHONE",
+                               "BOX"})
+#: A top-band line holding a telephone or fax word before a number: the
+#: whole line is the letterhead (box, city, telephone), and no fragment of
+#: it is an exploration id. "Box" alone does not mark one: a log's top band
+#: may print "BH-5 CORE BOX 1".
+_RE_LETTERHEAD_LINE = re.compile(
+    r"(?<![a-z0-9])(?:"
+    + "|".join(sorted(w.lower() for w in _LETTERHEAD_WORDS - {"BOX"}))
+    + r") \d")
+
+
 def _exploration_id(f: PageFacts) -> Optional[str]:
-    """The boring or pit id printed in the page's title block."""
+    """The boring or pit id printed in the page's title block, never a part
+    of a letterhead's address line (:data:`_LETTERHEAD_WORDS`): the top-band
+    lines that hold one are taken out first, and a match headed by one of
+    those words is skipped wherever it stands."""
+    letterhead = [ln.strip() for ln in f.top_lines
+                  if _RE_LETTERHEAD_LINE.search(" " + ln.strip() + " ")]
     for text in (f.title, f.top):
+        for ln in letterhead:
+            text = text.replace(" " + ln + " ", " ")
         for m in _RE_EXPLORATION_ID.finditer(text.upper()):
             tok = m.group(1).replace(" ", "-").replace("–", "-")
+            if re.match(r"[A-Z]+", tok).group(0) in _LETTERHEAD_WORDS:
+                continue
             if any(ch.isdigit() for ch in tok):
                 return tok
     return None
