@@ -869,7 +869,9 @@ def _single_number(text: str) -> Optional[float]:
     is not tolerated but READ: it is a minus sign, and a column of elevations
     below datum reads "-2.5, -4.0, -5.5". Stripping it turned that column into
     a rising series, which let it be chosen as the depth ruler over the scale
-    the page actually prints.
+    the page actually prints. A numeral with a tick on BOTH sides ("-2-") is
+    read here as a minus number too; a band of them is read as the scale
+    prints it by :func:`_scale_reading`.
     """
     token = str(text or "").strip().rstrip("–—-").strip()
     if token[:1] in _MINUS and token[1:2] and token[1:2] in "0123456789.":
@@ -880,6 +882,42 @@ def _single_number(text: str) -> Optional[float]:
         return float(token)
     except ValueError:          # pragma: no cover
         return None
+
+
+def _ticks_kept(ticks: Sequence[Tuple[float, float]], rising: bool) -> int:
+    """How many ticks a rising (or a falling) fit keeps; 0 when none fits."""
+    fitted = _fit_ruler(ticks, rising)
+    return len(fitted[0]) if fitted is not None else 0
+
+
+def _scale_reading(ticks: List[Tuple[float, float]], texts: Sequence[str],
+                   names: Sequence[str] = ()) -> List[Tuple[float, float]]:
+    """A band of lone numbers as a scale prints them (PL-35).
+
+    A ruler that prints each numeral between two short ticks reaches optical
+    text as "-1-", "-2-", and :func:`_single_number` reads the leading tick
+    as a minus sign, so the band does not rise down the page. Where the
+    band holds such labels and does not rise as read, they are read unsigned
+    when that makes at least as long a straight run. A band that already
+    rises as read is left alone. Elevations crossing datum with a tick after
+    each label ("1-", "0-", "-1-") stay signed: read unsigned they fold back
+    on themselves and fit fewer ticks. A scale wholly below datum with a
+    tick after each label reads exactly like such a ruler; it is told apart
+    only by its header (a column the header calls elevation, and not depth,
+    is left as read) or by another band that rises as read, which
+    :func:`_best_rising_run` and the raster leg prefer.
+    """
+    if "elevation" in names and "depth" not in names:
+        return ticks
+    from planlens.document.scalefinder import tick_flanked
+    alt = [(y, -v) if v < 0 and tick_flanked(t) else (y, v)
+           for (y, v), t in zip(ticks, texts)]
+    if alt == list(ticks) or _ticks_kept(ticks, True):
+        return ticks
+    kept_alt = max(_ticks_kept(alt, True), _ticks_kept(alt, False))
+    if kept_alt and kept_alt >= _ticks_kept(ticks, False):
+        return alt
+    return ticks
 
 
 def _snap_rotation(rot: Optional[float]) -> Optional[int]:
@@ -1321,25 +1359,34 @@ def _fit_ruler(ticks: Sequence[Tuple[float, float]], rising: bool):
 
 
 def _tick_clusters(lines: Sequence[TextLine]
-                   ) -> List[Tuple[List[Tuple[float, float]], float, float]]:
-    """Lone numbers grouped into the vertical bands they stand in."""
+                   ) -> List[Tuple[List[Tuple[float, float]], float, float,
+                                   bool]]:
+    """Lone numbers grouped into the vertical bands they stand in, each with
+    whether it is read as printed (False where :func:`_scale_reading` read
+    its tick-flanked labels unsigned)."""
     marks = []
     for ln in lines:
         value = _single_number(ln.text)
         if value is None:
             continue
         b = ln.bbox
-        marks.append((b[0], b[2], (b[1] + b[3]) / 2.0, b[1], value))
-    marks.sort()
-    groups: List[List[Tuple[float, float, float, float, float]]] = []
+        marks.append((b[0], b[2], (b[1] + b[3]) / 2.0, b[1], value, ln.text))
+    marks.sort(key=lambda m: m[:5])
+    groups: List[List[Tuple[float, float, float, float, float, str]]] = []
     for m in marks:
         if groups and m[0] <= max(g[1] for g in groups[-1]) + 1.0:
             groups[-1].append(m)
         else:
             groups.append([m])
-    return [([(m[2], m[4]) for m in g],
-             min(m[0] for m in g), max(m[1] for m in g))
-            for g in groups if len(g) >= MIN_RULER_TICKS]
+    out = []
+    for g in groups:
+        if len(g) < MIN_RULER_TICKS:
+            continue
+        as_read = [(m[2], m[4]) for m in g]
+        ticks = _scale_reading(as_read, [m[5] for m in g])
+        out.append((ticks, min(m[0] for m in g), max(m[1] for m in g),
+                    ticks == as_read))
+    return out
 
 
 def _best_rising_run(lines: Sequence[TextLine]
@@ -1349,15 +1396,19 @@ def _best_rising_run(lines: Sequence[TextLine]
     Used only where the page is not ruled and there is no column to hang the
     search on: every band of lone numbers is fitted, the ones that do not
     make a straight rising line are dropped, and what is left is judged on
-    how many ticks it has and whether its steps are even.
+    how many ticks it has and whether its steps are even. Of two that score
+    the same, the one that rises as printed wins over one that rises only
+    with its tick-flanked labels read unsigned: a scale wholly below datum
+    with a tick after each label reads like such a ruler (PL-35).
     """
     best = None
-    for ticks, bx0, bx1 in _tick_clusters(lines):
+    for ticks, bx0, bx1, as_read in _tick_clusters(lines):
         fitted = _fit_ruler(ticks, rising=True)
         if fitted is None:
             continue
         kept, _slope, _intercept, _resid, _step, regular, _dropped = fitted
-        score = (1.5 if regular else 0.0) + min(len(kept), 20) / 10.0
+        score = ((1.5 if regular else 0.0) + min(len(kept), 20) / 10.0,
+                 as_read)
         if best is None or score > best[0]:
             best = (score, kept, bx0, bx1)
     return (best[1], best[2], best[3]) if best else None
@@ -1531,6 +1582,25 @@ def _refine_by_values(columns: List[Column],
             confidence=max(col.confidence, CONF_HEADER_VALUES),
             evidence=evidence))
     return out
+
+
+def _flanked_elevation_band(run: Tuple[List[Tuple[float, float]], float,
+                                       float],
+                            columns: Sequence[Column],
+                            lines: Sequence[TextLine]) -> bool:
+    """Whether a band found before the columns holds tick-flanked labels
+    ("-2-") and stands in a column the header calls elevation, not depth."""
+    from planlens.document.scalefinder import tick_flanked
+    _ticks, bx0, bx1 = run
+    centre = (bx0 + bx1) / 2.0
+    owner = next((c for c in columns if c.x0 - 0.5 <= centre < c.x1 + 0.5),
+                 None)
+    names = owner.names if owner else ()
+    if "elevation" not in names or "depth" in names:
+        return False
+    return any(tick_flanked(ln.text)
+               and bx0 - 0.5 <= (ln.bbox[0] + ln.bbox[2]) / 2.0 <= bx1 + 0.5
+               for ln in lines)
 
 
 def _ruler_from_run(page_index: int,
@@ -1778,14 +1848,23 @@ def _read_page(doc, index: int) -> _PageGrid:
     ticks_by_column: Dict[str, List[Tuple[float, float]]] = {}
     for cid, lns in by_column.items():
         picked: List[Tuple[float, float]] = []
+        texts: List[str] = []
         for ln in lns:
             value = _single_number(ln.text)
             if value is None:
                 continue
             picked.append(((ln.bbox[1] + ln.bbox[3]) / 2.0, value))
+            texts.append(ln.text)
         if len(picked) >= MIN_RULER_TICKS:
-            ticks_by_column[cid] = picked
+            ticks_by_column[cid] = _scale_reading(
+                picked, texts, col_by_id[cid].names)
     rising, falling = _ruler_candidates(ticks_by_column, col_by_id, index)
+    if provisional is not None and _flanked_elevation_band(
+            provisional, columns, lines):
+        # The band was found reading its tick-flanked labels unsigned, before
+        # any header was known; the header over it says elevation, so it is
+        # the elevation scale as printed and not a depth ruler (PL-35).
+        provisional = None
     if provisional is not None:
         # On an unruled page the ruler was found before the columns were, by
         # looking for the one band of numbers that steps evenly down the
@@ -2930,6 +3009,42 @@ def _body_from_rules(facts, sc) -> Tuple[float, float]:
     return lo_s, hi_s
 
 
+def _falling_scale(pg: "_PageGrid", sc, facts) -> None:
+    """A scale read from the pixels whose values fall down the page (PL-35).
+
+    Values that fall down the page are an elevation scale, never the depth
+    ruler. As with a falling column of numbers on a page with text
+    (:func:`_ruler_candidates`), it is claimed — as the page's ELEVATION
+    scale — only where the header over it says elevation; otherwise it is
+    left unused, and that is said.
+    """
+    none = "" if pg.ruler is not None else f" ({NO_RULER} in the pixels)"
+    if (sc.provenance or {}).get("header_names") == "elevation":
+        if pg.elevation_ruler is None:
+            desc = _description_column(pg)
+            x_ref = ((desc.x0 + desc.x1) / 2.0 if desc is not None
+                     else facts.width / 2.0)
+            label_x = (sum((b[0] + b[2]) / 2.0 for b in sc.label_boxes)
+                       / len(sc.label_boxes)) if sc.label_boxes else None
+            col = next((c for c in pg.columns if label_x is not None
+                        and c.x0 <= label_x <= c.x1), None)
+            pg.elevation_ruler = _ruler_from_scale(
+                sc, pg, x_ref, col.id if col else None, None)
+            pg.cells = [Cell(**{**c.__dict__, "elevation": sc.value_at(
+                sc.along((c.bbox[0] + c.bbox[2]) / 2.0,
+                         (c.bbox[1] + c.bbox[3]) / 2.0))})
+                for c in pg.cells]
+        pg.warnings.append(
+            f"page {pg.page}: the scale read from the pixels falls down the "
+            f"page and its header says elevation; it is the page's elevation "
+            f"scale, not its depth ruler" + none)
+        return
+    pg.warnings.append(
+        f"page {pg.page}: the scale read from the pixels falls down the page "
+        f"(an elevation scale) and no header over it says elevation, so it "
+        f"was not taken as the depth ruler" + none)
+
+
 def _raster_leg(doc, pg: "_PageGrid", page_values) -> None:
     """Read a picture page from its pixels: columns, ruler, stratum lines."""
     import math
@@ -2947,14 +3062,30 @@ def _raster_leg(doc, pg: "_PageGrid", page_values) -> None:
         return
     facts = ps.extra["facts"]
     sc = None
+    falling = None
+    flanked = None
     for f in ps.frames:
         if f.kind == "log":
             for s_ in f.scales.values():
                 if s_.axis == "y" and s_.quantity in ("depth", "elevation"):
+                    if not s_.needs_values and s_.b < 0:
+                        # Values that fall down the page are an elevation
+                        # scale, never the depth ruler (PL-35).
+                        falling = falling or s_
+                        continue
+                    if (s_.provenance or {}).get("tick_flanked"):
+                        # It rises only with its "-N-" labels read unsigned,
+                        # and a scale wholly below datum with a tick after
+                        # each label reads the same: it is the depth ruler
+                        # only where no other y-scale rises as read (PL-35).
+                        flanked = flanked or s_
+                        continue
                     sc = s_
                     break
         if sc is not None:
             break
+    if sc is None and flanked is not None:
+        sc = flanked
     pg.warnings = [w for w in pg.warnings if "no text to place" not in w]
     skew = ps.skew_deg or 0.0
     note = (f"page {pg.page}: the page is a picture; its rules, ruler and "
@@ -2962,6 +3093,8 @@ def _raster_leg(doc, pg: "_PageGrid", page_values) -> None:
             + (f" (skew {skew:+.2f} deg taken out)" if abs(skew) >= 0.01
                else ""))
     pg.warnings.append(note)
+    if sc is None and falling is not None:
+        _falling_scale(pg, falling, facts)
     if sc is None:
         if not any(NO_RULER in w for w in pg.warnings):
             pg.warnings.append(
@@ -3123,7 +3256,7 @@ def _vector_anchor(doc, pg: "_PageGrid") -> None:
     it was, with the anchor rule recorded in its evidence.
     """
     from planlens.document.scalefinder import (
-        _Run, _anchor_rule, page_facts,
+        _Run, _anchor_rule, page_facts, tick_flanked,
     )
     ruler = pg.ruler
     if ruler is None or len(ruler.ticks) < MIN_RULER_TICKS:
@@ -3139,7 +3272,9 @@ def _vector_anchor(doc, pg: "_PageGrid") -> None:
     heights = []
     for y, v in ticks:
         cell = min((c for c in pg.cells if c.column_id == ruler.column_id
-                    and _single_number(c.text) == v),
+                    and (_single_number(c.text) == v
+                         or (tick_flanked(c.text)
+                             and _single_number(c.text) == -v))),
                    key=lambda c: abs((c.bbox[1] + c.bbox[3]) / 2.0 - y),
                    default=None)
         if cell is None:
