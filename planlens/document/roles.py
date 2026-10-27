@@ -1779,11 +1779,23 @@ _ITEM_ROLE_KIND = {
 }
 
 
+#: Words that head a number in a letterhead: a telephone or fax number
+#: ("Tel.", "Tél:", "Fax", "Phone", "Tlf") or a post-office box ("P.O. Box
+#: 555"). The title text has its accents and punctuation folded away, so
+#: "Tél: 55 ..." reads "TEL 55 ...", the shape of an exploration id; such a
+#: match is the firm's address, never a hole.
+_LETTERHEAD_WORDS = frozenset({"TEL", "TELF", "TLF", "TFNO", "FAX", "PHONE",
+                               "BOX"})
+
+
 def _exploration_id(f: PageFacts) -> Optional[str]:
-    """The boring or pit id printed in the page's title block."""
+    """The boring or pit id printed in the page's title block, never a
+    letterhead's telephone, fax or box number (:data:`_LETTERHEAD_WORDS`)."""
     for text in (f.title, f.top):
         for m in _RE_EXPLORATION_ID.finditer(text.upper()):
             tok = m.group(1).replace(" ", "-").replace("–", "-")
+            if re.match(r"[A-Z]+", tok).group(0) in _LETTERHEAD_WORDS:
+                continue
             if any(ch.isdigit() for ch in tok):
                 return tok
     return None

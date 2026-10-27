@@ -493,3 +493,29 @@ def test_a_method_named_on_a_page_of_working_is_not_a_test_sheet():
     cue = _page_cue(working)
     assert cue is not None and cue.role == "lab_test"
     assert cue.strength == "weak" and not cue.decisive
+
+# -- a letterhead's telephone or box number is not an exploration id (app RI-156) --
+
+@pytest.mark.parametrize("line", [
+    "PO Box 555 - VILLETTE - Tél: 55 010 01",
+    "Tel. 55 010 01",
+    "FAX: 55 010 02",
+    "Phone 55 010 03",
+    "P.O. Box 555".replace(".", ". "),
+])
+def test_a_letterhead_phone_number_is_not_an_exploration_id(line):
+    from planlens.document.roles import _exploration_id
+
+    assert _exploration_id(_facts(title_text=line)) is None
+
+
+@pytest.mark.parametrize("line, want", [
+    ("LOG OF BORING B-1 10/12/2004", "B-1"),
+    ("PO Box 555 - VILLETTE - Tél: 55 010 01 LOG OF BORING QX-12", "QX-12"),
+    ("TEST PIT TP-3", "TP-3"),
+    ("BOREHOLE PH-1", "PH-1"),
+])
+def test_an_exploration_id_beside_a_phone_line_is_still_read(line, want):
+    from planlens.document.roles import _exploration_id
+
+    assert _exploration_id(_facts(title_text=line)) == want
