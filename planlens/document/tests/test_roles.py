@@ -511,11 +511,28 @@ def test_a_letterhead_phone_number_is_not_an_exploration_id(line):
 
 @pytest.mark.parametrize("line, want", [
     ("LOG OF BORING B-1 10/12/2004", "B-1"),
-    ("PO Box 555 - VILLETTE - Tél: 55 010 01 LOG OF BORING QX-12", "QX-12"),
     ("TEST PIT TP-3", "TP-3"),
     ("BOREHOLE PH-1", "PH-1"),
+    ("BH-5 CORE BOX 1", "BH-5"),
 ])
 def test_an_exploration_id_beside_a_phone_line_is_still_read(line, want):
     from planlens.document.roles import _exploration_id
 
     assert _exploration_id(_facts(title_text=line)) == want
+
+
+def test_no_fragment_of_a_letterhead_line_is_an_exploration_id():
+    """The box number, the city and the telephone sit on one top-band line;
+    the hole id is printed on a line of its own."""
+    from planlens.document.roles import PageFacts, _exploration_id, _norm
+
+    letterhead = "B.P. 555 - VILLETTE QA 12 - Tél: 55 010 01"
+    heading = "LOG OF BORING QX-12"
+    f = PageFacts(page=3)
+    f.title = _norm(letterhead + " " + heading)
+    f.top = f.title
+    f.top_lines = [_norm(letterhead).strip(), _norm(heading).strip()]
+    assert _exploration_id(f) == "QX-12"
+    f.title = f.top = _norm(letterhead)
+    f.top_lines = [_norm(letterhead).strip()]
+    assert _exploration_id(f) is None
