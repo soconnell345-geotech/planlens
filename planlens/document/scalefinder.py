@@ -119,6 +119,21 @@ def parse_label_value(text: str) -> Optional[Tuple[float, str]]:
     return None
 
 
+#: A numeral printed between two short ticks ("- 2 -"), as optical text gives
+#: it: "-2-". The leading dash is then the tick above the numeral's middle,
+#: not a minus sign. An elevation below datum printed with a tick after it
+#: reads the same ("-1-"): a scale wholly below datum with trailing ticks is
+#: told apart only by its header, or by another y-scale on the page that
+#: rises as read (PL-35).
+_RE_TICK_FLANKED = re.compile(
+    r"^\s*[-−–—]\s*(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d*\.?\d+)\s*[-–—]\s*$")
+
+
+def tick_flanked(text: str) -> bool:
+    """Whether a label is a numeral with a dash on both sides ("-2-")."""
+    return bool(_RE_TICK_FLANKED.match(str(text or "")))
+
+
 def _to_float(tok: str) -> Optional[float]:
     tok = tok.replace(",", "").replace("−", "-").replace("–", "-")
     try:
@@ -1911,15 +1926,25 @@ def _label_runs(facts: PageFacts, values: Dict[str, Any],
             run = _run_of_labels(facts, band, axis)
             if run is None:
                 continue
-            best = None
-            for transform in ("linear", "log10"):
-                sid_tmp = "tmp"
-                sc = _build_scale(facts, sid_tmp, run, transform, "value",
-                                  None, (0, 0, 0, 0))
-                if sc is None:
-                    continue
-                if best is None or sc.residual_pt < best.residual_pt:
-                    best = sc
+            header_q, unit = _header_of_band(facts, run)
+            best = _fit_run(facts, run)
+            if axis == "y" and header_q != "elevation" and (
+                    best is None or best.b <= 0):
+                # Labels printed between two ticks read "-2-", so the run does
+                # not rise down the page: read unsigned, where that makes at
+                # least as good a run as the signed reading. A run that rises
+                # as read is left alone. A scale of elevations crossing datum
+                # with its ticks after the labels ("1-", "0-", "-1-") is left
+                # signed: read unsigned it folds back on itself and fits fewer
+                # labels.
+                plain = _unflanked(run)
+                alt = _fit_run(facts, plain) if plain is not None else None
+                if alt is not None and (best is None
+                                        or _n_labels(alt) >= _n_labels(best)):
+                    run, best = plain, alt
+                    best.provenance["tick_flanked"] = (
+                        "the labels are printed between two ticks; the "
+                        "leading dash is a tick, not a minus sign")
             if best is None:
                 continue
             kinds = set(run.kinds)
@@ -1937,9 +1962,12 @@ def _label_runs(facts: PageFacts, values: Dict[str, Any],
                     quantity, fkind = "station", "profile"
                 else:
                     quantity, fkind = "value", "plot"
-            header_q, unit = _header_of_band(facts, run)
             if header_q:
                 quantity = header_q
+                # what the header over the band calls it, kept apart from the
+                # quantity its direction alone would give (PL-35: a falling
+                # scale is an elevation scale only where a header says so)
+                best.provenance["header_names"] = header_q
             counts[quantity] = counts.get(quantity, 0) + 1
             suffix = "" if counts[quantity] == 1 else str(counts[quantity])
             sid = f"p{facts.index}.{quantity}{suffix}"
@@ -1953,6 +1981,41 @@ def _label_runs(facts: PageFacts, values: Dict[str, Any],
             frames.append(Frame(id=sid, page=facts.index, kind=fkind,
                                 extent=extent, scales={quantity: best},
                                 provenance={"labels": len(run.positions)}))
+
+
+def _fit_run(facts: PageFacts, run: _Run) -> Optional[Scale]:
+    """The better of a run's linear and log fits (the smaller residual)."""
+    best = None
+    for transform in ("linear", "log10"):
+        sc = _build_scale(facts, "tmp", run, transform, "value", None,
+                          (0, 0, 0, 0))
+        if sc is None:
+            continue
+        if best is None or sc.residual_pt < best.residual_pt:
+            best = sc
+    return best
+
+
+def _n_labels(sc: Scale) -> int:
+    """How many of the run's labels a fitted scale kept."""
+    return sum(1 for a in sc.anchors if a.kind != "frame_line")
+
+
+def _unflanked(run: _Run) -> Optional[_Run]:
+    """``run`` with each tick-flanked label ("-2-") read unsigned, or ``None``
+    when no label of it is printed that way."""
+    import dataclasses
+    if not run.texts or len(run.texts) != len(run.values):
+        return None
+    vals = list(run.values)
+    changed = False
+    for i, (t, v) in enumerate(zip(run.texts, vals)):
+        if v is not None and v < 0 and tick_flanked(t):
+            vals[i] = -v
+            changed = True
+    if not changed:
+        return None
+    return dataclasses.replace(run, values=vals)
 
 
 def _run_of_labels(facts: PageFacts, band: List[Label], axis: str

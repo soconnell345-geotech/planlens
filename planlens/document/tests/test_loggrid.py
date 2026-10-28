@@ -603,3 +603,73 @@ def test_a_header_rule_in_four_pieces_still_marks_the_body(request):
 def test_a_dash_after_a_letter_names_a_sample_and_is_not_a_minus(text,
                                                                 expected):
     assert numbers_in(text) == expected
+
+
+# ---------------------------------------------------------------------------
+# A rising ruler with a tick-flanked label at its foot
+# ---------------------------------------------------------------------------
+
+def test_a_ruler_that_rises_as_read_is_left_as_read():
+    """Labels printed between two ticks are read unsigned only where the
+    band, read with their dashes as minus signs, falls down the page
+    (PL-35). Here it rises as read, "1" to "5", with "-6" (a tick lost) and
+    "-7-" at its foot: it is read as before, and the header band above it
+    stays on the column labels."""
+    import pymupdf
+
+    pdf = pymupdf.open()
+    page = pdf.new_page(width=420, height=640)
+
+    def put(x, y, text):
+        page.insert_text((x, y + 3.5), text, fontsize=10)
+
+    put(40, 40, "MADE-UP LOG SHEET")
+    put(40, 94, "DEPTH")
+    put(110, 94, "DESCRIPTION")
+    put(300, 94, "SAMPLE")
+    for v in (1, 2, 3, 4, 5):
+        put(48, 100 + 60 * v, str(v))
+    put(48, 460, "-6")
+    put(48, 520, "-7-")
+    put(110, 250, "Grey made-up silt, wet")
+    put(300, 190, "S-1")
+    with open_document(pdf.tobytes()) as doc:
+        grid = log_grid(doc, 0)
+    assert {"depth", "description"} <= {c.name for c in grid.columns}
+    assert [v for _y, v in grid.rulers[0].ticks] == [1.0, 2.0, 3.0, 4.0,
+                                                     5.0]
+    assert not {c.text for c in grid.rows} & {"MADE-UP LOG SHEET", "DEPTH",
+                                              "DESCRIPTION"}
+    silt = next(c for c in grid.rows if c.text.startswith("Grey"))
+    assert silt.column == "description"
+    assert silt.depth == pytest.approx(2.5, abs=0.01)
+
+
+def test_an_elevation_band_below_datum_beside_the_ruler_on_a_text_page():
+    """ELEV. and DEPTH printed side by side on an unruled page, the
+    elevations below datum with a tick after each ("-11-"). Read unsigned,
+    that band rises as evenly as the depth ruler; of two bands that score
+    the same, the one that rises as printed is the ruler (PL-35)."""
+    import pymupdf
+
+    pdf = pymupdf.open()
+    page = pdf.new_page(width=480, height=640)
+
+    def put(x, y, text):
+        page.insert_text((x, y + 3.5), text, fontsize=10)
+
+    put(40, 40, "MADE-UP LOG SHEET")
+    put(40, 94, "ELEV.")
+    put(100, 94, "DEPTH")
+    put(170, 94, "DESCRIPTION")
+    for v in (1, 2, 3, 4, 5):
+        put(48, 100 + 60 * v, f"-{10 + v}-")
+        put(108, 100 + 60 * v, str(v))
+    put(170, 250, "Grey made-up silt, wet")
+    with open_document(pdf.tobytes()) as doc:
+        grid = log_grid(doc, 0)
+    assert grid.rulers[0].kind == "depth"
+    assert [v for _y, v in grid.rulers[0].ticks] == [1.0, 2.0, 3.0, 4.0,
+                                                     5.0]
+    silt = next(c for c in grid.rows if c.text.startswith("Grey"))
+    assert silt.depth == pytest.approx(2.5, abs=0.01)

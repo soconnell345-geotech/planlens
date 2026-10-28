@@ -154,6 +154,111 @@ def test_values_given_as_printed_labels_read_the_same_page():
         [round(ly.top, 4) for ly in _tops(by_number)]
 
 
+def _relabelled(fx, label_text, header=None):
+    """``fx`` with its OCR text changed as a scan would give it: each depth
+    label's text from ``label_text(value)``, and the depth column's header
+    replaced by ``header`` where one is given. The pixels are unchanged."""
+    import dataclasses
+    from planlens.testing.visual_scale_fixtures import OcrLines
+    by_text = {lb.text: lb.value for lb in fx.labels}
+    lines = []
+    for text, box in fx.text_source._lines:
+        if text in by_text:
+            text = label_text(by_text[text])
+        elif header is not None and text == "Depth":
+            text = header
+        lines.append((text, box))
+    return dataclasses.replace(fx, text_source=OcrLines(lines, page=0,
+                                                        name="ocr"))
+
+
+def _flanked(v):
+    return f"-{v:g}-"
+
+
+@pytest.fixture(scope="module")
+def ocr_log():
+    return build_log(LogVariant("lg_flanked", text_source="ocr",
+                                skew_deg=0.5, seed=71))
+
+
+@pytest.mark.parametrize("first_tick_lost", [False, True])
+def test_labels_printed_between_two_ticks_are_depths(ocr_log,
+                                                     first_tick_lost):
+    """A ruler printing each numeral between two short ticks reaches the
+    text as "-1-", "-2-" (PL-35); optical text can lose one tick ("1 -")."""
+    first = min(lb.value for lb in ocr_log.labels)
+
+    def text(v):
+        return f"{v:g} -" if first_tick_lost and v == first else _flanked(v)
+
+    g = log_grid(_relabelled(ocr_log, text).open(), [0])
+    r = g.rulers[0]
+    assert r.kind == "depth"
+    assert [v for _y, v in r.ticks] == sorted(lb.value for lb in
+                                              ocr_log.labels)
+    assert g.scales[0].provenance.get("tick_flanked")
+    tops = _tops(g)
+    assert len(tops) == len(ocr_log.readings)
+    for rd, ly in zip(ocr_log.readings, tops):
+        assert abs(ly.top - rd.value) <= ly.plus_minus, (rd.value, ly.top)
+    placed = [c for c in g.rows if c.depth is not None]
+    assert placed and all(c.depth > 0 for c in placed)
+
+
+def test_tick_flanked_labels_under_an_elevation_header_stay_signed(ocr_log):
+    """Where the header over the labels says elevation, "-2-" is an
+    elevation below datum as printed, and no depth ruler is made of it."""
+    g = log_grid(_relabelled(ocr_log, _flanked, header="Elevation").open(),
+                 [0])
+    assert not g.rulers
+    ticks = [v for _y, v in g.elevation_rulers[0].ticks]
+    assert ticks and all(v < 0 for v in ticks)
+
+
+@pytest.mark.parametrize("header,elevation", [("Depth", False),
+                                              ("Elevation", True)])
+def test_a_falling_scale_never_fills_the_depth_slot(ocr_log, header,
+                                                    elevation):
+    """Elevations crossing datum with a tick after each label ("2-", "1-",
+    "0-", "-1-") stay signed (read unsigned they fold back on themselves),
+    and a scale that falls down the page is never the depth ruler: it is
+    the page's elevation scale where the header says elevation, else it is
+    left unused and said (PL-35)."""
+    top = max(lb.value for lb in ocr_log.labels) / 2.0
+    g = log_grid(_relabelled(ocr_log, lambda v: f"{top - v:g}-",
+                             header=header).open(), [0])
+    assert not g.rulers
+    if elevation:
+        ticks = [v for _y, v in sorted(g.elevation_rulers[0].ticks)]
+        assert ticks == sorted((top - lb.value for lb in ocr_log.labels),
+                               reverse=True)
+    else:
+        assert not g.elevation_rulers
+        assert any("falls down the page" in w and "not taken as the depth "
+                   "ruler" in w for w in g.warnings)
+
+
+def test_an_elevation_band_below_datum_beside_the_ruler_is_not_the_ruler():
+    """Elevations below datum printed with a tick after each label ("-11-")
+    read like a ruler printed between two ticks, and with the depth column's
+    header in reach their band is called depth too. Read unsigned it rises;
+    it is the depth ruler only where no other y-scale rises as read, and
+    here the depth ruler beside it does (PL-35)."""
+    fx = build_log(LogVariant("lg_elev_flanked", text_source="ocr",
+                              skew_deg=0.4, seed=73, elevation_top=-10.0,
+                              elevation_text="{:g}-"))
+    g = log_grid(fx.open(), [0])
+    r = g.rulers[0]
+    assert r.kind == "depth"
+    assert [v for _y, v in r.ticks] == sorted(lb.value for lb in fx.labels)
+    assert not g.scales[0].provenance.get("tick_flanked")
+    tops = _tops(g)
+    assert len(tops) == len(fx.readings)
+    for rd, ly in zip(fx.readings, tops):
+        assert abs(ly.top - rd.value) <= ly.plus_minus, (rd.value, ly.top)
+
+
 def test_values_of_the_wrong_count_are_refused_and_said_so():
     fx = build_log(LogVariant("lg_count", skew_deg=0.3, seed=68))
     doc = fx.open()

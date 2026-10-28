@@ -361,6 +361,13 @@ class LogVariant:
     text_source: Optional[str] = None  # None | "ocr" | "azure_di"
     label_size: float = 9.0
     seed: int = 1
+    #: A column of elevations headed "Elev." just left of the depth ruler,
+    #: one label level with each depth label: None draws none, else the
+    #: elevation at the body top. Each label's text is ``elevation_text``
+    #: formatted with its elevation ("{:g}-" prints a tick after it, so
+    #: -11 reads "-11-").
+    elevation_top: Optional[float] = None
+    elevation_text: str = "{:.1f}"
 
 
 #: Column order and widths by where the ruler stands. Widths in points.
@@ -373,7 +380,8 @@ _LOG_COLUMNS = {
               ("type", 28), ("no", 28), ("remarks", 65), ("depth", 44)),
 }
 
-_LOG_HEADERS = {"depth": "Depth", "description": "Soil Description",
+_LOG_HEADERS = {"elevation": "Elev.", "depth": "Depth",
+                "description": "Soil Description",
                 "legend": "Legend", "spt": "SPT Blows", "type": "Type",
                 "no": "No", "remarks": "Remarks"}
 
@@ -449,6 +457,11 @@ def build_log(v: LogVariant) -> ScaleFixture:
         return body_top + (depth - top_value) * per
 
     cols = _LOG_COLUMNS[v.ruler]
+    if v.elevation_top is not None:
+        at = [name for name, _ in cols].index("depth")
+        # narrow, so the depth column's header stands within reach of its
+        # labels, as on forms that print the two side by side
+        cols = cols[:at] + (("elevation", 24),) + cols[at:]
     scale_x = (right - left) / sum(wd for _, wd in cols)
     edges = [left]
     for _name, wd in cols:
@@ -517,6 +530,15 @@ def build_log(v: LogVariant) -> ScaleFixture:
                                     ink_box[2] + 0.5, ink_box[3] + 0.8))))
         if v.ticks:
             page.draw_line((db - 7.0, y), (db, y), width=0.7)
+        if v.elevation_top is not None:
+            ea, eb = band["elevation"]
+            etext = v.elevation_text.format(v.elevation_top - (val - top_value))
+            etw = _text_width(etext, fs)
+            ex = (ea + eb - etw) / 2.0
+            page.insert_text((ex, base), etext, fontsize=fs)
+            e_ink = _text_ink_box(ex, base, etext, fs)
+            ocr.append((etext, turn.box((e_ink[0] - 0.5, e_ink[1] - 0.8,
+                                         e_ink[2] + 0.5, e_ink[3] + 0.8))))
 
     # -- layers ---------------------------------------------------------------
     dsa, dsb = band["description"]

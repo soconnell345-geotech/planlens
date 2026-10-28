@@ -35,6 +35,63 @@ def test_printed_labels_are_read_as_values(label, expect):
     assert parse_label_value(label) == expect
 
 
+@pytest.mark.parametrize("label,flanked", [
+    ("-2-", True), ("- 2 -", True), ("-12.5-", True), ("−3–", True),
+    ("-2", False), ("2-", False), ("13 -", False), ("-2.5", False),
+    ("B-1-", False), ("--", False), ("", False)])
+def test_a_numeral_between_two_ticks_is_told_apart(label, flanked):
+    from planlens.document.scalefinder import tick_flanked
+    assert tick_flanked(label) is flanked
+
+
+def _ocr_log_labelled(label_text):
+    """The OCR'd log fixture with its depth labels' TEXT changed."""
+    import dataclasses
+    from planlens.testing.visual_scale_fixtures import OcrLines
+    fx = build_log(LogVariant("sf_flanked", text_source="ocr", skew_deg=0.4,
+                              seed=72))
+    by_text = {lb.text: lb.value for lb in fx.labels}
+    lines = [(label_text(by_text[t]) if t in by_text else t, b)
+             for t, b in fx.text_source._lines]
+    return fx, dataclasses.replace(
+        fx, text_source=OcrLines(lines, page=0, name="ocr"))
+
+
+def test_a_ruler_printed_between_ticks_rises_down_the_page():
+    """"-1-", "-2-" ... are depths 1, 2 (PL-35): the scale rises."""
+    fx, flanked = _ocr_log_labelled(lambda v: f"-{v:g}-")
+    sc = next(s for f in find_scales(flanked.open(), 0).frames
+              if f.kind == "log" for s in f.scales.values() if s.axis == "y")
+    assert sc.b > 0 and sc.quantity == "depth"
+    assert sorted(a.value for a in sc.anchors if a.kind != "frame_line") \
+        == sorted(lb.value for lb in fx.labels)
+    assert sc.provenance.get("tick_flanked")
+
+
+def test_a_rising_run_with_one_flanked_label_is_left_as_read():
+    """Only a run that falls as read is read unsigned (PL-35): one label
+    printed "-N-" at the foot of a run that rises is left alone."""
+    fx, _ = _ocr_log_labelled(str)
+    last = max(lb.value for lb in fx.labels)
+    _, one = _ocr_log_labelled(
+        lambda v: f"-{v:g}-" if v == last else f"{v:g}")
+    sc = next(s for f in find_scales(one.open(), 0).frames
+              if f.kind == "log" for s in f.scales.values() if s.axis == "y")
+    assert sc.b > 0
+    assert not sc.provenance.get("tick_flanked")
+
+
+def test_elevations_crossing_datum_keep_their_signs():
+    """Ticks after each label of an elevation scale ("1-", "0-", "-1-"): the
+    labels below datum carry a dash on both sides, and read unsigned the run
+    would fold back on itself; it stays signed and falls."""
+    fx, crossing = _ocr_log_labelled(lambda v: f"{4 - v:g}-")
+    sc = next(s for f in find_scales(crossing.open(), 0).frames
+              if f.kind == "log" for s in f.scales.values() if s.axis == "y")
+    assert sc.b < 0
+    assert not sc.provenance.get("tick_flanked")
+
+
 # -- logs -------------------------------------------------------------------------------
 
 def test_a_scan_with_no_text_asks_for_its_label_values():
