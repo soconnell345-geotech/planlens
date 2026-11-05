@@ -52,6 +52,11 @@ document/
   azure_di.py     Azure Document Intelligence result -> text source (optional)
 ```
 
+The host layer built over `planlens.tools` (one toolkit per conversation,
+markups written onto a copy and checked through the host's look,
+`find_like` with every candidate read) is `planlens.review`; its notes are
+`planlens/review/DESIGN.md`.
+
 Beside the package, `planlens/opencv.py` test-loads OpenCV in a child process
 so a FIPS host hides the OpenCV paths instead of aborting, and
 `planlens/pymupdf_settings.py` holds the process-wide lock and the settings

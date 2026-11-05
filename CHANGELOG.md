@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **`ReviewToolkit` takes a `look` (app BACKLOG PL-29 (a)).** Beside
+  `resolve_source`, a host may pass `look`: `(image, question, kind) -> the
+  model's text`. planlens still makes no model call and gains no
+  dependency. With no look, a tool that needs one is not offered
+  (`ReviewToolkit.LOOK_TOOLS`, empty for the toolkit's own seventeen tools,
+  whose surface is unchanged; `planlens.review.specs.LOOK_TOOLS` for the
+  host layer).
+
+- **`planlens.review`: the app's document tools, moved in (app BACKLOG
+  PL-29 (a), app split step 9a).** The GeotechStaffEngineer app's document
+  tools that only wrapped planlens now live here: one toolkit per
+  conversation, page-number conventions and viewer pages, DXF reads, and
+  writing, removing, placing and checking markups on a copy
+  (`conversation`, `marked_copy`); the markup check (`markup_check`);
+  `find_like` with every candidate read by the look (`find_like`); page
+  numbers (`page_numbers`); and the frame conversions, tiles, zoom windows
+  and turned-lettering geometry of the app's `vision_view` (`frames`).
+  What the app used to import is passed in one `ReviewHost`
+  (`planlens.review.configure`): the source resolver, the look, the working
+  folder, the signer, where the markup check keeps its verdicts, the time
+  budget, and optional hooks (image decoding, Word/Excel reading, a crop
+  renderer sized to the host's model). `planlens.review.tool_specs()` gives
+  the ten tools' specs word for word as the app shows them, checked against
+  the app's own capture; `planlens.review.call()` runs them. Behaviour is
+  the app's; nothing in the app changes until its part (b).
+
 ## 0.14.0 — 2026-11-04
 
 - **A depth scale printed as tick-flanked numerals reads as depths (app
