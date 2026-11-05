@@ -325,13 +325,23 @@ that is measured rather than guessed.
 
 **Since PL-11 (unreleased) that form is read.** `_RE_LABEL_UNIT` takes a
 parenthesis holding exactly one unit from the table, then `:` or `=`, then a
-number not followed by `:digit`, `/digit` or `+digit`; the label is read back
-from the words before the parenthesis up to a column gap, a previous field's
-value, a sentence end or six words, and rides on the mention as `label`. The
+number or a range not followed by `:digit`, `/digit` or `+digit`; the label
+is read back from the words before the parenthesis up to a line break (the
+document's own, too), a column gap, a previous field's value, a sentence end
+or six words, and rides on the mention as `label`. The same characters
+written as an equation are the trap: "q_p (tsf) = 0.6 N60" is a formula, and
+0.6 is not a pressure. So the value is refused unless its field ends with
+it, or goes on with a hedge, the next field's label, a datum or prose
+("in", "at", ...); an operator, a second `=`, a comparison, a series or a
+symbol after it refuses it. On the reference library's manual text, all 44
+matches of the form are formulas: the first version read 37 of them as
+values, and this one reads none. A label holding "El."/"Elev."/"Elevation"
+gives the elevation kind, by the rule `_RE_ELEVATION` already applies. The
 corpus B row above is the measurement from BEFORE that change and has not
 been re-run: the 40 real sentences are not in this repository, and
 `doc_claims_check.py` does not regenerate the bake-off. It needs a re-run on
-the submittal sample before a new recall is quoted.
+the submittal sample before a new recall is quoted, counting new false
+positives on the same pages as well as recall.
 
 Prose false positives were also measured rather than assumed. The largest
 single source is the preposition "in": "borings were advanced 12 in the
