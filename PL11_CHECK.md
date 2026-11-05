@@ -49,7 +49,9 @@ notes at merge; delete it from planlens then.
 - Every existing row of the phrase table and the NOTHING list is unchanged and
   passes.
 
-`pytest planlens -q`: full-suite result pending; added in the next commit.
+`pytest planlens -q` (exit 0): 1780 passed, 3 skipped. The docs-claims guards
+(`planlens/tests`) and the quantities tests were re-run after the DESIGN.md
+edit: 132 passed, 1 skipped, exit 0.
 
 ## Published numbers
 
