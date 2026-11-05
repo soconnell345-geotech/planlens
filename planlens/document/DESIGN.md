@@ -21,19 +21,41 @@ document/
   annotations.py  review markups + hidden CAD text
   markup_writer.py  the other direction: review comments ONTO a copy
   tables.py       find_tables wrapper
-  scale.py        the measurement calibration the PDF itself stores
+  scale.py        the measurement calibration the PDF itself stores (/VP, /Measure)
+  scales.py       the Scale primitive: a fitted map from a position on the page
+                  to a quantity, with its +/-
+  scalefinder.py  find_scales: every scale a page carries, from text, paths or
+                  pixels
+  measuring.py    measure: snap a rough box to the drawn thing, read it through
+                  the page's scale
+  raster.py       page pixels as geometry (skew, ruled lines, blobs, markers);
+                  numpy + PyMuPDF, no OpenCV
   quantities.py   the numbers the text STATES, with their units
   classify.py     coarse page kinds with evidence
   imagehash.py    a page's picture in 256 bits, for duplicates on scans, and
                   the finer render every nominated repeat must match
   structure.py    headers/footers, printed page numbers, dividers, duplicates,
                   segments (the constituent documents)
+  roles.py        what each page IS (eighteen roles), the work items its pages
+                  make, the document's printed outline and per-page ledger
+  loggrid.py      log_grid: a boring or test-pit log read as a coordinate system
+                  (ruler, columns, layers, samples, fields)
+  planlocation.py exploration symbols off a vector plan, and a right-handed
+                  page-to-local grid
+  findlike.py     find_like: every copy of one example mark (OpenCV or numpy
+                  matcher), contact sheets of the hits
+  budget.py       image budgets: the size of picture a vision model really sees
   advice.py       when text is not enough: "! look:" statements
   document.py     Document: page_map, segments, page, search (exact or
                   fuzzy), quantities, markups, text, render,
                   render_thumbnails
   azure_di.py     Azure Document Intelligence result -> text source (optional)
 ```
+
+Beside the package, `planlens/opencv.py` test-loads OpenCV in a child process
+so a FIPS host hides the OpenCV paths instead of aborting, and
+`planlens/pymupdf_settings.py` holds the process-wide lock and the settings
+guard every PyMuPDF text and table read goes through.
 
 ## The frame contract
 
@@ -394,6 +416,52 @@ with a calibrated viewport it returns a `Quantity` in feet or metres at
 confidence 1.0 whose `basis` names `pdf_viewport` or `measurement_markup` and
 the ratio; without one it returns points with `scale_known=False`.
 
+## Visual scales (0.13.0, 2026-10-09)
+
+`scale.py` (above) reads the scale a PDF STORES. A scan, a plotted chart or a
+log carries its scale only as drawing: a ruler, gridlines, a bar. This layer
+finds those from the page and converts a drawn position into a value with a
+stated uncertainty. Geometry says where, the caller says what: code finds and
+measures, a model at most reads the printed label values. Nothing here calls
+a model, and it uses numpy and PyMuPDF only (no OpenCV, so it runs on hosts
+where OpenCV cannot load).
+
+- **`scales.Scale`** (`scales.py`) — a fitted map from a position along a
+  (deskewed) axis to a quantity, linear or log10, valid over its `extent`,
+  carrying its anchors, fit residual, the anchor rule that tied labels to the
+  drawing, a confidence and a 95 % +/-. `Reading` is a value read through it,
+  displayed no finer than the print. Adapters: `scale_from_ruler` (a log's
+  `Ruler`), `scale_from_viewport` (the stored `/VP`), `scale_from_stated` (a
+  note such as "1:100") and `scale_from_two_points`. `fit_points` and
+  `fit_labels` refuse uneven runs, drop one misread label and name it, and
+  refuse two.
+- **`scalefinder.find_scales(doc, page, values=None)`** — a `PageScales` of
+  frames: depth rulers on logs, gridded, dotted and tick-only plots (log axes
+  from the decade pattern of the gridlines), profiles (stations and
+  elevations as separate scales) and plans (stored viewport, graphic bar,
+  stated note, N/E grid, compared with each other and flagged when they
+  disagree). Text comes from the text layer, OCR or Azure DI text, or label
+  blobs on a scan. A scan with no text comes back `needs_values` with the
+  label boxes; the caller reads them and passes `values`, which may be given
+  as printed ("1.0", "12+50"). A sketch not drawn to scale is refused.
+- **`measuring.measure(doc, page, where, kind, ...)`** — snaps a rough box to
+  `line`, `lines`, `point`, `edge`, `curve` (at an axis value), `distance`
+  (to a second box) or `text`, and reads it through the scale whose region
+  holds it. One candidate is taken; two or more are listed and none chosen.
+  For `line`, `point`, `curve` and `distance`, a box that may be 25 pt or
+  more off (its `pad`), or a small box in a window over 300 pt across, has
+  every candidate listed and none chosen. With no scale the answer is in page
+  points and says `scale_known: false`. With no box it lists the page's
+  scales.
+- **`raster.py`** — the pixel layer under the finders: render with a
+  megapixel cap, Otsu and a permissive line mask, skew from long rules, solid
+  and dashed lines, components, text blobs, markers, column runs.
+
+`log_grid` uses these for scanned logs (its raster leg), and the `measure`
+tool and `log_grid`'s `values=` argument are how a host reaches them. The
+fixtures that state every answer are `planlens.testing.visual_scale_fixtures`;
+the measured figures are in `CHANGELOG.md` 0.13.0 and are not repeated here.
+
 ## Tables
 
 `page.find_tables()` on the vector content. Rows are kept whole: PyMuPDF's
@@ -746,8 +814,9 @@ REST) and passes the dict, or passes the function to `AzureLayout.analyze`.
 - Tables: explicit `columnHeader` cells in row 0 become the header; merged-cell
   positions stay `None`; a table belongs to the page it starts on.
 
-No live Azure result has been run through it yet; the tests use hand-built
-results in the documented shape.
+The unit tests use hand-built results in the documented shape (no Azure call
+is made); real results are used by the corpus measurements described under
+"Page roles and work items".
 
 ## Text first, eyes second — and the tools say when (2026-09-14)
 
@@ -1414,17 +1483,13 @@ the pages themselves were not opened:
   layers and one sample are recorded in the ledger as not scored by depth
   rather than counted as misses. It is the one row where a pass means a
   refusal.
-- **Two sheets whose depth unit is stated nowhere**, on the page or in its
-  own text. Their depths come back in whatever the ruler prints, and the
-  module says so.
 - **Index values at 8 of 17.** The blow records and the layers on those same
   sheets are right, so the depths are; what is missing is the index
   properties, which on several templates are printed in a plotted column
   against an axis of their own rather than as cells in a named column.
-- **Four sheets whose depth unit is stated nowhere** on the page or in its
+- **Two sheets whose depth unit is stated nowhere**, on the page or in its
   own text. Their depths come back in whatever the ruler prints, and the
-  module says so; on two of them the unit was recovered from depths written
-  into the log's prose instead.
+  module says so.
 - **Two sheets the truth says sample nothing**, on which the grid put no
   numeric cell in a blow-count column at all. That is the one clean precision
   number on the scorecard.
