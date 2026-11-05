@@ -547,10 +547,6 @@ The `[ocr]` extra installs RapidOCR + onnxruntime with PP-OCR models
 inside the wheel (no runtime downloads; all-permissive licenses:
 Apache-2.0/MIT/BSD).
 
-OpenCV (`opencv-python-headless`) and `rapidfuzz` are core dependencies,
-not extras. `planlens[raster]` and `planlens[text]` still resolve, but they
-are empty aliases that install nothing extra.
-
 **What changed since 0.11 (details in `CHANGELOG.md`).**
 
 - **0.12.0** — marks land where the thing is: a `view` + `image_box` anchor

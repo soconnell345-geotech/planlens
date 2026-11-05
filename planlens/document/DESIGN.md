@@ -447,8 +447,10 @@ where OpenCV cannot load).
 - **`measuring.measure(doc, page, where, kind, ...)`** — snaps a rough box to
   `line`, `lines`, `point`, `edge`, `curve` (at an axis value), `distance`
   (to a second box) or `text`, and reads it through the scale whose region
-  holds it. One candidate is taken; two or more are listed and none chosen; a
-  window of 25 pt or more never snaps; with no scale the answer is in page
+  holds it. One candidate is taken; two or more are listed and none chosen.
+  For `line`, `point`, `curve` and `distance`, a box that may be 25 pt or
+  more off (its `pad`), or a small box in a window over 300 pt across, has
+  every candidate listed and none chosen. With no scale the answer is in page
   points and says `scale_known: false`. With no box it lists the page's
   scales.
 - **`raster.py`** — the pixel layer under the finders: render with a
@@ -1485,11 +1487,9 @@ the pages themselves were not opened:
   sheets are right, so the depths are; what is missing is the index
   properties, which on several templates are printed in a plotted column
   against an axis of their own rather than as cells in a named column.
-- **Sheets whose depth unit is stated nowhere** on the page or in its own
-  header text: four, and on two of them the unit was recovered from depths
-  written into the log's prose instead. The other two are the "unit right
-  6/8" misses in the table above. Their depths come back in whatever the
-  ruler prints, and the module says so.
+- **Two sheets whose depth unit is stated nowhere**, on the page or in its
+  own text. Their depths come back in whatever the ruler prints, and the
+  module says so.
 - **Two sheets the truth says sample nothing**, on which the grid put no
   numeric cell in a blow-count column at all. That is the one clean precision
   number on the scorecard.

@@ -504,8 +504,8 @@ Two, as of planlens 0.4.0 (the toolkit's tool list grew to 17 by 0.14.0):
   `find_quantities`, `document_markups`, `annotate_document` (the only one
   that WRITES: review comments onto a copy of the PDF), `log_grid`,
   `document_roles`, `render_page_thumbnails`, `render_page`, `find_like`,
-  `measure`, `render_region`, `plan_symbols`, `plan_grid`. The same set serves over MCP
-  (`planlens.mcp_server`), generated from the same specs. See
+  `measure`, `render_region`, `plan_symbols`, `plan_grid`. The same set
+  serves over MCP (`planlens.mcp_server`), generated from the same specs. See
   `planlens/document/DESIGN.md`.
 - **The geotech app's drawing adapter** — the drawing-geometry tools below
   still live in `GeotechStaffEngineer/funhouse_agent/adapters/drawing_ir_adapter.py`;
