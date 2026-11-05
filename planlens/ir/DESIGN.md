@@ -495,15 +495,16 @@ which is exactly the small-`n` upward bias the caveat describes.
 
 ## LLM surfaces
 
-Two, as of planlens 0.4.0:
+Two, as of planlens 0.4.0 (the toolkit's tool list grew to 17 by 0.14.0):
 
 - **`planlens.tools.ReviewToolkit`** (in this package, framework-neutral) —
-  the whole-document tools over `planlens.document`: `open_document`,
-  `document_structure`, `document_page_map`, `read_document`,
-  `search_document`, `find_quantities`, `document_markups`,
-  `annotate_document` (the only one that WRITES: review comments onto a copy
-  of the PDF), `log_grid`, `document_roles`, `render_page_thumbnails`,
-  `render_page`, `render_region`. The same set serves over MCP
+  the 17 whole-document tools over `planlens.document` (the count is
+  `len(ReviewToolkit().specs())`): `open_document`, `document_structure`,
+  `document_page_map`, `read_document`, `search_document`,
+  `find_quantities`, `document_markups`, `annotate_document` (the only one
+  that WRITES: review comments onto a copy of the PDF), `log_grid`,
+  `document_roles`, `render_page_thumbnails`, `render_page`, `find_like`,
+  `measure`, `render_region`, `plan_symbols`, `plan_grid`. The same set serves over MCP
   (`planlens.mcp_server`), generated from the same specs. See
   `planlens/document/DESIGN.md`.
 - **The geotech app's drawing adapter** — the drawing-geometry tools below

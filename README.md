@@ -133,7 +133,8 @@ semantics.
    representation — Line / Polyline / Arc / Circle / Text with
    coordinates, layer, fill, provenance, and confidence — ingested from
    DXF (`ezdxf`, confidence 1.0), vector PDF (`planlens.pdf`, confidence
-   1.0), or raster images (OpenCV, confidence < 1.0, `raster` extra).
+   1.0), or raster images (OpenCV, confidence < 1.0; OpenCV is a core
+   dependency, so no extra is needed).
    A plotted PDF keeps the drafter's own layer names (its
    optional-content groups) and says which shapes are painted rather
    than outlined, so "existing vs proposed" and "this symbol is solid"
@@ -529,7 +530,7 @@ by a fixture so it cannot move silently):
 ## Install
 
 ```
-pip install planlens         # everything below except OCR and MCP
+pip install planlens         # everything below except OCR and MCP (OpenCV and rapidfuzz included)
 pip install "planlens[ocr]"  # + optical text for stroked/scanned sheets
 pip install "planlens[mcp]"  # + the Model Context Protocol server
 ```
@@ -546,20 +547,65 @@ The `[ocr]` extra installs RapidOCR + onnxruntime with PP-OCR models
 inside the wheel (no runtime downloads; all-permissive licenses:
 Apache-2.0/MIT/BSD).
 
-**OpenCV variants — pick per environment.** Every published rapidocr
-distribution (`rapidocr-onnxruntime` 1.x and the unified `rapidocr`
-2/3.x alike) hard-requires the full GUI `opencv-python` (~112 MB),
-while planlens itself depends on `opencv-python-headless`; pip cannot
-express "either variant", and installing both leaves two distributions
-owning the `cv2` namespace (works, but uninstalling either can break
-the other). That is why OCR is still an extra. Decision:
+OpenCV (`opencv-python-headless`) and `rapidfuzz` are core dependencies,
+not extras. `planlens[raster]` and `planlens[text]` still resolve, but they
+are empty aliases that install nothing extra.
+
+**What changed since 0.11 (details in `CHANGELOG.md`).**
+
+- **0.12.0** — marks land where the thing is: a `view` + `image_box` anchor
+  is judged by the view it came from (a mark read off a wide view is
+  skipped with the reason), a quote on a multi-line CAD notes block lands on
+  its own line, and a sticky note hangs from its spot on a rotated page.
+  `find_like` gained a numpy matcher, so it runs where OpenCV cannot load
+  (see "Hosts where OpenCV cannot load" below).
+- **0.13.0** — visual scales: `planlens.document.scales`, `.raster`,
+  `.scalefinder` (`find_scales`) and `.measuring` (`measure`) find the
+  scales a page carries (log depth rulers, plot axes, profiles, plans) from
+  text, paths or pixels, and read a drawn position through them with a
+  stated +/-; `log_grid` reads scanned logs; the `measure` tool; markups on
+  rotated pages and label reading direction; `find_like` ignores linework
+  running through the example.
+- **0.14.0** — plan locations (`plan_symbols`, `plan_grid`); a log's drawn
+  sample boxes read as intervals (`LogGrid.samples`); a depth scale printed
+  between ticks reads as depths; a letterhead's telephone line is never an
+  exploration id; distinct drawing sheets are not called duplicates; stable
+  markup ids (`Markup.uid`), an atomic save and `ReviewToolkit.forget`;
+  PyMuPDF 2.0 supported through `planlens.pymupdf_settings` (floor raised to
+  1.27.2); numpy floor 1.26.
+
+### Hosts where OpenCV cannot load
+
+On a host whose OpenSSL enforces FIPS mode, OpenCV's bundled crypto library
+fails its self-test and aborts the interpreter when it is imported; no
+exception can be caught. planlens therefore test-imports OpenCV in a child
+process first (`planlens.opencv.available()`, cached per process;
+`PLANLENS_CV2_PROBE=0` skips the test). What the code then does there:
+
+- `find_like` uses its numpy matcher (same scores as OpenCV's
+  `TM_CCOEFF_NORMED`); `PLANLENS_FINDLIKE_BACKEND` = `auto` | `numpy` |
+  `opencv` chooses.
+- The visual-scales layer (`document.raster`, `scalefinder`, `measuring`)
+  uses numpy and PyMuPDF only.
+- The raster tracing leg (`from_raster`) and the OCR leg (`planlens.ocr`)
+  raise an `ImportError` that says why instead of killing the process; a
+  host can leave those tools out. So **OCR is not available on such a host,
+  and neither recipe below changes that.**
+
+**OpenCV variants — pick per environment (hosts where OpenCV loads).**
+Every published rapidocr distribution (`rapidocr-onnxruntime` 1.x and the
+unified `rapidocr` 2/3.x alike) hard-requires the full GUI `opencv-python`
+(~112 MB), while planlens itself depends on `opencv-python-headless`; pip
+cannot express "either variant", and installing both leaves two
+distributions owning the `cv2` namespace (works, but uninstalling either can
+break the other). That is why OCR is still an extra. Decision:
 
 - **Desktop / notebook**: `pip install "planlens[ocr]"` as above — the
   GUI build wins the namespace and everything works.
-- **Server / headless deploy** (Databricks, TinyApps — no GUI libs):
-  skip the `[ocr]` extra and install the engine without its metadata
-  deps; the OCR leg needs only the cv2 APIs headless provides
-  (verified end-to-end in a clean headless-only venv, 2026-09-05):
+- **Server / headless deploy where OpenCV loads** (no GUI libs): skip the
+  `[ocr]` extra and install the engine without its metadata deps; the OCR
+  leg needs only the cv2 APIs headless provides (verified end-to-end in a
+  clean headless-only venv, 2026-09-05):
 
   ```
   pip install planlens
