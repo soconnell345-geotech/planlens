@@ -11,13 +11,20 @@ size limit you set::
     tools = kit.specs("anthropic")          # or "openai"
     ...
     result_text = kit.call_json(tool_name, tool_arguments)
+
+``look`` (next to ``resolve_source``) is the host's way of letting a tool see
+an image: ``(image, question, kind) -> the model's text``. planlens still
+makes no model call. The host layer built on the toolkit (one toolkit per
+conversation, the markup check, ``find_like`` with every candidate read) is
+:mod:`planlens.review`.
 """
 
 from planlens.tools.specs import TOOL_SPECS
 from planlens.tools.toolkit import (
-    DEFAULT_IMAGE_VIEW_HINT, DEFAULT_MAX_CHARS, DEFAULT_VISION_HINT,
+    DEFAULT_IMAGE_VIEW_HINT, DEFAULT_MAX_CHARS, DEFAULT_VISION_HINT, Look,
     ReviewToolkit, ToolError,
 )
 
-__all__ = ["ReviewToolkit", "ToolError", "TOOL_SPECS", "DEFAULT_MAX_CHARS",
+__all__ = ["ReviewToolkit", "ToolError", "Look", "TOOL_SPECS",
+           "DEFAULT_MAX_CHARS",
            "DEFAULT_VISION_HINT", "DEFAULT_IMAGE_VIEW_HINT"]
