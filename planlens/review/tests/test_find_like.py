@@ -333,8 +333,12 @@ def _run(clock, **kw):
 def test_the_default_budget():
     assert fl.budget_s() == fl.DEFAULT_BUDGET_S < 795
     assert fl.budget_s(0) is None and fl.budget_s("0") is None
-    assert fl.budget_s(None) is None
+    # An unset setting is the default, as the app read GEOTECH_FIND_LIKE_
+    # BUDGET_S (None from os.environ.get), never no limit.
+    assert fl.budget_s(None) == fl.DEFAULT_BUDGET_S
+    assert fl.budget_s("") == fl.DEFAULT_BUDGET_S
     assert fl.budget_s("not a number") == fl.DEFAULT_BUDGET_S
+    assert fl.budget_s("120") == 120.0
 
 
 def test_a_loose_example_stops_at_the_budget_and_says_so(loose_example):
@@ -374,9 +378,29 @@ def test_the_host_budget_reaches_the_search(loose_example, tmp_path):
     pdf = tf.build_synthetic_tag_set(n_pages=2).pdf
     out = _dispatch({"attachment_key": "t", "page": 0,
                      "bbox": [592.8, 364.3, 639.7, 382.7], "text": "GCE"},
-                    look, {"t": pdf}, tmp_path, find_like_budget_s=None)
+                    look, {"t": pdf}, tmp_path, find_like_budget_s=0)
     assert "status" not in out
     assert look.calls == -(-N_PAGES * PER_PAGE // fl.PER_SHEET)
+
+
+def test_an_unset_host_budget_is_the_default(loose_example, tmp_path):
+    # The binding may hand over the setting as it reads it: unset (None)
+    # is the app's 300 s, and a callable is read on every call, as the app
+    # read its setting.
+    pdf = tf.build_synthetic_tag_set(n_pages=2).pdf
+    args = {"attachment_key": "t", "page": 0,
+            "bbox": [592.8, 364.3, 639.7, 382.7], "text": "GCE"}
+    look = _Reader(loose_example)
+    out = _dispatch(args, look, {"t": pdf}, tmp_path, find_like_budget_s=None)
+    assert out["status"] == "cut_short" and out["budget_s"] == 300.0
+    setting = {"value": None}
+    look = _Reader(loose_example)
+    out = _dispatch(args, look, {"t": pdf}, tmp_path,
+                    find_like_budget_s=lambda: setting["value"])
+    assert out["status"] == "cut_short"
+    setting["value"] = "0"
+    out = json.loads(review_tools.find_like(args, {"t": pdf}))
+    assert "status" not in out
 
 
 def test_page_ranges():

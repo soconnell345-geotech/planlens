@@ -1048,14 +1048,22 @@ def _read_cad(path: str, name: str) -> Dict[str, Any]:
 def _read_office(path: str, name: str) -> Dict[str, Any]:
     """A Word or Excel file as Markdown lines (the host's ``read_office``:
     python-docx and openpyxl are not planlens dependencies) and what it
-    is."""
+    is. Pictures in the file may go to the working folder's scratch folder,
+    named in the Markdown by that folder's name (none with no folder)."""
     from planlens.tools import ToolError
-    reader = _host().read_office
+    host = _host()
+    reader = host.read_office
     if reader is None:
         raise ToolError(
             f"'{name}' is a Word or Excel file, and this host reads none",
             hint="save it as a PDF and open that")
-    markdown, fields = reader(path, name)
+    try:
+        image_dir = host.scratch(create=False)
+    except Exception:  # noqa: BLE001 - pictures are named, not saved
+        image_dir = None
+    image_ref = host.scratch_dir if image_dir else None
+    markdown, fields = reader(path, name, image_dir=image_dir,
+                              image_ref=image_ref)
     ext = os.path.splitext(name)[1].lower()
     header: Dict[str, Any] = {
         "kind": ("word document" if ext in (".docx", ".doc")

@@ -420,6 +420,24 @@ def test_the_did_you_mean_points_words_at_text():
     assert "Did you mean: comment -> text?" in problem["error"]
 
 
+@pytest.mark.parametrize("key, said", [
+    ("ID", "Did you mean: ID -> id?"),
+    ("Id", "Did you mean: Id -> id?"),
+    ("TEXT", "Did you mean: TEXT -> text?"),
+    ("idx", None),                  # the app offered nothing for it either
+    ("ids", None),
+])
+def test_the_did_you_mean_reads_as_the_apps(key, said):
+    problem = marked_copy.remove_problem([{key: "p0.m1"}])
+    assert problem["error"].startswith(
+        f"annotate_document: remove[0] has unknown key(s) ['{key}'].")
+    assert problem["error"].endswith("Valid keys: ['id', 'text'].")
+    if said is None:
+        assert "Did you mean" not in problem["error"]
+    else:
+        assert said in problem["error"]
+
+
 def test_what_the_toolkit_forgives_still_passes(gt, folder):
     tools, handle = _setup(gt, folder)
     page = gt.narrative_page

@@ -17,8 +17,9 @@ returns the JSON text the model reads:
   candidate with the host's look (:func:`planlens.review.find_like.
   find_like`); it is not offered without a look.
 
-The host is :func:`planlens.review.host.current` (set once with
-:func:`planlens.review.host.configure`).
+The host is :func:`planlens.review.host.current`: the process's
+(:func:`planlens.review.host.configure`), or one conversation's (``call(...,
+host=)``, :func:`planlens.review.host.using`).
 """
 
 from __future__ import annotations
@@ -48,16 +49,16 @@ def _host():
     return current()
 
 
-def tool_names() -> tuple:
-    """The host tools offered with the installed host (``find_like`` only
-    with a look)."""
-    return _specs.host_tool_names(look=_host().look is not None)
+def tool_names(host=None) -> tuple:
+    """The host tools offered with ``host`` (default: the current one;
+    ``find_like`` only with a look)."""
+    return _specs.host_tool_names(look=(host or _host()).look is not None)
 
 
-def specs(style: str = "plain"):
+def specs(style: str = "plain", host=None):
     """The specs of :func:`tool_names` (:func:`planlens.review.specs.
     host_specs`)."""
-    return _specs.host_specs(style, look=_host().look is not None)
+    return _specs.host_specs(style, look=(host or _host()).look is not None)
 
 
 def _json_with(raw: str, **keys: Any) -> str:
@@ -128,9 +129,15 @@ def _document_args(name: str, a: Dict[str, Any]) -> Dict[str, Any]:
 
 def call(name: str, arguments: Optional[Dict[str, Any]] = None,
          attachments: Optional[Dict[str, bytes]] = None,
-         max_chars: Optional[int] = None) -> str:
+         max_chars: Optional[int] = None, host=None) -> str:
     """Run host tool ``name``; returns the JSON text the model reads. Never
-    raises."""
+    raises. ``host``: this conversation's host for the call (its look, its
+    signer, ...; :func:`planlens.review.host.using`), else the current
+    one."""
+    if host is not None:
+        from planlens.review.host import using
+        with using(host):
+            return call(name, arguments, attachments, max_chars)
     a = dict(arguments or {})
     unknown = sorted(set(a) - {arg for arg, _f, _d in
                                _specs._ARGS.get(name, ())})
@@ -160,6 +167,18 @@ def call(name: str, arguments: Optional[Dict[str, Any]] = None,
 
 # -- annotate_document ---------------------------------------------------------
 
+def _host_error(host, tool: str, exc: BaseException) -> Dict[str, Any]:
+    """The host's error result for ``tool`` (its ``error_json``), as a
+    dict."""
+    from planlens.review.host import tool_error
+    raw = host.tool_error_json(tool, exc)
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        data = None
+    return data if isinstance(data, dict) else tool_error(tool, exc)
+
+
 def annotate_document(handle: str, markups: Optional[list] = None,
                       output_path: str = "", append: bool = True,
                       check: bool = True, remove: Optional[list] = None,
@@ -174,7 +193,6 @@ def annotate_document(handle: str, markups: Optional[list] = None,
     and keeps the rest. There is no ``author`` argument: the signature is
     always the host's."""
     from planlens.review import markup_check
-    from planlens.review.host import error_line, tool_error
     host = _host()
 
     def dispatch(args):
@@ -204,7 +222,8 @@ def annotate_document(handle: str, markups: Optional[list] = None,
             handle, markups, output_path, append, signer, dispatch,
             remove=remove, image=image)
     except Exception as exc:  # noqa: BLE001 - a tool error, not the turn's
-        return json.dumps(host.hidden(tool_error("annotate_document", exc)))
+        return json.dumps(host.hidden(
+            _host_error(host, "annotate_document", exc)))
     if not isinstance(result, dict):
         return json.dumps(host.hidden({"error": str(result)}))
     if refused_here and "error" not in result:
@@ -222,8 +241,9 @@ def annotate_document(handle: str, markups: Optional[list] = None,
             block = markup_check.check_marks(out_pdf, result,
                                              list(markups or []), host.look)
         except Exception as exc:  # noqa: BLE001 - the file is written
-            block = {"error": "the placement check failed: "
-                              + error_line(exc)}
+            # "the placement check failed: <the error, in the host's words>"
+            block = {"error": _host_error(host, "the placement check",
+                                          exc).get("error")}
         if block is not None:
             result["check"] = block
     _marks.image_frame_result(result)
@@ -274,6 +294,12 @@ def _named_contact_sheets(out):
 
 
 def _source_bytes(key: str, attachments: Optional[Dict[str, bytes]]):
+    """The bytes ``find_like`` searches: the host's ``find_like_source``
+    (the app's own words for a key it cannot find), else the document
+    tools' resolver."""
+    own = _host().find_like_source
+    if own is not None:
+        return bytes(own(key, dict(attachments or {})))
     resolved = _conv.resolve_document_source(key, attachments)
     if isinstance(resolved, (bytes, bytearray)):
         return bytes(resolved)
@@ -339,7 +365,7 @@ def find_like(arguments: Dict[str, Any],
             text=(arguments.get("text") or None), pages=pages,
             include_legend=bool(arguments.get("include_legend", False)),
             threshold=arguments.get("threshold"), save_dir=save_dir,
-            budget=host.find_like_budget_s)
+            budget=host.find_like_budget())
     except ImportError as e:
         return json.dumps({"error": f"find_like cannot run here: {e}"})
     except (ValueError, IndexError) as e:
@@ -400,7 +426,7 @@ def _find_like_on_image(arguments, data, key, bbox) -> str:
             host.look, text=(arguments.get("text") or None), pages=None,
             include_legend=bool(arguments.get("include_legend", False)),
             threshold=arguments.get("threshold"), save_dir=save_dir,
-            dpi=72.0 / s, budget=host.find_like_budget_s)
+            dpi=72.0 / s, budget=host.find_like_budget())
     except ImportError as e:
         return json.dumps({"error": f"find_like cannot run here: {e}"})
     except (ValueError, IndexError) as e:

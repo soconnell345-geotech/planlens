@@ -17,9 +17,20 @@ its working folder, its signer, where the markup check keeps its verdicts,
     specs = review.tool_specs("anthropic")     # the tools, word for word
     text = review.call("annotate_document", {...}, attachments=uploads)
 
+A host serving several conversations at once, each with its own look and
+signer, gives each conversation its own host instead, per call or around a
+turn; other threads keep theirs::
+
+    mine = dataclasses.replace(base, look=this_users_look,
+                               signer="A. User via MyApp (AI draft)")
+    text = review.call("annotate_document", {...}, uploads, host=mine)
+    with review.using(look=None):              # no look: marks not checked
+        text = review.call("annotate_document", {...}, uploads)
+
 Modules:
 
-* :mod:`~planlens.review.host` -- :class:`ReviewHost` and :func:`configure`;
+* :mod:`~planlens.review.host` -- :class:`ReviewHost`, :func:`configure`
+  and :func:`using`;
 * :mod:`~planlens.review.conversation` -- one toolkit per conversation,
   handles and sources interchangeable, viewer page numbers, Word/Excel/DXF
   read as text;
@@ -37,10 +48,10 @@ Modules:
 """
 
 from planlens.review.host import (
-    ImageSupport, ReviewHost, configure, current,
+    ImageSupport, ReviewHost, configure, current, using,
 )
 from planlens.review.tools import call, tool_names
 from planlens.review.tools import specs as tool_specs
 
-__all__ = ["ReviewHost", "ImageSupport", "configure", "current", "call",
-           "tool_specs", "tool_names"]
+__all__ = ["ReviewHost", "ImageSupport", "configure", "current", "using",
+           "call", "tool_specs", "tool_names"]

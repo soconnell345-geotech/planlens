@@ -316,7 +316,12 @@ def test_an_office_file_is_read_by_the_hosts_reader(tmp_path):
             "| S-02 | Curb ramp detail | Resubmit |"]
     calls = []
 
-    def reader(path, name):
+    def reader(path, name, image_dir=None, image_ref=None):
+        # Pictures go to the conversation's scratch folder, named by it, as
+        # the app's reader call passed them.
+        assert os.path.normcase(image_dir) == os.path.normcase(
+            os.path.join(str(folder), ".scratch"))
+        assert image_ref == ".scratch"
         calls.append(name)
         return "\n".join(rows), {"sheets": ["Log"]}
 
@@ -331,6 +336,21 @@ def test_an_office_file_is_read_by_the_hosts_reader(tmp_path):
                                     "pattern": "resubmit"})
     assert hits["n_hits"] == 1 and "S-02" in hits["hits"][0]["text"]
     assert calls == ["Submittal Log.xlsx"]          # read once, then cached
+
+
+def test_with_no_working_folder_an_office_files_pictures_are_not_saved(
+        tmp_path):
+    (tmp_path / "memo.docx").write_bytes(b"PK\x03\x04 made up")
+    seen = []
+
+    def reader(path, name, image_dir=None, image_ref=None):
+        seen.append((image_dir, image_ref))
+        return "A made-up memo.", {}
+
+    configure_host(None, None, read_office=reader)
+    out = _doc("open_document", {"source": str(tmp_path / "memo.docx")})
+    assert "error" not in out, out
+    assert seen == [(None, None)]
 
 
 def test_without_a_reader_an_office_file_is_said_plainly(tmp_path):

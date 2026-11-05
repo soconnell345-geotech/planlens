@@ -47,8 +47,8 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any, Dict, List, Optional, Sequence
 
 #: Seconds one ``find_like`` call may spend in all, by default — the search
-#: and the reads of its contact sheets (``None`` or ``0`` = no limit; the
-#: host passes its own). Foundry brief 5 (2026-10-08): a loose example (a
+#: and the reads of its contact sheets (``0`` = no limit; the host passes its
+#: own). Foundry brief 5 (2026-10-08): a loose example (a
 #: callout with its leader) matched 978 places at about 41 a page — under
 #: the per-page flood guard — and the tool read 49 sheets in 795 s for 3 true
 #: instances. Past the budget no further sheet is sent; the reads already
@@ -62,11 +62,10 @@ _clock = time.monotonic
 
 def budget_s(value: Any = DEFAULT_BUDGET_S) -> Optional[float]:
     """The whole-search budget in seconds for a budget ``value`` (a number,
-    or text holding one), or ``None`` for none: an unreadable value is the
-    default, zero or less is no limit."""
-    if value is None:
-        return None
-    raw = str(value).strip()
+    or text holding one), or ``None`` for none: ``None``, empty or unreadable
+    is the default (as the app read an unset setting), zero or less is no
+    limit."""
+    raw = "" if value is None else str(value).strip()
     try:
         limit = float(raw) if raw else DEFAULT_BUDGET_S
     except ValueError:
