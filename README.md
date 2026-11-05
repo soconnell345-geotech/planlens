@@ -98,10 +98,12 @@ located, attributed data:
   searched for rather than to coordinates guessed at, with anything it could
   not anchor reported instead of placed. The same tools serve over the Model
   Context Protocol (`planlens[mcp]`), generated from the same specs — see
-  "Use from an MCP host". `ReviewToolkit(look=...)` takes the host's look
+  "Use from an MCP host". `ReviewToolkit(look=...)` stores the host's look
   beside its source resolver — `(image, question, kind) -> the model's
-  text` — for the tools that must see an image; planlens itself still makes
-  no model call, and without a look those tools are not offered.
+  text` — for a toolkit tool that must see an image; none of the toolkit's
+  own seventeen does yet, so its surface is unchanged, and planlens itself
+  still makes no model call. The look the review tools below use is
+  `ReviewHost.look`.
 - **`planlens.review`** — the document tools as a host serves them: one
   toolkit per conversation (a handle and a file name interchangeable, the
   viewer's 1-based page numbers beside every 0-based one, a DXF read as its
@@ -109,9 +111,12 @@ located, attributed data:
   swapping it in, removing one mark by its id, and then LOOKING at every
   mark on the copy to say which are misplaced, and `find_like` reading
   every candidate through the host's look. The host hands over its source
-  resolver, look, working folder and signer in one `ReviewHost`; the tool
-  specs are the GeotechStaffEngineer app's, word for word (a test holds them
-  to the app's own capture). See `planlens/review/DESIGN.md`.
+  resolver, look, working folder and signer in one `ReviewHost`, for the
+  process or for one conversation (`review.call(..., host=)`,
+  `review.using(...)`), so two people signed in to one process each sign
+  their own marks; the tool specs are the GeotechStaffEngineer app's, word
+  for word (a test holds them to the app's own capture). See
+  `planlens/review/DESIGN.md`.
 - **`planlens.ir`** — drawing geometry: lines, arcs, text, and the annotation
   constructs built from them (below).
 

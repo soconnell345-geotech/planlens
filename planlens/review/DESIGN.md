@@ -12,8 +12,9 @@ vision tools, reading Word and Excel, and the binding to its agent.
 Three of the moved files were not pure wrappers in the app: the markup check
 and `find_like` asked the vision model, and the document tools reached into
 the app's file confinement, attachments and working folder. Each of those is
-now something the host passes in, in one `ReviewHost` installed with
-`planlens.review.configure(...)`:
+now something the host passes in, in one `ReviewHost` installed for the
+process with `planlens.review.configure(...)` or for one conversation (see
+"State" below):
 
 | The app imported | The host passes in |
 |---|---|
@@ -22,26 +23,31 @@ now something the host passes in, in one `ReviewHost` installed with
 | `_fileio.host_output_dir()` / `into_working_folder` | `working_folder()`; the path logic itself moved (`host.into_working_folder`) |
 | the markup author setting | `signer` (and `own_mark_words`: whose marks `remove` may take out) |
 | `vision_tools.reads_file()` as the verdicts' key | `verdict_key()` |
-| `GEOTECH_FIND_LIKE_BUDGET_S` | `find_like_budget_s` |
+| `GEOTECH_FIND_LIKE_BUDGET_S` | `find_like_budget_s`: a value or a callable read on every call; unset (`None`) is the app's 300 s, `0` no limit |
 | `vision_tools.display_path`, `_fileio.hide_working_folder` | `display_path`, `hide_paths` |
-| `vision_view.render_view(..., engine=)` for the check's crop | `render_crop(pdf, page, bbox)`; default planlens' own render at 300 dpi |
+| `vision_view.render_view(..., pad_frac=0.0, engine=)` for the check's crop | `render_crop(pdf, page, bbox)`, the box unpadded; default planlens' own render at 300 dpi |
+| `vision_tools._resolve_attachment_or_path` in `find_like` | `find_like_source(key, attachments) -> bytes`, raising in the host's words; default the document tools' resolver |
 | `image_view` (Pillow) | `images: ImageSupport` (`open_image`, `as_pdf`, `page_scale`, `shown_size`) |
-| `office_text` (python-docx, openpyxl) | `read_office(path, name) -> (markdown, fields)` |
+| `office_text` (python-docx, openpyxl) | `read_office(path, name, image_dir=, image_ref=) -> (markdown, fields)`; planlens passes the working folder's scratch folder and its name, as the app did |
 | `cited_documents` | `after_marked_copy(result, markups)` |
 | `dispatch_custom_event` (the lock-wait record) | `record(event, data)` |
-| `error_text.tool_error_json` | `error_json(tool, exc)`; a plain default here |
+| `error_text.tool_error_json` | `error_json(tool, exc)`, used by every tool, `annotate_document` and its check's failure line included; a plain default here |
 
 Small pure helpers the moved code used (path scrubbing, the nested-key
-check, image magic bytes, "is this box off the image") moved as copies into
-`host.py`.
+check with its did-you-mean ranked as the app's `suggest_params` ranks keys
+without units, image magic bytes, "is this box off the image") moved as
+copies into `host.py`.
 
 `ReviewToolkit` itself gains `look` next to `resolve_source`. None of the
 toolkit's own seventeen tools needs it (its `find_like` is the image match
 alone), so its surface is unchanged; `ReviewToolkit.LOOK_TOOLS` is the
-mechanism for one that will, and the host layer's look tools
-(`specs.LOOK_TOOLS`: `find_like`) are left out of `tool_names()` and
-`tool_specs()` when the host gives no look. Without a look,
-`annotate_document` still writes, and its result has no `check`.
+mechanism for one that will, and the toolkit only stores the look it is
+given. **The look the review tools use is `ReviewHost.look`**, read at call
+time from the host serving the call: the markup check and `find_like` take
+it from there, and the host layer's look tools (`specs.LOOK_TOOLS`:
+`find_like`) are left out of `tool_names()` and `tool_specs()` when that
+host gives no look. Without a look, `annotate_document` still writes, and
+its result has no `check`.
 
 ## The specs are the app's, word for word
 
@@ -60,7 +66,7 @@ app changes a spec on purpose.
 
 ```
 review/
-  host.py          ReviewHost, configure(), the small helpers
+  host.py          ReviewHost, configure(), using(), the small helpers
   conversation.py  one toolkit per conversation; handles and sources
                    interchangeable; pdf_pages/pdf_page and viewer page
                    numbers; Word/Excel/DXF read as text; lock-wait timing
@@ -79,7 +85,17 @@ review/
 ## State
 
 The per-conversation toolkits, the markup check's kept verdicts and the
-side-read cache are process-wide, as they were in the app: one host per
-process, conversations told apart by the working folder (`working_folder`)
-and the verdict key. `configure()` with no argument restores the defaults
-(file paths only, no look, no working folder).
+side-read cache are process-wide, as they were in the app, with
+conversations told apart by the working folder (`working_folder`) and the
+verdict key. `configure()` installs the process's host; with no argument it
+restores the defaults (file paths only, no look, no working folder).
+
+The host itself can be one conversation's. The app builds one agent per
+conversation, each with its own vision engine and signer (two people can be
+signed in to one process), so a host that is only process-wide would sign
+everyone's marks with the name set last. `call(..., host=)` and
+`with using(host):` serve the calls inside with that host, through a
+context variable that `current()` reads first: other threads keep theirs,
+and the markup check's and `find_like`'s worker threads run in a copy of the
+calling context, so it reaches them. `using(look=None)` is "no look for
+this conversation" (no `find_like`, marks written and not checked).

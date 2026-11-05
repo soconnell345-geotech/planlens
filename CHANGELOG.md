@@ -19,11 +19,16 @@
   `find_like` with every candidate read by the look (`find_like`); page
   numbers (`page_numbers`); and the frame conversions, tiles, zoom windows
   and turned-lettering geometry of the app's `vision_view` (`frames`).
-  What the app used to import is passed in one `ReviewHost`
-  (`planlens.review.configure`): the source resolver, the look, the working
-  folder, the signer, where the markup check keeps its verdicts, the time
-  budget, and optional hooks (image decoding, Word/Excel reading, a crop
-  renderer sized to the host's model). `planlens.review.tool_specs()` gives
+  What the app used to import is passed in one `ReviewHost`: the source
+  resolver, the look, the working folder, the signer, where the markup
+  check keeps its verdicts, the time budget, and optional hooks (image
+  decoding, Word/Excel reading, a crop renderer sized to the host's model,
+  `find_like`'s own resolver). It is installed for the process
+  (`planlens.review.configure`) or for one conversation
+  (`planlens.review.call(..., host=)`, `with planlens.review.using(...)`),
+  so a host serving several people at once gives each conversation its own
+  look and signer; `using(look=None)` is no look for that conversation.
+  `planlens.review.tool_specs()` gives
   the ten tools' specs word for word as the app shows them, checked against
   the app's own capture; `planlens.review.call()` runs them. Behaviour is
   the app's; nothing in the app changes until its part (b).
