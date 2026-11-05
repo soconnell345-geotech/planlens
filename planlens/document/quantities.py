@@ -119,6 +119,11 @@ class QuantityMention:
     units_known: bool = False
     value_to: Optional[float] = None
     qualifier: Optional[str] = None
+    #: The name a printout puts on the value, for the ``Label (unit): value``
+    #: form only ("Axial Capacity Pc" in "Axial Capacity Pc (kip): 437.0").
+    #: ``None`` everywhere else: prose does not label its numbers this way,
+    #: and a label guessed from the surrounding words would be invented.
+    label: Optional[str] = None
     line_ids: List[str] = field(default_factory=list)
     bbox: Optional[BBox] = None
     source: str = SOURCE_PDF_TEXT
@@ -140,6 +145,8 @@ class QuantityMention:
             d["value_to"] = _r(self.value_to)
         if self.qualifier:
             d["qualifier"] = self.qualifier
+        if self.label:
+            d["label"] = self.label
         if self.units_known:
             d["units_known"] = True
         if self.line_ids:
@@ -162,6 +169,8 @@ class QuantityMention:
             head += f" {self.units}"
         if self.qualifier:
             head = f"{self.qualifier} {head}"
+        if self.label:
+            head = f"{self.label}: {head}"
         return f"{head} [{self.kind}]"
 
 
@@ -359,6 +368,29 @@ _RE_COUNT = re.compile(
     r"(?P<n>" + _NUM + r")\s+(?P<noun>" + "|".join(
         sorted(_COUNTABLE, key=len, reverse=True)) + r")\b", re.I)
 
+#: The unit-first form of a calculation printout: ``Pc (kip): 437.0``,
+#: ``Settlement (in) = -0.25``. The parenthesis must hold a unit from the
+#: table and NOTHING else — "(see Note 3)", "(2019)" and "(typ.)" are not
+#: units — and a colon or an equals sign must follow it. The label is read
+#: back from the text before the parenthesis by :func:`_label_before`, not by
+#: this pattern, so it can stop at the printout's own separators.
+#: The value may not be followed by ``:digit`` (a time, "12:30"), ``+digit``
+#: (a station) or ``/digit`` (a date or a ratio): those are numbers the
+#: parenthesized unit says nothing about.
+_RE_LABEL_UNIT = re.compile(
+    r"\(\s*(?P<unit>" + _UNIT_ALT + r")\s*\)\s*[:=]\s*"
+    r"(?P<sign>[-+])?(?P<num>" + _NUM + r")"
+    r"(?![\d.,]|\s*[:+/]\s*\d)", re.I)
+
+#: A unit right after the value: "Depth (m): 12.5 ft" has two units, and the
+#: label form then yields to the ordinary reading rather than pick one.
+_RE_UNIT_AFTER = re.compile(r"\s*-?\s*(?P<unit>" + _UNIT_ALT + r")", re.I)
+
+#: How many words of label are kept, at most. Printout labels are short
+#: ("Axial Capacity Pc", "Max. Moment"); anything longer is prose that
+#: happens to precede a parenthesis.
+_LABEL_MAX_WORDS = 6
+
 _QUALIFIER_ALT = "|".join(
     f"(?P<q{i}>{pat})" for i, (pat, _name) in enumerate(_QUALIFIERS))
 _QUALIFIER_NAMES = [name for _pat, name in _QUALIFIERS]
@@ -435,6 +467,55 @@ def _in_is_a_preposition(text: str, m: "re.Match") -> bool:
     return bool(word) and word.group(0).lower() in _IN_IS_A_PREPOSITION
 
 
+#: Words a label never starts with: they join it to the clause before.
+_LABEL_LEADING_STOP = frozenset((
+    "and", "or", "the", "a", "an", "of", "with", "at", "is", "are", "was",
+    "were", "for", "to", "by", "as", "then", "so",
+))
+
+
+def _label_before(text: str, paren: int) -> Tuple[Optional[str], int]:
+    """The label a printout writes before ``(unit)``, and where it starts.
+
+    Walks back word by word from the parenthesis and stops at the first
+    thing a label cannot cross: a line break, a tab or a run of two spaces
+    (a printout's columns), a colon, semicolon, equals sign or pipe (the
+    previous field), a word ending a sentence, a number (the previous
+    field's VALUE, as in "Pc (kip): 437.0 Tc (kip): 120.5" joined on one
+    line), or the word limit. Returns ``(None, paren)`` when no word of
+    label is there: a bare "(kip): 437.0" is not read, because the label is
+    what says what the number is.
+    """
+    head = text[:paren]
+    stripped = head.rstrip(" ")
+    if len(head) - len(stripped) > 1:          # a column gap before "("
+        return None, paren
+    cut = max(stripped.rfind(c) for c in "\n\t:;=|")
+    gap = stripped.rfind("  ")
+    cut = max(cut, gap + 1 if gap >= 0 else -1)
+    words = stripped[cut + 1:].split(" ")
+    kept: List[str] = []
+    for word in reversed(words):
+        if not word:
+            break
+        if kept and word.endswith((".", ",", "!", "?")) and \
+                len(word.rstrip(".,!?")) > 4:
+            break                              # the end of a sentence/field
+        if _to_float(word.rstrip(".,")) is not None:
+            break                              # a value, not a name
+        if not re.search(r"[A-Za-z]", word):
+            break
+        kept.append(word)
+        if len(kept) >= _LABEL_MAX_WORDS:
+            break
+    while kept and kept[-1].lower() in _LABEL_LEADING_STOP:
+        kept.pop()                             # "and Pc" names Pc
+    if not kept:
+        return None, paren
+    label = " ".join(reversed(kept))
+    return label, stripped.rfind(label)
+
+
 def _mention(value: float, units: str, kind: str, text: str, start: int,
              end: int, whole: str, value_to: Optional[float] = None
              ) -> QuantityMention:
@@ -459,6 +540,7 @@ def scan_text(text: str) -> List[QuantityMention]:
     if not text:
         return []
     found: List[Tuple[int, int, int, QuantityMention]] = []   # start, prio, -len
+    label_cores: Dict[int, int] = {}       # label mention -> its "(" offset
 
     def add(prio: int, start: int, end: int, men: QuantityMention) -> None:
         found.append((start, prio, -(end - start), men))
@@ -519,6 +601,29 @@ def scan_text(text: str) -> List[QuantityMention]:
             _mention(n1, units, kind, m.group(0), m.start(), m.end(), text,
                      value_to=n2))
 
+    for m in _RE_LABEL_UNIT.finditer(text):
+        num = _to_float(m.group("num"))
+        if num is None:
+            continue
+        if m.group("sign") == "-":
+            num = -num
+        units, kind = _canonical(m.group("unit"))
+        end = m.end()
+        after = _RE_UNIT_AFTER.match(text, end)
+        if after and not _in_is_a_preposition(text, after):
+            if _canonical(after.group("unit"))[0] != units:
+                continue                   # two units: not ours to choose
+            end = after.end()              # "Depth (ft): 12.5 ft" is one
+        label, start = _label_before(text, m.start())
+        if label is None:
+            continue
+        men = _mention(num, units, kind, text[start:end], start, end, text)
+        men.label = label
+        # Priority 0: the label form starts at its label, before any value
+        # the general pass could find inside the same characters.
+        add(0, start, end, men)
+        label_cores[id(men)] = m.start()
+
     for m in _RE_COUNT.finditer(text):
         n = _to_float(m.group("n"))
         if n is None:
@@ -532,7 +637,22 @@ def scan_text(text: str) -> List[QuantityMention]:
     taken_to = -1
     for start, _prio, _neg_len, men in sorted(found, key=lambda r: r[:3]):
         if start < taken_to:
-            continue
+            core = label_cores.get(id(men))
+            if core is None or core < taken_to:
+                continue
+            # The label ran back into the value before it; keep the words
+            # after that value, or nothing if none are left.
+            words = text[taken_to:core].split()
+            while words and (words[0].lower() in _LABEL_LEADING_STOP
+                             or not re.search(r"[A-Za-z]", words[0])):
+                words.pop(0)
+            if not words:
+                continue
+            men.label = " ".join(words)
+            new_start = text.index(words[0], taken_to)
+            men.text = text[new_start:men.span[1]].strip()
+            men.span = (new_start, men.span[1])
+            men.qualifier = _qualifier(text, new_start, men.span[1])
         out.append(men)
         taken_to = men.span[1]
     return out

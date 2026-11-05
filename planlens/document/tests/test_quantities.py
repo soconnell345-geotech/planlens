@@ -289,3 +289,100 @@ def test_a_reviewers_comment_is_read_for_quantities():
     assert mentions[0].source == "pdf_annotation"
     assert mentions[0].markup_id
     assert without == []
+
+
+# ---------------------------------------------------------------------------
+# PL-11: the unit-first form of a calculation printout, ``Label (unit): value``
+# ---------------------------------------------------------------------------
+
+#: (text, label, value, units, kind). Invented labels and values.
+LABEL_UNIT = [
+    ("Qx (kip): 512.0", "Qx", 512.0, "kip", "force"),
+    ("Lateral Capacity Qx (kip): 512.0", "Lateral Capacity Qx", 512.0,
+     "kip", "force"),
+    ("Tip Depth (ft): 63.5", "Tip Depth", 63.5, "ft", "length"),
+    ("Heave (in) = -0.35", "Heave", -0.35, "in", "length"),
+    ("Toe Pressure (ksf): 4.75", "Toe Pressure", 4.75, "ksf",
+     "pressure_or_stress"),
+    ("Fill Weight (pcf): 118", "Fill Weight", 118, "pcf", "unit_weight"),
+    ("Wall Batter (deg): 7.5", "Wall Batter", 7.5, "deg", "angle"),
+    ("Shaft Load (kN): 1,840.2", "Shaft Load", 1840.2, "kN", "force"),
+    ("Max. Shear (kN) : 96.1", "Max. Shear", 96.1, "kN", "force"),
+    ("Drift (m): 2.10E-03", "Drift", 2.1e-03, "m", "length"),
+    # the unit printed again after the value is the same unit, one mention
+    ("Cover (in): 3.0 in", "Cover", 3.0, "in", "length"),
+]
+
+
+@pytest.mark.parametrize("text,label,value,units,kind", LABEL_UNIT)
+def test_label_unit_value_is_read(text, label, value, units, kind):
+    got = scan_text(text)
+    assert len(got) == 1, [str(m) for m in got]
+    men = got[0]
+    assert men.label == label
+    assert men.value == pytest.approx(value)
+    assert men.units == units
+    assert men.kind == kind
+    assert men.text == text.strip()
+    assert men.to_dict()["label"] == label
+
+
+def test_a_printout_line_with_two_fields_is_two_mentions():
+    got = scan_text("Qx (kip): 512.0 Qy (kip): 88.4")
+    assert [(m.label, m.value) for m in got] == [("Qx", 512.0),
+                                                 ("Qy", 88.4)]
+
+
+def test_column_gaps_separate_fields():
+    got = scan_text("Tip Depth (ft):  63.5    Mmax (kip):  12")
+    assert [(m.label, m.value, m.units) for m in got] == [
+        ("Tip Depth", 63.5, "ft"), ("Mmax", 12, "kip")]
+
+
+def test_a_label_stops_at_the_value_before_it():
+    got = scan_text("Embed (ft): 22.0 ft and Qx (kip): 512.0")
+    assert [(m.label, m.value, m.units) for m in got] == [
+        ("Embed", 22.0, "ft"), ("Qx", 512.0, "kip")]
+
+
+def test_a_label_stops_at_a_sentence_end():
+    (men,) = scan_text("The run was repeated. Qx (kip): 512.0")
+    assert men.label == "Qx"
+
+
+def test_other_forms_carry_no_label():
+    (men,) = scan_text("Each strut takes 50 kN.")
+    assert men.label is None
+    assert "label" not in men.to_dict()
+
+
+#: Near misses: each must still yield NOTHING.
+LABEL_UNIT_NOTHING = [
+    "Boring X-9 (2031): 14.5",          # a year in parentheses, not a unit
+    "Load case (see Note 4): 3",        # a note, not a unit
+    "Spacing (typ.): 6",                # a hedge, not a unit
+    "Start (min): 9",                   # not a unit this module reads
+    "Start (in): 12:30",                # a time after a unit-like word
+    "Reading (ft): 7/14/2031",          # a date, not a length
+    "(kip): 512.0",                     # no label to say what it is
+    "Total (kip) 512.0",                # no colon or equals: not the form
+]
+
+
+@pytest.mark.parametrize("text", LABEL_UNIT_NOTHING)
+def test_label_unit_near_misses_are_refused(text):
+    assert scan_text(text) == [], [str(m) for m in scan_text(text)]
+
+
+def test_a_station_after_the_form_stays_a_station():
+    # "12+40" is a station; the parenthesized ft does not turn it into 12 ft.
+    got = scan_text("Offset (ft): 12+40")
+    assert [(m.label, m.units, m.kind) for m in got] == [
+        (None, "sta", "station")]
+
+
+def test_two_different_units_are_not_reconciled():
+    # The parenthesis says m, the value says ft: the ordinary reading of the
+    # value stands and no labelled mention is invented.
+    got = scan_text("Depth (m): 12.5 ft")
+    assert [(m.label, m.value, m.units) for m in got] == [(None, 12.5, "ft")]

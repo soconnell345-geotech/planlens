@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **`Label (unit): value` is read as a quantity (app BACKLOG PL-11).** The
+  unit-first form of a calculation printout, "Axial Capacity Pc (kip):
+  437.0", returned nothing from `scan_text` / `find_quantities`; DESIGN.md
+  measured all 15 of the regex's misses on a real submittal sample as this
+  form. It now yields one mention in the parenthesized unit, carrying the
+  printout's name for it in a new `label` field (also in `to_dict()`, only
+  when set). The parenthesis must hold a unit from the table and nothing
+  else, a colon or equals sign must follow, and a label must precede it;
+  a time ("12:30"), a date ("7/14/2031"), a station or a second, different
+  unit after the value is refused. The label stops at a printout's column
+  gap, the previous field's value, a sentence end or six words. No other
+  form's output changed.
+
 ## 0.14.0 — 2026-11-04
 
 - **A depth scale printed as tick-flanked numerals reads as depths (app

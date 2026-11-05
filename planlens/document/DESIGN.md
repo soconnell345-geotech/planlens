@@ -323,6 +323,16 @@ two of those three), so adopting it would not have closed the gap. Reading it
 needs the label grammar of those programs and is deliberately left for when
 that is measured rather than guessed.
 
+**Since PL-11 (unreleased) that form is read.** `_RE_LABEL_UNIT` takes a
+parenthesis holding exactly one unit from the table, then `:` or `=`, then a
+number not followed by `:digit`, `/digit` or `+digit`; the label is read back
+from the words before the parenthesis up to a column gap, a previous field's
+value, a sentence end or six words, and rides on the mention as `label`. The
+corpus B row above is the measurement from BEFORE that change and has not
+been re-run: the 40 real sentences are not in this repository, and
+`doc_claims_check.py` does not regenerate the bake-off. It needs a re-run on
+the submittal sample before a new recall is quoted.
+
 Prose false positives were also measured rather than assumed. The largest
 single source is the preposition "in": "borings were advanced 12 in the
 northern block" reads as a 12-inch depth unless the following word is checked
