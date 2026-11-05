@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## 0.14.0 — 2026-11-04
+
+- **A depth scale printed as tick-flanked numerals reads as depths (app
+  BACKLOG PL-35, RI-159).** A scanned log form can print each depth numeral
+  between two short ticks; optical text gives "-1-", "-2-", the leading tick
+  was read as a minus sign, and every depth on the page came out negated.
+  `scalefinder.tick_flanked` and `log_grid` now fit such a run unsigned where
+  that keeps at least as many labels as the signed reading, unless the header
+  over the band says elevation (provenance `tick_flanked`); a run that already
+  rises as read is left alone. A scale read from the pixels that falls down
+  the page is never the depth ruler (the rule the vector path already kept):
+  under an elevation header it becomes the page's elevation ruler, otherwise
+  it is left unused with a warning. A below-datum elevation scale beside a
+  depth scale is never taken as the depth ruler.
+
+- **A letterhead's telephone, fax or box number never names an exploration
+  (app BACKLOG RI-156).** A results sheet's letterhead folded to "TEL 55 ...",
+  the shape of a hole id, so every such page was named a hole. The whole
+  letterhead line holding a telephone or fax number is now set aside before
+  an exploration id is read; "BH-5 CORE BOX 1" still reads BH-5.
+
+- **numpy floor 1.26 (app BACKLOG INF-53).** Foundry's transforms repos hold
+  numpy at 1.26.4; planlens uses no name numpy 2 added and the full suite
+  passes on 1.26.4 with OpenCV 4.11.0.86 (OpenCV 4.12 and later need numpy 2).
+
+- **`import pymupdf`, not the deprecated `fitz` name (app BACKLOG INF-19).**
+
 - **Plan locations (app BACKLOG PL-25).** New optional tools `plan_symbols`
   and `plan_grid` (and `planlens.document.find_plan_symbols`,
   `fit_plan_grid`, `grid_from_north`, `check_plan_points`). `plan_symbols`
