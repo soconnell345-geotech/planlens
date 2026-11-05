@@ -952,7 +952,10 @@ class Document:
                 if not text:
                     continue
                 label_source = group[0].source
-                for men in scan_text(text):
+                # The joins between the block's lines, so a printout's
+                # "Label (unit): value" stays on its own printed line.
+                joins = [b for _a, b, _ln in spans[:-1]]
+                for men in scan_text(text, line_breaks=joins):
                     start, end = men.span
                     involved = [ln for a, b, ln in spans
                                 if a < end and b > start]

@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- **`Label (unit): value` is read as a quantity (app BACKLOG PL-11).** The
+  unit-first form of a calculation printout, "Axial Capacity Pc (kip):
+  437.0", returned nothing from `scan_text` / `find_quantities`; DESIGN.md
+  measured all 15 of the regex's misses on a real submittal sample as this
+  form. It now yields one mention in the parenthesized unit, carrying the
+  printout's name for it in a new `label` field (also in `to_dict()`, only
+  when set). The parenthesis must hold a unit from the table and nothing
+  else, a colon or equals sign must follow, and a label must precede it.
+  A range is one mention ("Sample Depth (ft): 5.0-6.5" is 5 to 6.5 ft) and
+  feet-inches stay one value ("Wall Height (ft): 12'-6\"" is 12.5 ft). A
+  label naming an elevation gives the elevation kind. Refused, so nothing
+  is read: an equation ("Vertical stress (psf) = 120 x 10 = 1,200",
+  "q (psf) = 0.5 Ka gamma H": an operator, a second `=` or a symbol after
+  the value), a comparison ("< 500"), a series ("0, 1.5, 3.0"), a ratio
+  ("45/55"; a fraction is read only for in and ft), a time, a date, a
+  station, or a second, different unit after the value. The label stops at
+  a line break (including the joins between a document block's lines,
+  passed to `scan_text` as the new optional `line_breaks`), a column gap,
+  the previous field's value (also one with its unit attached, "3.0ksf"), a
+  sentence end or six words.
+  Changes to mentions 0.14.0 already read: one written in this form now
+  carries its label, and its `text`, box and `line_ids` widen to the label
+  ("Bearing (psf): 2,500 psf" was the mention "2,500 psf"); if that label
+  names an elevation, its kind becomes elevation; the next field's label
+  spelled like a unit is no longer read as one ("P (kN): 437.0 M (kN-m):
+  120.0" was 437 m and is now P: 437 kN); and "450 sq. ft." reads as 450
+  ft^2 instead of raising KeyError. Every other mention is unchanged:
+  checked against 0.14.0 on its own test strings, the reference library's
+  text and the repositories' Markdown.
+
 ## 0.14.0 — 2026-11-04
 
 - **A depth scale printed as tick-flanked numerals reads as depths (app

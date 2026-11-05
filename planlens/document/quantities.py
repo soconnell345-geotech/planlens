@@ -119,6 +119,11 @@ class QuantityMention:
     units_known: bool = False
     value_to: Optional[float] = None
     qualifier: Optional[str] = None
+    #: The name a printout puts on the value, for the ``Label (unit): value``
+    #: form only ("Axial Capacity Pc" in "Axial Capacity Pc (kip): 437.0").
+    #: ``None`` everywhere else: prose does not label its numbers this way,
+    #: and a label guessed from the surrounding words would be invented.
+    label: Optional[str] = None
     line_ids: List[str] = field(default_factory=list)
     bbox: Optional[BBox] = None
     source: str = SOURCE_PDF_TEXT
@@ -140,6 +145,8 @@ class QuantityMention:
             d["value_to"] = _r(self.value_to)
         if self.qualifier:
             d["qualifier"] = self.qualifier
+        if self.label:
+            d["label"] = self.label
         if self.units_known:
             d["units_known"] = True
         if self.line_ids:
@@ -162,6 +169,8 @@ class QuantityMention:
             head += f" {self.units}"
         if self.qualifier:
             head = f"{self.qualifier} {head}"
+        if self.label:
+            head = f"{self.label}: {head}"
         return f"{head} [{self.kind}]"
 
 
@@ -337,9 +346,12 @@ _RE_STATION = re.compile(
     r"(?:\b(?:sta(?:tion)?\b\.?)\s*)?(?P<whole>\d{1,4})\+(?P<off>\d{2}(?:\.\d+)?)\b",
     re.I)
 
+#: The word that makes a number an elevation, here and in a printout's label.
+_ELEVATION_WORD = r"\b(?:el|elev|elevation)\b"
+
 #: An elevation, with or without a unit: EL. 1684, Elev. 12.5 m, EL +3.20.
 _RE_ELEVATION = re.compile(
-    r"\b(?:el|elev|elevation)\b\.?\s*[:=]?\s*"
+    _ELEVATION_WORD + r"\.?\s*[:=]?\s*"
     r"(?P<sign>[-+])?\s*(?P<num>" + _NUM + r")"
     r"(?:\s*(?P<unit>" + _UNIT_ALT + r"))?", re.I)
 
@@ -348,16 +360,76 @@ _RE_SLOPE = re.compile(
     r"(?P<a>" + _NUM + r")\s*(?P<al>[HV])\s*:\s*(?P<b>" + _NUM + r")\s*(?P<bl>[HV])\b",
     re.I)
 
+#: The second value of a range: "20 to 35", "5.0-6.5".
+_RANGE_TAIL = r"(?:\s*(?:to|thru|through|–|—|-)\s*(?P<n2>" + _NUM + r"))?"
+
 #: The general case, and the range: 40 ft, 40-foot, 2,500 psf, 20 to 35 feet.
 _RE_VALUE = re.compile(
-    r"(?P<n1>" + _NUM + r")"
-    r"(?:\s*(?:to|thru|through|–|—|-)\s*(?P<n2>" + _NUM + r"))?"
+    r"(?P<n1>" + _NUM + r")" + _RANGE_TAIL +
     r"\s*-?\s*(?P<unit>" + _UNIT_ALT + r")", re.I)
 
 #: A count: 12 borings, three levels is not counted (words are not numbers).
 _RE_COUNT = re.compile(
     r"(?P<n>" + _NUM + r")\s+(?P<noun>" + "|".join(
         sorted(_COUNTABLE, key=len, reverse=True)) + r")\b", re.I)
+
+#: The unit-first form of a calculation printout: ``Pc (kip): 437.0``,
+#: ``Settlement (in) = -0.25``. The parenthesis must hold a unit from the
+#: table and NOTHING else — "(see Note 3)", "(2019)" and "(typ.)" are not
+#: units — and a colon or an equals sign must follow it. The label is read
+#: back from the text before the parenthesis by :func:`_label_before`, not by
+#: this pattern, so it can stop at the printout's own separators.
+#: A range is read as one ("Sample Depth (ft): 5.0-6.5"), as in the general
+#: case. The value may not be followed by ``:digit`` (a time, "12:30"),
+#: ``+digit`` (a station), ``/digit`` (a date) or a digit after ``.`` or
+#: ``,``: those are numbers the parenthesized unit says nothing about. A
+#: comma or full stop that ends the value ("Phi (deg) = 30, c (psf) = 200")
+#: is punctuation and is allowed.
+_RE_LABEL_UNIT = re.compile(
+    r"\(\s*(?P<unit>" + _UNIT_ALT + r")\s*\)\s*[:=]\s*"
+    r"(?P<sign>[-+])?(?P<num>" + _NUM + r")" + _RANGE_TAIL +
+    r"(?!\d|[.,]\d|\s*[:+/]\s*\d)", re.I)
+
+#: A unit right after the value: "Depth (m): 12.5 ft" has two units, and the
+#: label form then yields to the ordinary reading rather than pick one.
+_RE_UNIT_AFTER = re.compile(r"\s*-?\s*(?P<unit>" + _UNIT_ALT + r")", re.I)
+
+#: What makes a word after the value the NEXT field's label rather than a
+#: unit: its own parenthesis and colon ("437.0 M (kN-m): 120.0"), or a colon
+#: or equals sign of its own ("437.0 M: 120.0").
+_RE_NEXT_FIELD = re.compile(r"\s*(?:\([^()\n]{1,20}\)\s*)?[:=]")
+
+#: A printout's own separators: the field after a value ends at them.
+_RE_FIELD_STOP = re.compile(r"[\n\t;|]| {2}")
+
+#: Where the value is an operand, not the answer: "120 x 10 = 1,200",
+#: "0.5(0.33)(0.120)", "2.5 * 3.14", "437.0 < 500".
+_RE_OPERATOR_NEXT = re.compile(r"\s*(?:[×*·^/+=−<>≤≥(-]|x(?![A-Za-z]))")
+_RE_OPERATOR_IN = re.compile(r"[×*·^=]|(?<![A-Za-z])x(?![A-Za-z])")
+
+#: The parenthesis of the next ``Label (unit):`` field, any unit spelling.
+_RE_NEXT_PAREN = re.compile(r"\([^()\n]{1,20}\)\s*[:=]")
+
+#: A next field labelled with a colon and no unit ("437.0 FS: 2.5").
+_RE_COLON_FIELD = re.compile(
+    r"\s*[A-Za-z][\w.'-]*(?:\s+[A-Za-z][\w.'-]*){0,4}\s*:")
+
+#: A vertical datum after an elevation ("102.5 NAVD88").
+_RE_DATUM = re.compile(r"\s*(?:(?:NAVD|NGVD)\s?\d{2}|A?MSL)\b", re.I)
+
+#: Words that may follow a label's value without making it part of a longer
+#: expression: prose resuming ("437.0 in the north bay", "50 at 3 m") or a
+#: check mark ("OK"). Any other word is a symbol ("0.5 Ka gamma H"), and the
+#: value is refused.
+_AFTER_VALUE_WORDS = frozenset((
+    "in", "at", "and", "or", "per", "for", "from", "with", "on", "of",
+    "below", "above", "beneath", "by", "see", "each", "ok",
+))
+
+#: How many words of label are kept, at most. Printout labels are short
+#: ("Axial Capacity Pc", "Max. Moment"); anything longer is prose that
+#: happens to precede a parenthesis.
+_LABEL_MAX_WORDS = 6
 
 _QUALIFIER_ALT = "|".join(
     f"(?P<q{i}>{pat})" for i, (pat, _name) in enumerate(_QUALIFIERS))
@@ -384,6 +456,12 @@ _RE_QUALIFIER_AFTER = re.compile(
     r"^[\s,.;:()\-]{0,3}(?:" + _QUALIFIER_ALT + r")(?![A-Za-z])(?!\s+[A-Z])",
     re.I)
 
+#: A hedge right after a label's value, read loosely: it only decides that
+#: the word is not a symbol in an expression ("8 typ.", "12.0 +/- 0.5").
+#: Whether the hedge is attached is still :data:`_RE_QUALIFIER_AFTER`'s call.
+_RE_QUALIFIER_NEXT = re.compile(
+    r"[\s(]*(?:" + _QUALIFIER_ALT + r")(?![A-Za-z])", re.I)
+
 #: How much text either side is looked at at all.
 _QUALIFIER_LOOKBACK = 30
 _QUALIFIER_LOOKAHEAD = 14
@@ -396,7 +474,9 @@ def _to_float(text: str) -> Optional[float]:
 
 
 def _canonical(spelling: str) -> Tuple[str, str]:
-    canon, kind = _CANON[spelling.strip().rstrip(".").lower()]
+    key = spelling.strip().lower()
+    # "sq. ft." is the one spelling whose own last character is a period.
+    canon, kind = _CANON.get(key.rstrip(".")) or _CANON[key]
     return normalize_unit(canon), kind
 
 
@@ -435,6 +515,95 @@ def _in_is_a_preposition(text: str, m: "re.Match") -> bool:
     return bool(word) and word.group(0).lower() in _IN_IS_A_PREPOSITION
 
 
+#: Words a label never starts with: they join it to the clause before.
+_LABEL_LEADING_STOP = frozenset((
+    "and", "or", "the", "a", "an", "of", "with", "at", "is", "are", "was",
+    "were", "for", "to", "by", "as", "then", "so",
+))
+
+
+def _label_before(text: str, paren: int) -> Tuple[Optional[str], int]:
+    """The label a printout writes before ``(unit)``, and where it starts.
+
+    Walks back word by word from the parenthesis and stops at the first
+    thing a label cannot cross: a line break, a tab or a run of two spaces
+    (a printout's columns), a colon, semicolon, equals sign or pipe (the
+    previous field), a word ending a sentence, a word that starts with a
+    digit (the previous field's VALUE, as in "Pc (kip): 437.0 Tc (kip):
+    120.5" or "qa=3.0ksf Pc (kip): 437.0" joined on one line), or the word
+    limit. Returns ``(None, paren)`` when no word of label is there: a bare
+    "(kip): 437.0" is not read, because the label is what says what the
+    number is.
+    """
+    head = text[:paren]
+    stripped = head.rstrip(" ")
+    if len(head) - len(stripped) > 1:          # a column gap before "("
+        return None, paren
+    cut = max(stripped.rfind(c) for c in "\n\t:;=|")
+    gap = stripped.rfind("  ")
+    cut = max(cut, gap + 1 if gap >= 0 else -1)
+    words = stripped[cut + 1:].split(" ")
+    kept: List[str] = []
+    for word in reversed(words):
+        if not word:
+            break
+        if kept and word.endswith((".", ",", "!", "?")) and \
+                len(word.rstrip(".,!?")) > 4:
+            break                              # the end of a sentence/field
+        if _to_float(word.rstrip(".,")) is not None or \
+                re.match(r"[-+]?\.?\d", word):
+            break                              # a value, not a name
+        if not re.search(r"[A-Za-z]", word):
+            break
+        kept.append(word)
+        if len(kept) >= _LABEL_MAX_WORDS:
+            break
+    while kept and kept[-1].lower() in _LABEL_LEADING_STOP:
+        kept.pop()                             # "and Pc" names Pc
+    if not kept:
+        return None, paren
+    label = " ".join(reversed(kept))
+    return label, stripped.rfind(label)
+
+
+def _value_ends_its_field(text: str, end: int) -> bool:
+    """True when nothing after a label's value makes it part of an expression.
+
+    A hand calculation writes "Vertical stress (psf) = 120 x 10 = 1,200",
+    where the first number after the parenthesis is an operand and the
+    answer comes last. Reading the 120 as the stress is the worst outcome
+    this module can produce, so the value is refused unless what follows it
+    in its field is: nothing (a line break, a column gap, ``,`` ``;`` ``.``),
+    a hedge ("typ."), the next field's label ("Tc (kip):", "FS:"), a datum,
+    or prose resuming (:data:`_AFTER_VALUE_WORDS`). An operator, a second
+    ``=``, a comparison or any other word (a symbol: "0.5 Ka gamma H") is
+    refused. A missed value is better than a wrong one.
+    """
+    rest = _RE_FIELD_STOP.split(text[end:], 1)[0]
+    if re.match(r",\s*[-+]?\.?\d", rest):
+        return False                            # a series, "0, 1.0, 2.0"
+    if not rest.strip() or re.match(r"[,.)\]](?:\s|$)", rest):
+        return True
+    if re.match(r"\s*[<>≤≥]", rest):
+        return False                            # a check, "437.0 < 500"
+    if _RE_QUALIFIER_NEXT.match(rest):
+        return True
+    if _RE_OPERATOR_NEXT.match(rest):
+        return False
+    nxt = _RE_NEXT_PAREN.search(rest)
+    if nxt:
+        label, label_start = _label_before(text, end + nxt.start())
+        if label and not _RE_OPERATOR_IN.search(label) and all(
+                w.strip(",").lower() in _LABEL_LEADING_STOP
+                for w in text[end:label_start].split()):
+            return True                         # "437.0 and Tc (kip): 120.5"
+    if _RE_OPERATOR_IN.search(rest):
+        return False                            # "120 Ka = 0.33"
+    word = rest.split()[0].rstrip(".,").lower()
+    return (word in _AFTER_VALUE_WORDS or bool(_RE_DATUM.match(rest))
+            or bool(_RE_COLON_FIELD.match(rest)))
+
+
 def _mention(value: float, units: str, kind: str, text: str, start: int,
              end: int, whole: str, value_to: Optional[float] = None
              ) -> QuantityMention:
@@ -444,7 +613,8 @@ def _mention(value: float, units: str, kind: str, text: str, start: int,
         qualifier=_qualifier(whole, start, end), span=(start, end))
 
 
-def scan_text(text: str) -> List[QuantityMention]:
+def scan_text(text: str, line_breaks: Iterable[int] = ()
+              ) -> List[QuantityMention]:
     """Every value-with-unit in one string, left to right, non-overlapping.
 
     Pure: no page, no lines, no document. The caller attaches the location,
@@ -455,10 +625,24 @@ def scan_text(text: str) -> List[QuantityMention]:
     ``7'-6"`` is one length in feet, not a 7 ft followed by a 6 in, and
     ``EL. 1684 ft`` is an elevation rather than a bare length. That is what
     the priority number on each candidate is for.
+
+    ``line_breaks`` are offsets of characters that join two printed lines
+    (a document block's lines are joined with one space). Only the
+    ``Label (unit): value`` form uses them: its label and the field after
+    its value stay on their own printed line. Every other form reads across
+    them, so a value broken by a line wrap is still one mention.
     """
     if not text:
         return []
     found: List[Tuple[int, int, int, QuantityMention]] = []   # start, prio, -len
+    label_cores: Dict[int, int] = {}       # label mention -> its "(" offset
+    lined = text
+    breaks = [i for i in line_breaks if 0 <= i < len(text) and text[i] == " "]
+    if breaks:
+        chars = list(text)
+        for i in breaks:
+            chars[i] = "\n"
+        lined = "".join(chars)
 
     def add(prio: int, start: int, end: int, men: QuantityMention) -> None:
         found.append((start, prio, -(end - start), men))
@@ -528,11 +712,83 @@ def scan_text(text: str) -> List[QuantityMention]:
             _mention(n, noun, KIND_COUNT, m.group(0), m.start(), m.end(),
                      text))
 
+    others = sorted((r[3] for r in found), key=lambda men: men.span)
+    for m in _RE_LABEL_UNIT.finditer(lined):
+        num = _to_float(m.group("num"))
+        num_to = _to_float(m.group("n2")) if m.group("n2") else None
+        if num is None or (m.group("n2") and num_to is None):
+            continue
+        units, kind = _canonical(m.group("unit"))
+        if "/" in m.group("num") + (m.group("n2") or "") and \
+                units not in ("in", "ft"):
+            continue                       # "45/55" is a ratio, not 0.82 %
+        negative = m.group("sign") == "-"
+        if negative:
+            num = -num
+        if num_to is not None and num_to < num:
+            continue                       # "12 - 3" is arithmetic
+        end = m.end()
+        not_a_unit_to = -1
+        after = _RE_UNIT_AFTER.match(lined, end)
+        if after and not _in_is_a_preposition(lined, after):
+            gap = lined[end:after.start("unit")]
+            if "\n" in gap or "\t" in gap or "  " in gap or \
+                    _RE_NEXT_FIELD.match(lined, after.end()):
+                # Across a line or column, or the next field's label ("437.0
+                # M (kN-m): 120.0"): not a unit of this value.
+                not_a_unit_to = after.end()
+            elif _canonical(after.group("unit"))[0] != units:
+                continue                   # two units: not ours to choose
+            else:
+                end = after.end()          # "Depth (ft): 12.5 ft" is one
+        # A reading another pattern made of the same number wins or blocks:
+        # "12'-6\"" is 12.5 ft with the label; a different unit is refused.
+        refused = False
+        for other in others:
+            o_start, o_end = other.span
+            if not m.start() <= o_start < end < o_end or o_end == not_a_unit_to:
+                continue
+            if o_start == m.start("num") and other.units == units:
+                num = -other.value if negative else other.value
+                num_to, end = other.value_to, o_end
+                continue
+            refused = True
+            break
+        if refused or not _value_ends_its_field(lined, end):
+            continue
+        label, start = _label_before(lined, m.start())
+        if label is None:
+            continue
+        if re.search(_ELEVATION_WORD, label, re.I):
+            kind = KIND_ELEVATION          # "Bottom Elev. (ft): 102.5"
+        men = _mention(num, units, kind, text[start:end], start, end, text,
+                       value_to=num_to)
+        men.label = label
+        # Priority 0: the label form starts at its label, before any value
+        # the general pass could find inside the same characters.
+        add(0, start, end, men)
+        label_cores[id(men)] = m.start()
+
     out: List[QuantityMention] = []
     taken_to = -1
     for start, _prio, _neg_len, men in sorted(found, key=lambda r: r[:3]):
         if start < taken_to:
-            continue
+            core = label_cores.get(id(men))
+            if core is None or core < taken_to:
+                continue
+            # The label ran back into the value before it; keep the words
+            # after that value, or nothing if none are left.
+            words = text[taken_to:core].split()
+            while words and (words[0].lower() in _LABEL_LEADING_STOP
+                             or not re.search(r"[A-Za-z]", words[0])):
+                words.pop(0)
+            if not words:
+                continue
+            men.label = " ".join(words)
+            new_start = text.index(words[0], taken_to)
+            men.text = text[new_start:men.span[1]].strip()
+            men.span = (new_start, men.span[1])
+            men.qualifier = _qualifier(text, new_start, men.span[1])
         out.append(men)
         taken_to = men.span[1]
     return out
