@@ -1,0 +1,557 @@
+{
+  "_about": "The app's specs of the tools that moved into planlens.review (BACKLOG PL-29 (a)), written by capture_app_specs.py. Do not edit by hand.",
+  "app_commit": "d45380a7f5e6aeefed11aecb73ba6f916b9fc9b0",
+  "planlens_version": "0.14.0",
+  "tools": {
+    "open_document": {
+      "description": "Open a PDF (or an image file) for review — report, drawing set, submittal, calcs, scan. Returns a handle plus a map of the whole document: which pages are text, drawing sheets, figures or scans; sheet labels; bookmarks; how many review markups there are and by whom; and pages_to_view — the pages whose content is a picture, to be read by looking. Call this first for any document question — you do not need to know in advance whether the answer is in prose, a table, a drawing, an image or a reviewer's comment. In this app it also opens a Word (.docx), Excel (.xlsx, .xlsm) or DXF file -- not as pages but as text: a Word or Excel file as Markdown (one table per sheet), a DXF as its text, leaders and dimensions with their positions, layers and entity counts. Its file name is then its handle for read_document (start_line pages through it) and search_document; the page, markup and vision tools do not apply to it.",
+      "input_schema": {
+        "description": "Open a PDF (or an image file) for review — report, drawing set, submittal, calcs, scan. Returns a handle plus a map of the whole document: which pages are text, drawing sheets, figures or scans; sheet labels; bookmarks; how many review markups there are and by whom; and pages_to_view — the pages whose content is a picture, to be read by looking. Call this first for any document question — you do not need to know in advance whether the answer is in prose, a table, a drawing, an image or a reviewer's comment. In this app it also opens a Word (.docx), Excel (.xlsx, .xlsm) or DXF file -- not as pages but as text: a Word or Excel file as Markdown (one table per sheet), a DXF as its text, leaders and dimensions with their positions, layers and entity counts. Its file name is then its handle for read_document (start_line pages through it) and search_document; the page, markup and vision tools do not apply to it.",
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "open_document",
+        "type": "object"
+      }
+    },
+    "document_structure": {
+      "description": "The constituent documents inside a stapled PDF — transmittal, drawing set, calculation package, the report nested inside it, appendices — as segments: a run of pages, its title (from a divider page or its running header/footer), the page numbers printed on those pages (e.g. calc package pages 1-245 vs the PDF's own 0-based pages), sheet references, and the mix of page kinds. Use it to orient in a long document and to translate a citation like 'see page 24 of the calcs' into a PDF page.",
+      "input_schema": {
+        "description": "The constituent documents inside a stapled PDF — transmittal, drawing set, calculation package, the report nested inside it, appendices — as segments: a run of pages, its title (from a divider page or its running header/footer), the page numbers printed on those pages (e.g. calc package pages 1-245 vs the PDF's own 0-based pages), sheet references, and the mix of page kinds. Use it to orient in a long document and to translate a citation like 'see page 24 of the calcs' into a PDF page.",
+        "properties": {
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "handle"
+        ],
+        "title": "document_structure",
+        "type": "object"
+      }
+    },
+    "document_page_map": {
+      "description": "One row per page: kind (text / drawing_sheet / form / figure / scanned / blank / mixed), segment id, label, largest heading, word count, the page number PRINTED on the page (printed_page / printed_of — cite these to the reader), sheet reference, scale notes on drawing sheets, divider title, markup and hidden-CAD-text counts, duplicate_of (with duplicate_rule: 'text' if the page repeats an earlier page's words, 'image' if it repeats its picture). with_evidence adds the measurements, header and footer text. Use it to find the pages that matter before reading. Continues via next_pages. pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+      "input_schema": {
+        "description": "One row per page: kind (text / drawing_sheet / form / figure / scanned / blank / mixed), segment id, label, largest heading, word count, the page number PRINTED on the page (printed_page / printed_of — cite these to the reader), sheet reference, scale notes on drawing sheets, divider title, markup and hidden-CAD-text counts, duplicate_of (with duplicate_rule: 'text' if the page repeats an earlier page's words, 'image' if it repeats its picture). with_evidence adds the measurements, header and footer text. Use it to find the pages that matter before reading. Continues via next_pages. pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+        "properties": {
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "pages": {
+            "default": null,
+            "title": "Pages"
+          },
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "with_evidence": {
+            "default": false,
+            "title": "With Evidence",
+            "type": "boolean"
+          },
+          "pdf_pages": {
+            "default": null,
+            "title": "Pdf Pages"
+          }
+        },
+        "required": [
+          "handle"
+        ],
+        "title": "document_page_map",
+        "type": "object"
+      }
+    },
+    "read_document": {
+      "description": "Read pages: their text, tables (as markdown) and review markups. with_locations=true prefixes each line with its id and box [id @ x0,y0,x1,y1] in PDF points (displayed page, top-left origin) plus its direction when not horizontal — use it to cite or zoom into a spot. Text drawn by reviewers is NOT mixed into page text; it appears under 'review markup(s)'. Lines tagged 'cad' are AutoCAD hidden text behind stroked lettering. A line starting '! look:' means the text is not the page — a scan, a figure, a drawing sheet, a form — and says how to view it; do that before concluding anything from such a page. When the result has 'next', call again with those pages and start_line. For a Word, Excel or DXF file, handle is its file name and start_line pages through its lines (pages does not apply). pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+      "input_schema": {
+        "description": "Read pages: their text, tables (as markdown) and review markups. with_locations=true prefixes each line with its id and box [id @ x0,y0,x1,y1] in PDF points (displayed page, top-left origin) plus its direction when not horizontal — use it to cite or zoom into a spot. Text drawn by reviewers is NOT mixed into page text; it appears under 'review markup(s)'. Lines tagged 'cad' are AutoCAD hidden text behind stroked lettering. A line starting '! look:' means the text is not the page — a scan, a figure, a drawing sheet, a form — and says how to view it; do that before concluding anything from such a page. When the result has 'next', call again with those pages and start_line. For a Word, Excel or DXF file, handle is its file name and start_line pages through its lines (pages does not apply). pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+        "properties": {
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "pages": {
+            "default": null,
+            "title": "Pages"
+          },
+          "start_line": {
+            "default": 0,
+            "title": "Start Line",
+            "type": "integer"
+          },
+          "with_locations": {
+            "default": false,
+            "title": "With Locations",
+            "type": "boolean"
+          },
+          "include_tables": {
+            "default": true,
+            "title": "Include Tables",
+            "type": "boolean"
+          },
+          "include_markups": {
+            "default": true,
+            "title": "Include Markups",
+            "type": "boolean"
+          },
+          "pdf_pages": {
+            "default": null,
+            "title": "Pdf Pages"
+          }
+        },
+        "required": [
+          "handle"
+        ],
+        "title": "read_document",
+        "type": "object"
+      }
+    },
+    "search_document": {
+      "description": "Find text anywhere in the document — page text, hidden CAD text and reviewers' markup comments — including phrases broken across lines. Each hit has page, label, a snippet, the matched line ids or markup id, and a box. Use it to locate a topic, a value, a boring or sheet id before reading those pages. It cannot see into scans, figures or drawing sheets: pages_not_searchable_as_text lists those, and a miss there is not absence — view them. fuzzy=true matches approximately, for text read optically or plotted as strokes, where a letter may be wrong: use it when an exact search of a page you believe holds the term comes back empty. Fuzzy hits carry a score (0-100), best first. For a Word, Excel or DXF file, handle is its file name; hits are its lines. pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+      "input_schema": {
+        "description": "Find text anywhere in the document — page text, hidden CAD text and reviewers' markup comments — including phrases broken across lines. Each hit has page, label, a snippet, the matched line ids or markup id, and a box. Use it to locate a topic, a value, a boring or sheet id before reading those pages. It cannot see into scans, figures or drawing sheets: pages_not_searchable_as_text lists those, and a miss there is not absence — view them. fuzzy=true matches approximately, for text read optically or plotted as strokes, where a letter may be wrong: use it when an exact search of a page you believe holds the term comes back empty. Fuzzy hits carry a score (0-100), best first. For a Word, Excel or DXF file, handle is its file name; hits are its lines. pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+        "properties": {
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "pattern": {
+            "title": "Pattern",
+            "type": "string"
+          },
+          "pages": {
+            "default": null,
+            "title": "Pages"
+          },
+          "regex": {
+            "default": false,
+            "title": "Regex",
+            "type": "boolean"
+          },
+          "case_sensitive": {
+            "default": false,
+            "title": "Case Sensitive",
+            "type": "boolean"
+          },
+          "include_markups": {
+            "default": true,
+            "title": "Include Markups",
+            "type": "boolean"
+          },
+          "max_hits": {
+            "default": 100,
+            "title": "Max Hits",
+            "type": "integer"
+          },
+          "fuzzy": {
+            "default": false,
+            "title": "Fuzzy",
+            "type": "boolean"
+          },
+          "min_score": {
+            "default": 80,
+            "title": "Min Score",
+            "type": "integer"
+          },
+          "pdf_pages": {
+            "default": null,
+            "title": "Pdf Pages"
+          }
+        },
+        "required": [
+          "handle",
+          "pattern"
+        ],
+        "title": "search_document",
+        "type": "object"
+      }
+    },
+    "find_quantities": {
+      "description": "Every number WITH A UNIT the document states — \"approximately 40-foot centers\", \"6300 mm\", \"21 degrees\", \"2,500 psf\", \"EL. 1684\", \"2H:1V\", \"STA 10+50\", \"20 to 35 ft\" — each with its raw wording, any qualifier (approximately / minimum / typ. / plus-minus), its page, line ids and box. Use it to check what the report or the calculations CLAIM against what the drawing shows, to collect every design parameter, or to find where a value is stated. Filter with kinds and units. A bare number with no unit is never returned, and nothing is converted: the units are as the page wrote them. pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+      "input_schema": {
+        "description": "Every number WITH A UNIT the document states — \"approximately 40-foot centers\", \"6300 mm\", \"21 degrees\", \"2,500 psf\", \"EL. 1684\", \"2H:1V\", \"STA 10+50\", \"20 to 35 ft\" — each with its raw wording, any qualifier (approximately / minimum / typ. / plus-minus), its page, line ids and box. Use it to check what the report or the calculations CLAIM against what the drawing shows, to collect every design parameter, or to find where a value is stated. Filter with kinds and units. A bare number with no unit is never returned, and nothing is converted: the units are as the page wrote them. pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+        "properties": {
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "pages": {
+            "default": null,
+            "title": "Pages"
+          },
+          "kinds": {
+            "default": null,
+            "title": "Kinds"
+          },
+          "units": {
+            "default": null,
+            "title": "Units"
+          },
+          "include_markups": {
+            "default": true,
+            "title": "Include Markups",
+            "type": "boolean"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "pdf_pages": {
+            "default": null,
+            "title": "Pdf Pages"
+          }
+        },
+        "required": [
+          "handle"
+        ],
+        "title": "find_quantities",
+        "type": "object"
+      }
+    },
+    "document_markups": {
+      "description": "The review record: every comment, callout, cloud, arrow and stamp placed on the PDF, with author, date, what it says or shows, the exact point a callout/arrow points at, which markup a reply is aimed at, and reply links. Filter by pages or author (substring). Continues via next_offset. pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+      "input_schema": {
+        "description": "The review record: every comment, callout, cloud, arrow and stamp placed on the PDF, with author, date, what it says or shows, the exact point a callout/arrow points at, which markup a reply is aimed at, and reply links. Filter by pages or author (substring). Continues via next_offset. pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+        "properties": {
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "pages": {
+            "default": null,
+            "title": "Pages"
+          },
+          "author": {
+            "default": "",
+            "title": "Author",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "pdf_pages": {
+            "default": null,
+            "title": "Pdf Pages"
+          }
+        },
+        "required": [
+          "handle"
+        ],
+        "title": "document_markups",
+        "type": "object"
+      }
+    },
+    "render_page_thumbnails": {
+      "description": "Contact sheets of the document: every page as a small thumbnail with its page number and kind beneath, in a grid like a PDF viewer's page panel (48 pages per sheet). Look at them to take a long document in at a glance — spot the plan, the logs, the tables, the marked-up pages (red frame) — before reading. Pass pages to sheet only a range (e.g. pages_to_view). pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+      "input_schema": {
+        "description": "Contact sheets of the document: every page as a small thumbnail with its page number and kind beneath, in a grid like a PDF viewer's page panel (48 pages per sheet). Look at them to take a long document in at a glance — spot the plan, the logs, the tables, the marked-up pages (red frame) — before reading. Pass pages to sheet only a range (e.g. pages_to_view). pages counts from 0; or give pdf_pages instead, 1-based as a PDF viewer shows (e.g. '1-3,6').",
+        "properties": {
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "pages": {
+            "default": null,
+            "title": "Pages"
+          },
+          "columns": {
+            "default": 6,
+            "title": "Columns",
+            "type": "integer"
+          },
+          "pdf_pages": {
+            "default": null,
+            "title": "Pdf Pages"
+          }
+        },
+        "required": [
+          "handle"
+        ],
+        "title": "render_page_thumbnails",
+        "type": "object"
+      }
+    },
+    "annotate_document": {
+      "description": "Write your review comments onto a COPY of the PDF as ordinary annotations — the reviewer opens the result in Bluebeam or Acrobat and sees notes, highlights, boxes, callouts and replies in the comments list like anyone else's. Use it to DELIVER a review, once you have read the pages and know what to say. Each markup names its kind, its 0-based page, its comment and ONE anchor. Anchor by quote whenever the comment is about text on the page — pass the words as printed and they are found for you, even if a letter was read wrong; that is what puts the mark on the right words. For a spot on a drawing use box, circle or callout with a bbox from read_document(with_locations=true) or a markup — same frame, no conversion — or, for something you found by LOOKING, the view and the thing's image_box (0-999 grid over that image) of a ZOOMED look in which the thing is legible, converted for you. A box read off a whole sheet can be tens of points off, so a small mark from a view wider than 300 pt, or an image_box that is the whole view, is skipped with the reason: zoom on the thing and anchor on the zoom. Never place a mark at a location you did not get from a tool result for that page: a box written from memory or estimated by eye lands in the wrong place. A box or circle can carry a short label drawn on the page beside it, where it covers the least of the drawing; on a sheet whose lettering runs up or down the page, give label_reads so the label runs the same way. Each kind has a fixed colour (box, circle and callout red; highlight and note yellow); there is no colour field. Give target — what the mark is on, in a few words or as printed — whenever the comment is a request or a remark rather than the thing's name. Reply to an existing comment with reply_to and its markup id from document_markups. Every comment is a DRAFT attributed to the AI author unless you are told to sign it otherwise, so say what is unresolved rather than asserting. The source document is never changed: output_path is a NEW file, and calling again with the same output_path adds to it. The result lists what went on and WHAT DID NOT — a markup whose quote is not on the page is skipped with a reason, not moved somewhere else, so read the skipped list and re-anchor those comments. In this app give output_path a bare file name: it is written into this conversation's working folder, attached to the reply as a download, and it defaults to <document>_marked.pdf. The app signs every comment itself — the person using it, via this app, as an AI draft, which is what the reviewer must be able to see — so there is no author argument. For a thing you found by looking, pass the view and image_box of the ZOOMED look in which the thing is legible (a view of 300 pt or less; a whole-page look only says where to zoom, and a small mark from it is refused) — never a box from memory or an estimate. Every mark is then CHECKED, whatever its anchor (box, point, quote or note): a crop of the marked copy is looked at and the result's `check` says which marks are on the thing their target or quoted words name — or, naming neither, the thing their comment is about — and which are misplaced. A mark put on blank paper on purpose (a stamp in an empty corner) names that area as its target; the check reports it under on_blank_paper, which a look cannot confirm: tell the user where it sits. A label is only the text the reader sees beside a mark (a tag, a verdict such as '460.1?'): it is never compared with what is under the mark, so it need not match it. Never hand over a file with misplaced marks: find those things again and rewrite the copy with append=false (a misplaced ring or box may come back with found_bbox, where the check saw the thing: pass it as that mark's bbox). Keep correcting without stopping to ask, up to the number of checks the note gives; after the last, hand the file over and say which marks are unconfirmed. To change or delete ONE mark of a marked copy you wrote, call again with output_path = that copy and remove = [its id as document_markups lists it on that copy, e.g. 'p0.m1', or words from its comment or its label]; the marks you give in markups are added, every other mark stays (only this app's marks can be removed; ids change after a removal, so list them again before removing another). The result's in_file counts what the copy holds: the marks this call added and those kept from before, by author — the document's own markups are always kept. A markup may give pdf_page (1-based, as a PDF viewer shows) instead of page (0-based). On an IMAGE (an upload, a pasted screenshot, a photo), bbox, point and view are in its own pixels, as its looks give them, and the marked copy is a PDF whose points are those pixels.",
+      "input_schema": {
+        "description": "Write your review comments onto a COPY of the PDF as ordinary annotations — the reviewer opens the result in Bluebeam or Acrobat and sees notes, highlights, boxes, callouts and replies in the comments list like anyone else's. Use it to DELIVER a review, once you have read the pages and know what to say. Each markup names its kind, its 0-based page, its comment and ONE anchor. Anchor by quote whenever the comment is about text on the page — pass the words as printed and they are found for you, even if a letter was read wrong; that is what puts the mark on the right words. For a spot on a drawing use box, circle or callout with a bbox from read_document(with_locations=true) or a markup — same frame, no conversion — or, for something you found by LOOKING, the view and the thing's image_box (0-999 grid over that image) of a ZOOMED look in which the thing is legible, converted for you. A box read off a whole sheet can be tens of points off, so a small mark from a view wider than 300 pt, or an image_box that is the whole view, is skipped with the reason: zoom on the thing and anchor on the zoom. Never place a mark at a location you did not get from a tool result for that page: a box written from memory or estimated by eye lands in the wrong place. A box or circle can carry a short label drawn on the page beside it, where it covers the least of the drawing; on a sheet whose lettering runs up or down the page, give label_reads so the label runs the same way. Each kind has a fixed colour (box, circle and callout red; highlight and note yellow); there is no colour field. Give target — what the mark is on, in a few words or as printed — whenever the comment is a request or a remark rather than the thing's name. Reply to an existing comment with reply_to and its markup id from document_markups. Every comment is a DRAFT attributed to the AI author unless you are told to sign it otherwise, so say what is unresolved rather than asserting. The source document is never changed: output_path is a NEW file, and calling again with the same output_path adds to it. The result lists what went on and WHAT DID NOT — a markup whose quote is not on the page is skipped with a reason, not moved somewhere else, so read the skipped list and re-anchor those comments. In this app give output_path a bare file name: it is written into this conversation's working folder, attached to the reply as a download, and it defaults to <document>_marked.pdf. The app signs every comment itself — the person using it, via this app, as an AI draft, which is what the reviewer must be able to see — so there is no author argument. For a thing you found by looking, pass the view and image_box of the ZOOMED look in which the thing is legible (a view of 300 pt or less; a whole-page look only says where to zoom, and a small mark from it is refused) — never a box from memory or an estimate. Every mark is then CHECKED, whatever its anchor (box, point, quote or note): a crop of the marked copy is looked at and the result's `check` says which marks are on the thing their target or quoted words name — or, naming neither, the thing their comment is about — and which are misplaced. A mark put on blank paper on purpose (a stamp in an empty corner) names that area as its target; the check reports it under on_blank_paper, which a look cannot confirm: tell the user where it sits. A label is only the text the reader sees beside a mark (a tag, a verdict such as '460.1?'): it is never compared with what is under the mark, so it need not match it. Never hand over a file with misplaced marks: find those things again and rewrite the copy with append=false (a misplaced ring or box may come back with found_bbox, where the check saw the thing: pass it as that mark's bbox). Keep correcting without stopping to ask, up to the number of checks the note gives; after the last, hand the file over and say which marks are unconfirmed. To change or delete ONE mark of a marked copy you wrote, call again with output_path = that copy and remove = [its id as document_markups lists it on that copy, e.g. 'p0.m1', or words from its comment or its label]; the marks you give in markups are added, every other mark stays (only this app's marks can be removed; ids change after a removal, so list them again before removing another). The result's in_file counts what the copy holds: the marks this call added and those kept from before, by author — the document's own markups are always kept. A markup may give pdf_page (1-based, as a PDF viewer shows) instead of page (0-based). On an IMAGE (an upload, a pasted screenshot, a photo), bbox, point and view are in its own pixels, as its looks give them, and the marked copy is a PDF whose points are those pixels.",
+        "properties": {
+          "handle": {
+            "title": "Handle",
+            "type": "string"
+          },
+          "markups": {
+            "default": null,
+            "description": "The comments to write, in order.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "description": "note = a sticky note at a spot; highlight = over the words quoted; box = a red rectangle round a region; circle = a red ring round it (drawn round the whole box you give); callout = a text box with a leader pointing at a spot; reply = an answer threaded onto an existing markup.",
+                  "enum": [
+                    "note",
+                    "highlight",
+                    "box",
+                    "circle",
+                    "callout",
+                    "reply"
+                  ],
+                  "type": "string"
+                },
+                "page": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "comment": {
+                  "type": "string"
+                },
+                "quote": {
+                  "type": "string"
+                },
+                "bbox": {
+                  "description": "[x0,y0,x1,y1] in PDF points, displayed page, top-left origin. For a callout this is where its text box goes.",
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 4,
+                  "minItems": 4,
+                  "type": "array"
+                },
+                "view": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 4,
+                  "minItems": 4,
+                  "type": "array"
+                },
+                "image_box": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 4,
+                  "minItems": 4,
+                  "type": "array"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                },
+                "label_reads": {
+                  "enum": [
+                    "across",
+                    "up",
+                    "down",
+                    "upside_down"
+                  ],
+                  "type": "string"
+                },
+                "point": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "points_at": {
+                  "description": "Callout only: the spot its leader aims at.",
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "reply_to": {
+                  "type": "string"
+                },
+                "min_score": {
+                  "description": "Lowest fuzzy score a quote may match at (default 80; about 75 for a short quote).",
+                  "maximum": 100,
+                  "minimum": 50,
+                  "type": "integer"
+                },
+                "pdf_page": {
+                  "description": "1-based, instead of page.",
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind",
+                "comment"
+              ],
+              "type": "object"
+            },
+            "title": "Markups",
+            "type": "array"
+          },
+          "output_path": {
+            "default": "",
+            "title": "Output Path",
+            "type": "string"
+          },
+          "append": {
+            "default": true,
+            "title": "Append",
+            "type": "boolean"
+          },
+          "check": {
+            "default": true,
+            "title": "Check",
+            "type": "boolean"
+          },
+          "remove": {
+            "default": null,
+            "items": {
+              "type": "string"
+            },
+            "title": "Remove",
+            "type": "array"
+          }
+        },
+        "required": [
+          "handle"
+        ],
+        "title": "annotate_document",
+        "type": "object"
+      }
+    },
+    "find_like": {
+      "description": "Find EVERY copy of one mark (tag, code, symbol) across a drawing set — even lettering drawn as lines — from one zoomed, confirmed example box + the text it reads; every candidate is verified by vision. Returns instances by page, callouts (with where each leader points) apart from legend entries, and uncertain reads. page / pages count from 0; pdf_page / pdf_pages are the same 1-based, as a PDF viewer shows. attachment_key may also be an IMAGE (an upload, a pasted screenshot, a photo): then bbox and view are in its own pixels, page is not used, and the copies come back in those pixels.",
+      "input_schema": {
+        "description": "Find EVERY copy of one mark (tag, code, symbol) across a drawing set — even lettering drawn as lines — from one zoomed, confirmed example box + the text it reads; every candidate is verified by vision. Returns instances by page, callouts (with where each leader points) apart from legend entries, and uncertain reads. page / pages count from 0; pdf_page / pdf_pages are the same 1-based, as a PDF viewer shows. attachment_key may also be an IMAGE (an upload, a pasted screenshot, a photo): then bbox and view are in its own pixels, page is not used, and the copies come back in those pixels.",
+        "properties": {
+          "attachment_key": {
+            "title": "Attachment Key",
+            "type": "string"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Page"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Bbox"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pages"
+          },
+          "include_legend": {
+            "default": false,
+            "title": "Include Legend",
+            "type": "boolean"
+          },
+          "view": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "View"
+          },
+          "image_box": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Image Box"
+          },
+          "pdf_page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pdf Page"
+          },
+          "pdf_pages": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pdf Pages"
+          }
+        },
+        "required": [
+          "attachment_key"
+        ],
+        "title": "find_like",
+        "type": "object"
+      }
+    }
+  }
+}

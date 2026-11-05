@@ -76,6 +76,14 @@ from planlens.tools.formatting import (
 
 Source = Union[bytes, str]
 
+#: The host's look: ``(image, question, kind) -> the model's text``. ``image``
+#: is PNG or JPEG bytes, ``question`` what the model is asked about it and
+#: ``kind`` a short word saying what the look is for (``"check"`` for a
+#: markup check, ``"find"`` for a ``find_like`` contact sheet), so a host can
+#: log or budget looks by kind. planlens never calls a model itself: a tool
+#: that needs to look at an image asks the host through this.
+Look = Callable[[bytes, str, str], str]
+
 #: Default ceiling on every serialized result, below the reference host's
 #: 8,000-character truncation with room for its wrapper.
 DEFAULT_MAX_CHARS = 7500
@@ -213,6 +221,15 @@ class ReviewToolkit:
         Maps the ``source`` string the model passes to either PDF bytes or a
         readable file path. Hosts use it to resolve upload keys; the default
         accepts file paths only.
+    look : callable, optional
+        The host's look (:data:`Look`): ``(image, question, kind) -> str``,
+        the model's text about the image. planlens makes no model call; a
+        tool that needs to see an image (the host layer's ``find_like``,
+        which reads every candidate, and its markup check,
+        :mod:`planlens.review`) asks the host through this. ``None`` (the
+        default): the tools that need it are not offered
+        (:attr:`LOOK_TOOLS`, and :func:`planlens.review.specs.host_tool_names`
+        for the host layer).
     max_chars : int
         Ceiling on every result :meth:`call_json` returns.
     max_open : int
@@ -266,7 +283,8 @@ class ReviewToolkit:
                  output_root: Optional[str] = None,
                  author: Optional[str] = None,
                  image_budget: Any = None,
-                 image_format: str = "png"):
+                 image_format: str = "png",
+                 look: Optional[Look] = None):
         from planlens.document.budget import resolve_budget
         if max_chars < 1000:
             raise ValueError("max_chars below 1000 cannot hold a useful result")
@@ -278,6 +296,11 @@ class ReviewToolkit:
         #: box the model reads off an image maps back onto the page.
         self._renders: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         self.resolve_source = resolve_source or _default_resolver
+        if look is not None and not callable(look):
+            raise TypeError("look must be callable: (image, question, kind) "
+                            "-> str")
+        #: The host's look (:data:`Look`), or ``None``.
+        self.look = look
         self.max_chars = int(max_chars)
         self.max_open = int(max_open)
         self.text_source_for = text_source_for
@@ -292,6 +315,16 @@ class ReviewToolkit:
         self._by_key: Dict[str, str] = {}
         self._guard = threading.Lock()
 
+    #: This toolkit's own tools that need the host's :attr:`look`, left out
+    #: of :meth:`specs` and :attr:`tool_names` without one. None of the
+    #: toolkit's own tools looks today (``find_like`` here is the image
+    #: match alone); the tools that do are the host layer's
+    #: (:data:`planlens.review.specs.LOOK_TOOLS`), served over this toolkit.
+    LOOK_TOOLS: Tuple[str, ...] = ()
+
+    def _offered(self, name: str) -> bool:
+        return self.look is not None or name not in self.LOOK_TOOLS
+
     # -- publication ----------------------------------------------------------
     def specs(self, style: str = "anthropic") -> List[Dict[str, Any]]:
         """Tool definitions: ``anthropic`` (input_schema), ``openai``
@@ -299,6 +332,8 @@ class ReviewToolkit:
         from planlens.tools.specs import TOOL_SPECS
         out = []
         for spec in TOOL_SPECS:
+            if not self._offered(spec["name"]):
+                continue
             if style == "anthropic":
                 out.append({"name": spec["name"],
                             "description": spec["description"],
@@ -314,7 +349,7 @@ class ReviewToolkit:
     @property
     def tool_names(self) -> List[str]:
         from planlens.tools.specs import TOOL_SPECS
-        return [s["name"] for s in TOOL_SPECS]
+        return [s["name"] for s in TOOL_SPECS if self._offered(s["name"])]
 
     # -- dispatch ---------------------------------------------------------------
     def call(self, name: str, arguments: Optional[Dict[str, Any]] = None
