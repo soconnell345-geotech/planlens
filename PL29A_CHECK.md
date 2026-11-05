@@ -129,7 +129,37 @@ Re-capture: `python planlens/review/tests/capture_app_specs.py --app
 
 ## 5. Tests
 
-TESTS_SECTION
+Ported from the app into `planlens/review/tests/`, rewritten against
+`planlens.review` with a fake look `(image, question, kind) -> str`
+(`conftest.look_of` turns the app tests' fake engines into looks, so they
+stay close to verbatim). An autouse fixture restores the host, clears kept
+verdicts and closes every conversation's toolkit around each test. Made-up
+values only (the app's signer, sample names and a bot name replaced).
+
+| New file | From (app) | Tests | Left in the app, and why |
+|---|---|---|---|
+| `test_host_specs.py` | new | 26 | the spec-equality check (section 4) and the toolkit's `look` |
+| `test_markup_check.py` | `deep/tests/test_markup_check_offline.py` | 46 functions (71 collected) | none; crops now come from planlens' own 300 dpi render |
+| `test_find_like.py` | `test_find_like_tool.py`, `test_find_like_brief4.py`, `test_find_like_budget.py` | 17 | tiled page reads, budget/policy, result cap, vision probe (the app's vision tools); budget tests now use `budget=` / `find_like_budget_s` |
+| `test_frames.py` | geometry parts of `test_vision_view.py`, `test_vision_turned.py`, `test_vision_locations.py`, `test_vision_brief4.py` | 24 (32 collected) | `render_view`, budgets, detail, prompt text, turn memory/retry, patch alignment, tool dispatch; new direct tests for `page_text_layer`, `turn_image`, `turned_note`, `tile_grid`, `zoom_window` |
+| `test_page_numbers.py` | `deep/tests/test_wave2c_offline.py` (page parts) | 4 | page tests on the app's own vision tools, its coverage test |
+| `test_tools.py` | `deep/tests/test_document_tools_offline.py`; search and schema parts of `test_annotate_keys_offline.py` | 24 | surface checks through `make_vision_tools`, feature detection, the older-planlens fuzzy refusal, the markup-author env and sign-in signer, the app's hint text, `convert_to_openai_tool` size checks |
+| `test_conversation.py` | `test_conversation_isolation.py` (document parts), `deep/tests/test_wave2b_documents_offline.py` (C2/C3/C8/C9) | 19 | the app's file tools, reference and Databricks read roots, the real Word/Excel reader tests (two new tests use a made-up host reader) |
+| `test_marked_copy.py` | wave2b C4, `deep/tests/test_wave2c_annotate_copy_offline.py`, `test_annotate_keys_offline.py`, wave2c D5 | 31 (38 collected; the Windows-only path test skips) | the `strict_tool` unknown-argument refusal (here `review.call` refuses an unknown argument by name) and converted-schema checks |
+| `test_end_to_end.py` | new | 2 | — |
+
+The end-to-end test, offline on a made-up sheet: `annotate_document` makes a
+marked copy and the check confirms the mark; `find_like` finds all three
+copies with the fake look reading the contact sheets; looks of kind `check`
+and `find` both happen; and a child process shows no app or agent-framework
+module (`funhouse_agent`, `webapp`, `langchain`, `langchain_core`,
+`langgraph`, `deepagents`) is imported.
+
+No planlens source was changed by the ported tests.
+
+Suite: `pytest planlens -q` (Python 3.13), FULL_RESULT. The baseline on the
+branch point was 1,770 passed / 2 skipped. The docs-claims and packaging tests
+(`planlens/tests/test_readme_claims.py`, `test_packaging.py`) are in that run.
 
 ## 6. Left in the app, and why
 
