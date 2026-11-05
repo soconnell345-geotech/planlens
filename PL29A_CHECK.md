@@ -157,7 +157,7 @@ module (`funhouse_agent`, `webapp`, `langchain`, `langchain_core`,
 
 No planlens source was changed by the ported tests.
 
-Suite: `pytest planlens -q` (Python 3.13), FULL_RESULT. The baseline on the
+Suite: `pytest planlens -q` (Python 3.13): **2,002 passed, 3 skipped, exit code 0**. The baseline on the
 branch point was 1,770 passed / 2 skipped. The docs-claims and packaging tests
 (`planlens/tests/test_readme_claims.py`, `test_packaging.py`) are in that run.
 
