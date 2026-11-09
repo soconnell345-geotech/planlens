@@ -587,6 +587,11 @@ Apache-2.0/MIT/BSD).
   markup ids (`Markup.uid`), an atomic save and `ReviewToolkit.forget`;
   PyMuPDF 2.0 supported through `planlens.pymupdf_settings` (floor raised to
   1.27.2); numpy floor 1.26.
+- **0.15.0** — `planlens.review`: the app's document tools moved in (one
+  toolkit per conversation, markups on a copy, the markup check,
+  `find_like`, page numbers, frames and zoom windows), with what the host
+  supplies passed in one `ReviewHost` per process or per conversation;
+  `ReviewToolkit` takes a `look`; `Label (unit): value` read as a quantity.
 
 ### Hosts where OpenCV cannot load
 

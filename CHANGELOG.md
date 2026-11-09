@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.15.0 — 2026-11-09
+
 - **`Label (unit): value` is read as a quantity (app BACKLOG PL-11).** The
   unit-first form of a calculation printout, "Axial Capacity Pc (kip):
   437.0", returned nothing from `scan_text` / `find_quantities`; DESIGN.md
