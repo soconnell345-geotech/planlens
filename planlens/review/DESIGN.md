@@ -68,6 +68,18 @@ own item schema). `tests/app_tool_specs.json` is the app's own capture
 difference is a change the app's agents would see; re-capture only when the
 app changes a spec on purpose.
 
+The sheet tools (`sheet_index`, `check_cross_references`; see
+`planlens/document/DESIGN.md`, "Sheet index and cross-references") are not
+among them. `HOST_TOOLS` and `host_tool_names()` are what they were, and
+`SHEET_TOOLS` is a list of its own. A host asks for them with
+`ReviewHost(toolkit_options={"sheet_tools": True})`: its toolkits then
+serve them, `tool_names()` and `specs()` list them after the others, and
+the dispatcher treats them as any document tool (a file name where the
+handle goes, `pdf_pages`, the viewer's page beside every page in the
+result). A host that does not ask is answered "unknown tool". A
+conversation's toolkit is built once, so the option is the host's from the
+start, not something to switch on part-way through a conversation.
+
 ## Modules
 
 ```

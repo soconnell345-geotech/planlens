@@ -305,6 +305,11 @@ class ReviewToolkit:
         two: PNG for a vector drawing, JPEG for a scan) for the images the
         render tools make — ``auto`` keeps a conversation full of zooms
         inside request limits without blurring line art.
+    sheet_tools : bool
+        ``True`` also offers ``sheet_index`` and ``check_cross_references``
+        (:data:`OPT_IN_TOOLS`): a drawing set's sheets from their title
+        blocks, and its callouts checked against them. Off by default, so a
+        host's tool list is what it was until the host asks.
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -318,7 +323,8 @@ class ReviewToolkit:
                  author: Optional[str] = None,
                  image_budget: Any = None,
                  image_format: str = "png",
-                 look: Optional[Look] = None):
+                 look: Optional[Look] = None,
+                 sheet_tools: bool = False):
         from planlens.document.budget import resolve_budget
         if max_chars < 1000:
             raise ValueError("max_chars below 1000 cannot hold a useful result")
@@ -335,6 +341,8 @@ class ReviewToolkit:
                             "-> str")
         #: The host's look (:data:`Look`), or ``None``.
         self.look = look
+        #: Whether the sheet tools are offered (:data:`OPT_IN_TOOLS`).
+        self.sheet_tools = bool(sheet_tools)
         self.max_chars = int(max_chars)
         self.max_open = int(max_open)
         self.text_source_for = text_source_for
@@ -356,16 +364,26 @@ class ReviewToolkit:
     #: (:data:`planlens.review.specs.LOOK_TOOLS`), served over this toolkit.
     LOOK_TOOLS: Tuple[str, ...] = ()
 
+    #: Tools offered only by a toolkit built with ``sheet_tools=True``
+    #: (:data:`planlens.tools.specs.SHEET_TOOL_SPECS`).
+    OPT_IN_TOOLS: Tuple[str, ...] = ("sheet_index", "check_cross_references")
+
     def _offered(self, name: str) -> bool:
+        if name in self.OPT_IN_TOOLS:
+            return self.sheet_tools
         return self.look is not None or name not in self.LOOK_TOOLS
+
+    @staticmethod
+    def _all_specs() -> List[Dict[str, Any]]:
+        from planlens.tools.specs import SHEET_TOOL_SPECS, TOOL_SPECS
+        return list(TOOL_SPECS) + list(SHEET_TOOL_SPECS)
 
     # -- publication ----------------------------------------------------------
     def specs(self, style: str = "anthropic") -> List[Dict[str, Any]]:
         """Tool definitions: ``anthropic`` (input_schema), ``openai``
         (type=function) or ``plain`` (name/description/parameters)."""
-        from planlens.tools.specs import TOOL_SPECS
         out = []
-        for spec in TOOL_SPECS:
+        for spec in self._all_specs():
             if not self._offered(spec["name"]):
                 continue
             if style == "anthropic":
@@ -382,8 +400,8 @@ class ReviewToolkit:
 
     @property
     def tool_names(self) -> List[str]:
-        from planlens.tools.specs import TOOL_SPECS
-        return [s["name"] for s in TOOL_SPECS if self._offered(s["name"])]
+        return [s["name"] for s in self._all_specs()
+                if self._offered(s["name"])]
 
     # -- dispatch ---------------------------------------------------------------
     def call(self, name: str, arguments: Optional[Dict[str, Any]] = None
@@ -1212,6 +1230,110 @@ class ReviewToolkit:
                      "restarts; printed_pages are the numbers printed ON the "
                      "pages (cite those to the reader) and 'pages' are the "
                      "0-based PDF pages these tools take")}
+        if nxt is not None:
+            out["next_offset"] = nxt
+        return out
+
+    def _tool_sheet_index(self, handle: str,
+                          offset: int = 0) -> Dict[str, Any]:
+        from planlens.document.crossrefs import _compact
+        entry = self._entry(handle)
+        with entry.lock:
+            index = entry.doc.sheet_index()
+            refs = entry.doc.cross_references()
+        rows = index.indexed
+        if offset < 0 or (rows and offset >= len(rows)):
+            raise ToolError(f"offset {offset} is outside 0-{len(rows) - 1}")
+
+        def row(r):
+            shown = {"page": r.page, "sheet": r.number}
+            if r.title:
+                shown["title"] = r.title
+            if r.revision:
+                shown["rev"] = r.revision
+            views = refs.views.get(r.number)
+            if views:
+                shown["views"] = _compact(views)
+            if (r.how or "").startswith("PDF page label"):
+                shown["from"] = "page label"
+            return shown
+
+        out: Dict[str, Any] = {
+            "handle": handle, "n_pages": index.n_pages,
+            "n_sheets": len(index.rows), "n_indexed": len(rows)}
+        missing = index.not_indexed
+        if missing:
+            by_reason: Dict[str, List[int]] = {}
+            for r in missing:
+                by_reason.setdefault(r.reason or "not indexed",
+                                     []).append(r.page)
+            out["not_indexed"] = [{"pages": compact_ranges(pages),
+                                   "reason": reason}
+                                  for reason, pages in by_reason.items()]
+            out["look"] = self._look([
+                "a sheet under not_indexed has no number here: read its "
+                "title block by viewing it"])[0]
+        if index.notes:
+            out["notes"] = list(index.notes)
+        out["note"] = (
+            "page is the 0-based PDF page these tools take; sheet, title "
+            "and rev are as the sheet's own title block prints them (from: "
+            "page label marks a sheet named by the PDF's page label "
+            "instead, its title block not read); views are the view "
+            "numbers found on the sheet")
+        shown, nxt = fit_items(rows, self._budget(300) - json_len(out),
+                               to_payload=row, start=offset)
+        out["sheets"] = shown
+        if nxt is not None:
+            out["next_offset"] = nxt
+        return out
+
+    def _tool_check_cross_references(self, handle: str, pages: Any = None,
+                                     status: Optional[str] = None,
+                                     offset: int = 0) -> Dict[str, Any]:
+        entry = self._entry(handle)
+        with entry.lock:
+            index = entry.doc.sheet_index()
+            refs = entry.doc.cross_references()
+            n_pages = entry.doc.n_pages
+        wanted = (None if pages in (None, "", [], ())
+                  else set(parse_pages(pages, n_pages)))
+        status = (status or "").strip().lower() or None
+        order = {"unresolved": 0, "cannot_tell": 1, "resolved": 2}
+        if status is not None and status not in order:
+            raise ToolError(
+                f"status must be one of {sorted(order)}, not {status!r}")
+        on_pages = [c for c in refs.callouts
+                    if wanted is None or c.page in wanted]
+        rows = sorted((c for c in on_pages
+                       if status is None or c.status == status),
+                      key=lambda c: (order[c.status], c.page, c.bbox[1],
+                                     c.bbox[0]))
+        if offset < 0 or (rows and offset >= len(rows)):
+            raise ToolError(f"offset {offset} is outside 0-{len(rows) - 1}")
+        counts = {"callouts": len(on_pages), "unresolved": 0,
+                  "cannot_tell": 0, "resolved": 0}
+        for c in on_pages:
+            counts[c.status] += 1
+        out: Dict[str, Any] = {"handle": handle, "counts": counts}
+        blind = len(index.unread)
+        if blind:
+            out["n_sheets_without_text"] = blind
+        if refs.notes:
+            out["notes"] = list(refs.notes)
+        out["note"] = (
+            "a callout is view/sheet; page is the 0-based PDF page it is "
+            "drawn on and bbox its place there (PDF points, top-left "
+            "origin); target is the sheet it names, where that is in the "
+            "set")
+        if counts["unresolved"] or counts["cannot_tell"]:
+            out["look"] = self._look([
+                "view an unresolved callout at its bbox, and the sheet it "
+                "names, before you comment on it"])[0]
+        shown, nxt = fit_items(rows, self._budget(300) - json_len(out),
+                               to_payload=lambda c: c.to_dict(),
+                               start=offset)
+        out["callouts"] = shown
         if nxt is not None:
             out["next_offset"] = nxt
         return out

@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+- **A drawing set's sheet index and a check of its callouts, for a host
+  that asks (app BACKLOG PL-37, DR-07).** Off by default: no tool list,
+  spec or result changes until a host turns them on.
+  *The sheet index.* `Document.sheet_index()`
+  (`planlens.document.sheets`) reads every sheet's title block and returns
+  one row per sheet: its 0-based page, the sheet number, the title, the
+  latest revision in its revision block, the sheet count it prints, and how
+  the number was found. No layout is known in advance. Across a set the
+  sheet number sits at the same place on every sheet and differs on each,
+  so the number is the sheet-number-shaped text in the right or bottom band
+  that does exactly that; what the set repeats (project, firm, labels) is
+  the same everywhere and a callout's sheet number is somewhere else on
+  each sheet. A sheet the shared place does not cover, and a document of
+  one or two sheets, is read by its label ("SHEET NO.", "DWG NO.",
+  "DRAWING NUMBER": on the label's line, or in the cell beside or under
+  it), and failing that by a number standing alone in the corner in
+  lettering well above the rest. Forms read: `A-101`, `S-201A`, `A5.01`,
+  `C1.1`, `10.31A`, `G001`, lettering turned to read up the sheet. A sheet
+  count ("SHEET 3 OF 24", "3 of 24") is never returned as a number; it is
+  the row's `count`. A sheet with no text layer is listed with the reason
+  and no number, unless the PDF's own page label names it ("A-101 FIRST
+  FLOOR PLAN"), and then the row says the number came from the label. The
+  title is the title block's text that changes from sheet to sheet, under
+  its label where there is one, wrapped lines joined.
+  *The cross-reference check.* `Document.cross_references()`
+  (`planlens.document.crossrefs`) finds every callout — a reference bubble
+  (the view number over the sheet number, two pieces of text paired by
+  where they sit) or "3/A-501" written on one line — and checks it against
+  the index. A bubble that names the sheet it is on is a view's own title
+  mark, and those are the views a callout to that sheet is checked against.
+  Each callout comes back with its page, its box, the sheet it names and a
+  status: `resolved`; `unresolved` (no such sheet in the set, or the sheet
+  is there and holds recognised views but not that one); or `cannot_tell`
+  (no view marks were recognised on that sheet, the sheet has no text
+  layer, or the sheet is not in the index while some sheets could not be
+  indexed). It reads the text layer only and says how many sheets it could
+  not read.
+  *Two tools.* `sheet_index` and `check_cross_references`
+  (`planlens.tools.SHEET_TOOL_SPECS`) are served by
+  `ReviewToolkit(sheet_tools=True)` and, through the host layer, by
+  `ReviewHost(toolkit_options={"sheet_tools": True})`
+  (`planlens.review.specs.SHEET_TOOLS`,
+  `host_tool_names(sheet_tools=True)`); they take a handle, fit the size
+  limit and continue by `next_offset`, and through the host layer carry the
+  viewer's 1-based page beside every 0-based one and take `pdf_pages`.
+  `TOOL_SPECS`, `HOST_TOOLS` and `open_document`'s result are unchanged.
+  *A fixture.* `planlens.testing.build_sheet_set`: five made-up sheets in
+  four title blocks and five ways of numbering, with the truth for the
+  index and for nine callouts, the text written in a shuffled order, and
+  any sheets turned into scans.
+  Not measured on real drawing sets: the tests are planlens' own made-up
+  sheets. Limits are in `planlens/document/DESIGN.md`, "Sheet index and
+  cross-references".
+
 ## 0.15.1 — 2026-11-10
 
 - **Fixes from the 2026-11-10 code review (app BACKLOG PL-36).**

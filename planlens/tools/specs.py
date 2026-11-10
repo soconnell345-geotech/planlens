@@ -795,3 +795,59 @@ TOOL_SPECS = [
         },
     },
 ]
+
+#: The sheet tools: a toolkit offers them only when it is built with
+#: ``sheet_tools=True``, so the tools above are what every host has had and
+#: these are a host's choice. Kept out of :data:`TOOL_SPECS` for that
+#: reason: a host that reads the list gets no new tool it did not ask for.
+SHEET_TOOL_SPECS = [
+    {
+        "name": "sheet_index",
+        "description": (
+            "The drawing set's sheets, read from their title blocks: for "
+            "each sheet its page, its sheet number, its title and latest "
+            "revision as the title block prints them, and the view numbers "
+            "found on it. Use it to turn a sheet number into a page (\"the "
+            "callouts on S-201\") and to check the set against the index "
+            "printed on its cover sheet. A sheet with no text layer is "
+            "listed under not_indexed with no number: read its title block "
+            "by viewing it. Continues via next_offset."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "offset": {"type": "integer", "minimum": 0},
+            },
+            "required": ["handle"],
+        },
+    },
+    {
+        "name": "check_cross_references",
+        "description": (
+            "Every section, detail and plan callout in the drawing set (a "
+            "bubble with the view number over the sheet number, or "
+            "\"view/sheet\" written in a note), checked against the sheet "
+            "index and against the views on the sheet it names. status "
+            "unresolved: there is no such sheet in the set, or the sheet "
+            "is there and does not hold that view. cannot_tell: the views "
+            "on that sheet could not be read from its text. Unresolved "
+            "callouts come first, each with the box it is drawn in: view it "
+            "before you comment. It reads the text layer only: callouts on "
+            "a sheet with no text layer are not listed "
+            "(n_sheets_without_text says how many sheets that is). Whether "
+            "a detail suits the place it is called from is yours to judge. "
+            "Filter by pages or by status. Continues via next_offset."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "pages": PAGES_SCHEMA,
+                "status": {"type": "string",
+                           "enum": ["unresolved", "cannot_tell",
+                                    "resolved"]},
+                "offset": {"type": "integer", "minimum": 0},
+            },
+            "required": ["handle"],
+        },
+    },
+]

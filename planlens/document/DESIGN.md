@@ -1589,6 +1589,95 @@ Not built: finding the control points themselves (grid lines and coordinate
 labels are read by the model and passed in); a leader drawn from a label to
 its symbol; an affine fit for a distorted scan.
 
+## Sheet index and cross-references (unreleased; app BACKLOG PL-37, DR-07)
+
+A reviewer names a sheet by its number; a PDF knows page indexes, and most
+sets carry no page labels. `structure.py`'s `printed_numbers` reads only the
+top and bottom 8 % of a page, so it misses a number in a title block down
+the right edge and returns "3 of 24" as the sheet where a footer prints the
+count. `sheets.py` reads the title block instead, for the whole set at once.
+
+**The number.** Nothing knows a layout. `sheet_index(doc)` collects every
+piece of text shaped like a sheet number (`A-101`, `S-201A`, `A5.01`,
+`C1.1`, `10.31A`, `G001`) in the right 32 % and the bottom 24 % of each
+sheet, then:
+
+1. *The slot.* Pieces at the same place from sheet to sheet are grouped. A
+   group covering at least half the sheets (three or more), with a
+   different value on at least 80 % of them, is a slot; the best one (cover,
+   distinct values, a label beside it, lettering size) gives each sheet its
+   number. The project number is the same on every sheet, so it never
+   qualifies; a callout's sheet number is at a different place on every
+   sheet, so it never forms a group. Sheets of one page size are grouped
+   together.
+2. *The label*, for a sheet the slot does not cover and for a document of
+   one or two sheets: a piece on the line of "SHEET NO." / "DWG NO." /
+   "DRAWING NUMBER", or in the cell to its right or under it, in the
+   direction the lettering reads (lettering turned to read up or down the
+   sheet is turned back first).
+3. *The size*, with no label: a piece standing alone in the lower right
+   corner whose lettering is at least twice the bands' usual lettering,
+   with no other number near its size.
+4. *The page label*, where the title block gave nothing (a scan, a number
+   drawn as lines): a PDF page label that begins with a sheet number. The
+   row's `how` says so and its confidence is lower; the label is the file's
+   word, not a reading of the sheet. A label never replaces a number read
+   from the title block.
+
+"SHEET 3 OF 24" and a bare "3 of 24" are blanked before the search and
+returned as the row's `count`. A sheet with no text layer, or whose text
+layer is unreliable, is a row with `reason` and no number (`readable` is
+False). A page is a sheet when the page map calls it a drawing sheet or it
+is 11 x 17 in or larger.
+
+**The title** is the text beside or under "TITLE" / "SHEET TITLE" /
+"DRAWING TITLE" where there is such a label, else the largest lettering
+that is this sheet's own (not on 60 % of the sheets) inside the title
+block; the title block is taken as the box round the wording the set prints
+at the same place on every sheet, so a view's title lower down the drawing
+is not mistaken for the sheet's. Wrapped lines are joined. A single sheet
+gets a title only from a label: nothing else tells its title from the
+project's name. **The revision** is the highest mark under a "REVISIONS" /
+"REV" heading (numbers above letters), with the rest of its row as a note.
+
+**Callouts.** `cross_references(doc)` works from the same text. A bubble is
+a piece of upright text that is a sheet number and nothing else, of the
+shape of one of the set's own numbers, with a view number or letter (`7`,
+`A`, `AA`, `A1`) centred just above it; a row of a list of sheet numbers
+(a cover's index) is not one. A bubble naming the sheet it is on is a
+view's title mark, and the views found that way are what a callout to the
+sheet is checked against; the text to the right of the mark is the view's
+title. Every other bubble, and every "view/sheet" on one line ("W/ S-201"
+is "with"), is a callout: `resolved`, `unresolved` or `cannot_tell` as the
+module's docstring defines them. `cannot_tell` is deliberate: a set that
+titles its views some other way has no recognised views, and calling every
+callout to it wrong would bury the real ones.
+
+**The tools** (`sheet_index`, `check_cross_references`) are in
+`SHEET_TOOL_SPECS`, apart from `TOOL_SPECS`, and a toolkit serves them only
+with `sheet_tools=True`. Both apps bind to the published lists, so a new
+tool in them would have changed every host's surface on upgrade.
+
+**What it does not do, and where it will be wrong.**
+- It has been run only on made-up sheets (planlens' fixture and the app's
+  coordination set). No figure here says how it does on real drawing sets.
+- Text only. A sheet with no text layer has no number (but for a page
+  label) and none of its callouts are found; lettering drawn as lines is
+  the same. The result says how many sheets that was.
+- A sheet number with no letter and no decimal part ("3", "101") is not
+  recognised as one.
+- A sheet where only some view marks are recognised makes a callout to one
+  of the others `unresolved`. The `why` names the views that were found.
+- A set numbered `10.31` gives no way to tell a sheet number from a
+  dimension of the same shape, so a "2" over "12.50" would be read as a
+  callout to a sheet that is not there.
+- Titles and revision blocks lettered up the sheet: the title's first line
+  is read, wrapped lines are not joined, and a turned revision block is
+  not read.
+- A callout whose sheet half reads "-" (the same sheet) is not a callout
+  here. Whether a detail suits the place it is called from is not
+  attempted.
+
 ## Not built yet
 
 - RapidOCR (`planlens.ocr`) as a text source (it currently emits IR TextItems).
