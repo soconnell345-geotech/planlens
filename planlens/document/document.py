@@ -312,6 +312,12 @@ class Document:
         return self._doc.page_count
 
     @property
+    def needs_password(self) -> bool:
+        """Whether the PDF asks for a password before anything in it can be
+        read (every page-level call then fails)."""
+        return bool(self._doc.needs_pass)
+
+    @property
     def metadata(self) -> Dict[str, str]:
         return {k: v for k, v in (self._doc.metadata or {}).items()
                 if v and k != "format"}

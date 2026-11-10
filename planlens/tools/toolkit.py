@@ -193,6 +193,40 @@ def _cut_styles(out: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+#: What the user can do about a file that does not open, by what is wrong
+#: with it (review 2026-11-10: a file that asks for a password came back as
+#: MuPDF's "document closed or encrypted", an empty one as its
+#: EmptyFileError, and a PDF with no pages opened as a document of none).
+OPEN_HINTS = {
+    "password": ("these tools cannot enter a password. Ask the user to open "
+                 "the file with its password, save or print it as a new PDF "
+                 "without one, and give you that copy"),
+    "empty": ("nothing was received for this file: the upload or download "
+              "probably did not finish. Ask the user to send it again"),
+    "no_pages": ("the file is incomplete or damaged. Ask the user to check "
+                 "that it opens in a PDF viewer, and to export or send it "
+                 "again"),
+    "unreadable": ("ask the user to check that the file opens in a PDF "
+                   "viewer, and to send it again, or to save it as a PDF if "
+                   "it is another kind of file"),
+}
+
+
+def _cannot_open(source: str, exc: BaseException) -> ToolError:
+    """The refusal for a file the document layer could not open: in plain
+    words when MuPDF or the layer says the bytes are not a document (their
+    own messages, "Failed to open stream", tell a reader nothing), else the
+    error as it came."""
+    if type(exc).__name__ in ("FileDataError", "EmptyFileError") \
+            or isinstance(exc, ValueError):
+        return ToolError(
+            f"could not open '{source}' as a PDF or image: the file is "
+            "damaged, incomplete or of another kind",
+            hint=OPEN_HINTS["unreadable"])
+    return ToolError(f"could not open '{source}' as a PDF or image: "
+                     f"{type(exc).__name__}: {exc}")
+
+
 def _default_resolver(source: str) -> Source:
     if os.path.isfile(source):
         return source
@@ -420,16 +454,32 @@ class ReviewToolkit:
             name = os.path.basename(source) or source
             text_source = (self.text_source_for(name, key)
                            if self.text_source_for else None)
+            in_memory = isinstance(resolved, (bytes, bytearray))
+            if not (len(resolved) if in_memory
+                    else os.path.getsize(resolved)):
+                raise ToolError(
+                    f"could not open '{source}': the file is empty (0 bytes)",
+                    hint=OPEN_HINTS["empty"])
             try:
-                if isinstance(resolved, (bytes, bytearray)):
+                if in_memory:
                     doc = Document(content=bytes(resolved), name=name,
                                    text_source=text_source)
                 else:
                     doc = Document(filepath=resolved, name=name,
                                    text_source=text_source)
             except Exception as exc:
-                raise ToolError(f"could not open '{source}' as a PDF or "
-                                f"image: {type(exc).__name__}: {exc}")
+                raise _cannot_open(source, exc)
+            # A document that opens but cannot be read is refused here, with
+            # what is wrong, before it gets a handle that answers nothing.
+            wrong = ("password" if doc.needs_password
+                     else "no_pages" if doc.n_pages < 1 else None)
+            if wrong:
+                doc.close()
+                raise ToolError(
+                    f"could not open '{source}': "
+                    + ("the file is protected with a password"
+                       if wrong == "password" else "the PDF has no pages"),
+                    hint=OPEN_HINTS[wrong])
             handle = "doc_" + hashlib.sha1(key.encode()).hexdigest()[:10]
             entry = _Entry(handle, name, doc,
                            path=(None if isinstance(resolved, (bytes, bytearray))

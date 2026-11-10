@@ -42,6 +42,18 @@
   single hit longer than the limit (a regular expression matching a whole
   block) has its `match` and `snippet` cut and marked. A result that fits
   is unchanged.
+  *A file that does not open says what is wrong and what to do.*
+  `open_document` on a PDF that asks for a password returned MuPDF's
+  "document closed or encrypted" and kept a handle that answered nothing;
+  an empty file returned its `EmptyFileError`, a damaged one "FileDataError:
+  Failed to open stream", and a PDF with no pages opened as a document of
+  none. Each is now refused when it is opened, with no handle left behind:
+  "could not open '<source>': the file is protected with a password", "...
+  the file is empty (0 bytes)", "... the PDF has no pages", or "could not
+  open '<source>' as a PDF or image: the file is damaged, incomplete or of
+  another kind", each with a `hint` saying what the user can do
+  (`planlens.tools.toolkit.OPEN_HINTS`). A PDF that only restricts printing
+  or copying opens as before. New `Document.needs_password`.
 
 ## 0.15.0 — 2026-11-09
 

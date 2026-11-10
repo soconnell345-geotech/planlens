@@ -144,6 +144,91 @@ def test_invalid_regex_is_explained(kit):
     assert "regex=false" in out["hint"]
 
 
+# -- a file that does not open says what is wrong with it --------------------------
+
+def _one_page_pdf(**save):
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 100), "A made-up page of text.")
+    data = doc.tobytes(**save)
+    doc.close()
+    return data
+
+
+#: A PDF whose page tree is empty: it opens, with no pages.
+PDF_WITHOUT_PAGES = (
+    b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+    b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n"
+    b"xref\n0 3\n0000000000 65535 f \n0000000009 00000 n \n"
+    b"0000000058 00000 n \ntrailer\n<< /Size 3 /Root 1 0 R >>\n"
+    b"startxref\n107\n%%EOF\n")
+
+
+def _files_that_do_not_open():
+    """``(name, bytes, what is wrong, what to do)``; a PDF cut short is
+    damaged to one MuPDF and a PDF with no pages to another."""
+    locked = _one_page_pdf(encryption=pymupdf.PDF_ENCRYPT_AES_256,
+                           user_pw="made-up", owner_pw="also-made-up")
+    whole = _one_page_pdf()
+    damaged = "damaged, incomplete or of another kind"
+    return [
+        ("locked.pdf", locked, ["protected with a password"], "without one"),
+        ("empty.pdf", b"", ["the file is empty (0 bytes)"], "send it again"),
+        ("blank.pdf", PDF_WITHOUT_PAGES, ["the PDF has no pages"],
+         "export or send it again"),
+        ("words.pdf", b"not a document at all, only words. " * 20,
+         [damaged], "opens in a PDF viewer"),
+        ("cut.pdf", whole[:len(whole) // 3],
+         [damaged, "the PDF has no pages"], "opens in a PDF viewer"),
+    ]
+
+
+UNOPENABLE = _files_that_do_not_open()
+
+
+@pytest.mark.parametrize("from_a_file", [False, True])
+@pytest.mark.parametrize("name, data, wrong, to_do", UNOPENABLE,
+                         ids=[row[0] for row in UNOPENABLE])
+def test_a_file_that_does_not_open_says_why_and_what_to_do(
+        tmp_path, name, data, wrong, to_do, from_a_file):
+    """A file that asks for a password came back as MuPDF's "document closed
+    or encrypted" (and kept a handle that answered nothing), an empty one as
+    its EmptyFileError, and a PDF with no pages opened as a document."""
+    if from_a_file:
+        path = tmp_path / name
+        path.write_bytes(data)
+        k, source = ReviewToolkit(), str(path)
+    else:
+        k, source = ReviewToolkit(resolve_source=lambda key: data), name
+    try:
+        for _ in range(2):              # the refusal is not remembered wrong
+            out = call(k, "open_document", source=source)
+            assert out["error"].startswith(f"could not open '{source}'")
+            assert any(w in out["error"] for w in wrong), out["error"]
+            assert to_do in out["hint"]
+            # Plain words: nothing of the library's own error.
+            said = out["error"] + out["hint"]
+            for raw in ("Error", "encrypted", "stream", "MuPDF"):
+                assert raw not in said, said
+        assert "none" in call(k, "read_document", handle="doc_0")["hint"]
+        if from_a_file:
+            path.unlink()               # nothing holds the file open
+    finally:
+        k.close()
+
+
+def test_a_pdf_that_only_restricts_what_may_be_done_still_opens():
+    data = _one_page_pdf(encryption=pymupdf.PDF_ENCRYPT_AES_256,
+                         user_pw="", owner_pw="made-up")
+    k = ReviewToolkit(resolve_source=lambda key: data)
+    try:
+        out = call(k, "open_document", source="restricted.pdf")
+        assert out["n_pages"] == 1
+        text = call(k, "read_document", handle=out["handle"])["text"]
+        assert "A made-up page of text." in text
+    finally:
+        k.close()
+
+
 # -- reading ---------------------------------------------------------------------------
 
 def _read_all(kit, handle, **kw):
