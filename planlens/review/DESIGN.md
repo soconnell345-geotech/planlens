@@ -4,8 +4,14 @@ The document tools as a host serves them to a model: one toolkit per
 conversation, markups written onto a copy and then looked at, and
 `find_like` with every candidate read. They moved here from the
 GeotechStaffEngineer app (its BACKLOG PL-29, part (a)), where they had only
-wrapped planlens. The app keeps the tool names, the hints that name its own
-vision tools, reading Word and Excel, and the binding to its agent.
+wrapped planlens. The host keeps the tool names, the hints that name its own
+vision tools, reading Word and Excel, and the binding to its agent. Since
+the app split that host is the shared core `aec-agent-core`
+(`aec_agent_core/document_tools.py`, with the tool functions in
+`aec_agent_core/deep/vision_kit.py`), which serves both GeotechStaffEngineer
+and Document Review (`aec-document-review`); the app modules the table
+below names (`vision_tools`, `vision_view`, `image_view`, `office_text`,
+`_fileio`, `cited_documents`, `error_text`) are in the core too.
 
 ## The rule: planlens imports nothing of the host and calls no model
 

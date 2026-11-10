@@ -385,12 +385,15 @@ space — origin top-left, y DOWN (`page.rect`/`fitz.Rect` convention) — NOT
 the `origin="bottom_left"` convention `from_pdf_vector` defaults to. Convert
 an IR point before calling: `x_pdf = x_ir; y_pdf = page_height_pt - y_ir`.
 
-Implemented in `funhouse_agent/vision_tools.py` as `_dispatch_render_region`
-(same conventions as `_dispatch_analyze_pdf_page`) plus a save-to-file
-counterpart `render_region_to_file`. **Live on every agent surface since
-Phase 2 (B6)**: `EXTENDED_TOOLS` + `VISION_TOOL_DESCRIPTIONS` + the
-dispatch route (v1 agent), `make_vision_tools` (deep agent), and
-`OPENAI_TOOLS`/`EXTENDED_TOOL_NAMES` (native). The drawing_ir adapter's
+Implemented in the app's vision tools, which since the app split live in
+the shared core `aec-agent-core` (`aec_agent_core/vision_tools.py`), as
+`_dispatch_render_region` (same conventions as `_dispatch_analyze_pdf_page`)
+plus a save-to-file counterpart `render_region_to_file`. **Live on every
+agent surface since Phase 2 (B6)**: `EXTENDED_TOOLS` +
+`VISION_TOOL_DESCRIPTIONS` there + the dispatch route (v1 agent),
+`make_vision_tools` (deep agent, `aec_agent_core/deep/vision_kit.py`), and
+`OPENAI_TOOLS`/`EXTENDED_TOOL_NAMES` (native, GeotechStaffEngineer's
+`funhouse_agent/native_tools.py`). The drawing_ir adapter's
 `snip_region` method is the save-to-disk twin and converts IR bottom-left
 coordinates to this frame for the caller.
 

@@ -115,8 +115,9 @@ located, attributed data:
   process or for one conversation (`review.call(..., host=)`,
   `review.using(...)`), so two people signed in to one process each sign
   their own marks; the tool specs are the GeotechStaffEngineer app's, word
-  for word (a test holds them to the app's own capture). See
-  `planlens/review/DESIGN.md`.
+  for word (a test holds them to the app's own capture). The shared core
+  `aec-agent-core` serves them to GeotechStaffEngineer and to Document
+  Review (`aec-document-review`). See `planlens/review/DESIGN.md`.
 - **`planlens.ir`** — drawing geometry: lines, arcs, text, and the annotation
   constructs built from them (below).
 
