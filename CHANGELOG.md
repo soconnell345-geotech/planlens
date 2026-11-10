@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Fixes from the 2026-11-10 code review.**
+  *A marked copy never replaces the document or a file the app did not
+  write.* `planlens.review`'s `annotate_document` with `output_path` equal
+  to the opened document's own name (append on) put the marks into the
+  original, and an upload already named `<document>_marked.pdf` took them
+  under the default name. The copy now goes into an existing file only when
+  that file is a marked copy of this host's: one this process wrote that
+  has not changed since, or a PDF holding a mark of the host's. Otherwise
+  it is saved beside it (`<document>_marked.pdf` for the document itself,
+  else the name with `_2`, `_3`, ...; the same call again adds to that
+  file) and the result's `saved_elsewhere` says which file and why.
+  `remove` on a file holding no mark of the host's is refused. In the
+  toolkit and `write_markups`, the check that the output is not the
+  document compared path strings; it now compares files, so the same file
+  spelled in other letter case or through a linked folder is refused too.
+
 ## 0.15.0 — 2026-11-09
 
 - **`Label (unit): value` is read as a quantity (app BACKLOG PL-11).** The

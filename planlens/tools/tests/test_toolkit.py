@@ -636,6 +636,29 @@ def test_annotate_document_will_not_write_over_the_document_it_read(gt,
         kit.close()
 
 
+@pytest.mark.parametrize("how", ["case", "link"])
+def test_the_document_is_told_under_another_spelling_of_its_path(gt, tmp_path,
+                                                                 how):
+    from planlens.document.tests.test_markup_writer import respelled
+    folder = tmp_path / "in"
+    folder.mkdir()
+    original = folder / "set.pdf"
+    original.write_bytes(gt.pdf)
+    other = respelled(str(original), how, tmp_path)
+    if other is None:
+        pytest.skip("this system has no such second spelling of a path")
+    kit = _kit_writing_to(gt, tmp_path)
+    try:
+        handle = call(kit, "open_document", source=str(original))["handle"]
+        out = call(kit, "annotate_document", handle=handle, output_path=other,
+                   markups=[{"kind": "note", "page": 0, "comment": "x",
+                             "point": [90, 90]}])
+        assert "the document itself" in out["error"]
+        assert original.read_bytes() == gt.pdf
+    finally:
+        kit.close()
+
+
 def test_a_write_root_confines_the_output(gt, tmp_path):
     kit = _kit_writing_to(gt, tmp_path, output_root=str(tmp_path))
     try:

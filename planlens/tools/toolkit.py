@@ -1001,7 +1001,9 @@ class ReviewToolkit:
                                 markups: Any = None,
                                 author: Optional[str] = None,
                                 append: bool = True) -> Dict[str, Any]:
-        from planlens.document.markup_writer import DEFAULT_AUTHOR, write_markups
+        from planlens.document.markup_writer import (
+            DEFAULT_AUTHOR, _same_file, write_markups,
+        )
 
         entry = self._entry(handle)
         if isinstance(markups, dict):
@@ -1012,7 +1014,7 @@ class ReviewToolkit:
                 hint="each markup is {kind, page, comment} plus ONE anchor: "
                      "quote, bbox, point or reply_to")
         out_path = self._resolve_output(output_path)
-        if entry.path and os.path.abspath(entry.path) == os.path.abspath(out_path):
+        if entry.path and _same_file(entry.path, out_path):
             raise ToolError(
                 "output_path is the document itself; a marked-up copy is a "
                 "NEW file", hint="use a name like '<document>_marked.pdf'")

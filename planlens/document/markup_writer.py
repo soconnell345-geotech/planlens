@@ -669,9 +669,19 @@ def _read_bytes(source: Union[str, bytes, bytearray]) -> bytes:
 
 
 def _same_file(a: Any, b: Any) -> bool:
+    """Whether two sources name one file, however each path is spelled
+    (letter case where names ignore it, a linked folder). Never true of
+    bytes."""
     if isinstance(a, (bytes, bytearray)) or isinstance(b, (bytes, bytearray)):
         return False
-    return os.path.abspath(str(a)) == os.path.abspath(str(b))
+    a, b = str(a), str(b)
+    try:
+        if os.path.samefile(a, b):
+            return True
+    except OSError:              # one of them is not there (yet)
+        pass
+    return os.path.normcase(os.path.abspath(a)) == \
+        os.path.normcase(os.path.abspath(b))
 
 
 def _tokens(text: str) -> List[str]:
