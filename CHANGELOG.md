@@ -14,31 +14,51 @@
   so the number is the sheet-number-shaped text in the right or bottom band
   that does exactly that; what the set repeats (project, firm, labels) is
   the same everywhere and a callout's sheet number is somewhere else on
-  each sheet. A sheet the shared place does not cover, and a document of
-  one or two sheets, is read by its label ("SHEET NO.", "DWG NO.",
-  "DRAWING NUMBER": on the label's line, or in the cell beside or under
-  it), and failing that by a number standing alone in the corner in
-  lettering well above the rest. Forms read: `A-101`, `S-201A`, `A5.01`,
-  `C1.1`, `10.31A`, `G001`, lettering turned to read up the sheet. A sheet
-  count ("SHEET 3 OF 24", "3 of 24") is never returned as a number; it is
-  the row's `count`. A sheet with no text layer is listed with the reason
-  and no number, unless the PDF's own page label names it ("A-101 FIRST
-  FLOOR PLAN"), and then the row says the number came from the label. The
-  title is the title block's text that changes from sheet to sheet, under
-  its label where there is one, wrapped lines joined.
+  each sheet. Sheets in a second title-block layout (a consultant's sheets
+  bound into the set) get a shared place of their own. A sheet no shared
+  place covers, and a document of one or two sheets, is read by its label
+  ("SHEET NO.", "DWG NO.", "SHEET #", "DRAWING NUMBER"), only where the
+  label is a title block's: a short line of its own or the start of one,
+  with the number straight after it or alone in the cell beside or under
+  it ("REFER TO DWG NO. S-201" in a general note is not a label). Failing
+  that, a number standing alone in the corner in lettering at least twice
+  the band's usual lettering; failing that, the sheet's own view titles,
+  when every one names the same number and no other page holds it (they
+  also overrule a label or size reading they contradict, with a note). A
+  number after PAGE, FIG., TABLE, SECTION or APPENDIX is not a sheet
+  number, so a report printed on large pages gets none. Forms read:
+  `A-101`, `S-201A`, `A5.01`, `A1-01`, `C1.1`, `10.31A`, `G001`, lettering
+  turned to read up the sheet. A sheet count ("SHEET 3 OF 24", "3 of 24")
+  is never returned as a number; it is the row's `count`. A sheet with no
+  text layer is listed with the reason and no number, unless the PDF's own
+  page label names it ("A-101 FIRST FLOOR PLAN"), and then the row says
+  the number came from the label. A sheet number read on two pages is one
+  note (a set bound in twice is said in one sentence). The title is the
+  title block's text that changes from sheet to sheet, under its label
+  where there is one, wrapped lines joined.
   *The cross-reference check.* `Document.cross_references()`
   (`planlens.document.crossrefs`) finds every callout — a reference bubble
   (the view number over the sheet number, two pieces of text paired by
   where they sit) or "3/A-501" written on one line — and checks it against
-  the index. A bubble that names the sheet it is on is a view's own title
-  mark, and those are the views a callout to that sheet is checked against.
-  Each callout comes back with its page, its box, the sheet it names and a
-  status: `resolved`; `unresolved` (no such sheet in the set, or the sheet
-  is there and holds recognised views but not that one); or `cannot_tell`
-  (no view marks were recognised on that sheet, the sheet has no text
-  layer, or the sheet is not in the index while some sheets could not be
-  indexed). It reads the text layer only and says how many sheets it could
-  not read.
+  the index. A bubble that names the sheet it is on, with the view's title
+  beside it, is a view's own title mark (in any reading direction), and
+  those are the views a callout to that sheet is checked against; without
+  a title it is a callout like any other. A bubble's view number is
+  lettered at least as large as its sheet number. Each callout comes back
+  with its page, its box, the sheet it names and a status, `unresolved`
+  only where the text shows it: there is no such sheet in this document
+  though sheets of its discipline are here and every sheet that could be
+  it was read ("there is no sheet A-301 in this document"), or the sheet
+  is here, its view marks were recognised, and none is that view ("view
+  marks recognised on A-501: 1 to 6; none for 7"). `cannot_tell`, with a
+  plain reason, where the text cannot show it: no sheets of that
+  discipline in this document (the set may be issued in parts); a sheet
+  that could not be indexed may be it; a sheet number is read on two
+  pages; no view marks were recognised on that sheet, or it has a mark
+  that reads like a view's and was not read as one (a view number alone
+  with a title, a turned untitled mark); the sheet has no text layer.
+  It reads the text layer and upright callouts only, and says how many
+  sheets it could not read.
   *Two tools.* `sheet_index` and `check_cross_references`
   (`planlens.tools.SHEET_TOOL_SPECS`) are served by
   `ReviewToolkit(sheet_tools=True)` and, through the host layer, by
@@ -47,11 +67,20 @@
   `host_tool_names(sheet_tools=True)`); they take a handle, fit the size
   limit and continue by `next_offset`, and through the host layer carry the
   viewer's 1-based page beside every 0-based one and take `pdf_pages`.
-  `TOOL_SPECS`, `HOST_TOOLS` and `open_document`'s result are unchanged.
+  A `sheet_index` row whose number was not read from the place the set
+  shares says where it came from (`from`: label, large lettering, view
+  titles, page label), and a number read on two pages is marked
+  `duplicate`; the sheets not indexed come grouped by reason with their
+  pages, and the result always fits its limit, counting what it left out.
+  Whether the tools are served is decided by the host making each call,
+  so hosts sharing one conversation's toolkit are each answered as they
+  asked. `TOOL_SPECS`, `HOST_TOOLS` and `open_document`'s result are
+  unchanged.
   *A fixture.* `planlens.testing.build_sheet_set`: five made-up sheets in
   four title blocks and five ways of numbering, with the truth for the
   index and for nine callouts, the text written in a shuffled order, and
-  any sheets turned into scans.
+  any sheets turned into scans; `sketch_pdf` draws one-off sheets (title
+  blocks, bubbles, view titles, turned marks) for a test.
   Not measured on real drawing sets: the tests are planlens' own made-up
   sheets. Limits are in `planlens/document/DESIGN.md`, "Sheet index and
   cross-references".

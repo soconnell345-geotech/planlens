@@ -96,9 +96,10 @@ located, attributed data:
   more tools are a host's choice (`ReviewToolkit(sheet_tools=True)`; not
   yet measured on real sets): `sheet_index` lists a drawing set's sheets
   from their title blocks (page, sheet number, title, latest revision, the
-  views on each), and `check_cross_references` finds every section and
-  detail callout and says which lead to a view that is in the set, which do
-  not, and which it cannot tell. And `annotate_document` sends the review BACK: notes,
+  view marks recognised on each), and `check_cross_references` reads the
+  section and detail callouts in the text layer and says which lead to a
+  view recognised in the document, which do not, and which it cannot tell,
+  with the reason. And `annotate_document` sends the review BACK: notes,
   highlights over the words quoted, boxes, callouts and replies written onto a
   NEW copy of the PDF as ordinary annotations, anchored to text that is
   searched for rather than to coordinates guessed at, with anything it could

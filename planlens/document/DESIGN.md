@@ -1609,26 +1609,50 @@ sheet, then:
    number. The project number is the same on every sheet, so it never
    qualifies; a callout's sheet number is at a different place on every
    sheet, so it never forms a group. Sheets of one page size are grouped
-   together.
-2. *The label*, for a sheet the slot does not cover and for a document of
-   one or two sheets: a piece on the line of "SHEET NO." / "DWG NO." /
-   "DRAWING NUMBER", or in the cell to its right or under it, in the
-   direction the lettering reads (lettering turned to read up or down the
-   sheet is turned back first).
+   together. Only a piece that is a whole line of its own, or follows a
+   number label, takes part: "SEE A-302" in a note in the band does not.
+   The sheets the slot leaves are searched again for a slot of their own
+   (a consultant's title block bound into the set), refused where its
+   values are numbers other sheets already hold.
+2. *The label*, for a sheet no slot covers and for a document of one or
+   two sheets: a piece after "SHEET NO." / "DWG NO." / "SHEET #" /
+   "DRAWING NUMBER", in the direction the lettering reads (lettering turned
+   to read up or down the sheet is turned back first). The label counts
+   only as a title block prints one: a line of three words or fewer, or
+   the start of a line. On the label's line the number must come straight
+   after it; in the cell to its right or under it the label must be alone.
+   "1. REFER TO DWG NO. S-201 FOR TYPICAL DETAILS" is a note, and its
+   number is not the sheet's.
 3. *The size*, with no label: a piece standing alone in the lower right
-   corner whose lettering is at least twice the bands' usual lettering,
-   with no other number near its size.
-4. *The page label*, where the title block gave nothing (a scan, a number
+   corner whose lettering is at least twice the median of the band's other
+   lines (the lines holding the piece's own text left out, so a sheet with
+   little else on it is still read), with no other number near its size.
+4. *The view titles*, for a readable sheet 1 to 3 left without a number or
+   read by label or size: if every titled view mark on it
+   (`crossrefs.titled_bubbles`) names the same number and no other page
+   holds that number, the sheet is that number (`how` "the sheet's own view
+   titles", confidence 0.55). Where it differs from a label or size
+   reading, the view titles win and a note names the page and both
+   readings; a slot reading is never overruled.
+5. *The page label*, where the title block gave nothing (a scan, a number
    drawn as lines): a PDF page label that begins with a sheet number. The
    row's `how` says so and its confidence is lower; the label is the file's
    word, not a reading of the sheet. A label never replaces a number read
    from the title block.
 
 "SHEET 3 OF 24" and a bare "3 of 24" are blanked before the search and
-returned as the row's `count`. A sheet with no text layer, or whose text
-layer is unreliable, is a row with `reason` and no number (`readable` is
-False). A page is a sheet when the page map calls it a drawing sheet or it
-is 11 x 17 in or larger.
+returned as the row's `count`. A number after PAGE, PG, FIG., FIGURE,
+TABLE, SECTION or APPENDIX (with "NO." or "#" between or not) is not a
+sheet number: an 11 x 17 report's "Page 1.1" footers are not sheets. A
+sheet with no text layer, or whose text layer is unreliable, is a row with
+`reason` and no number (`readable` is False). A readable sheet left with no
+number keeps the sheet-number-shaped text of its band (`SheetRow.tokens`,
+not in the row's dict), which the callout check uses. A number read on two
+pages is one note, whatever the count: the number and its pages for one;
+"every sheet number in this document is read on two pages ... the document
+may hold the set twice over" for a set bound in twice; otherwise the count
+and the first few. `SheetIndex.duplicates()` lists them. A page is a sheet
+when the page map calls it a drawing sheet or it is 11 x 17 in or larger.
 
 **The title** is the text beside or under "TITLE" / "SHEET TITLE" /
 "DRAWING TITLE" where there is such a label, else the largest lettering
@@ -1641,22 +1665,50 @@ project's name. **The revision** is the highest mark under a "REVISIONS" /
 "REV" heading (numbers above letters), with the rest of its row as a note.
 
 **Callouts.** `cross_references(doc)` works from the same text. A bubble is
-a piece of upright text that is a sheet number and nothing else, of the
-shape of one of the set's own numbers, with a view number or letter (`7`,
-`A`, `AA`, `A1`) centred just above it; a row of a list of sheet numbers
-(a cover's index) is not one. A bubble naming the sheet it is on is a
-view's title mark, and the views found that way are what a callout to the
-sheet is checked against; the text to the right of the mark is the view's
-title. Every other bubble, and every "view/sheet" on one line ("W/ S-201"
-is "with"), is a callout: `resolved`, `unresolved` or `cannot_tell` as the
-module's docstring defines them. `cannot_tell` is deliberate: a set that
-titles its views some other way has no recognised views, and calling every
-callout to it wrong would bury the real ones.
+a piece of text that is a sheet number and nothing else, of the shape of
+one of the set's own numbers, with a view number or letter (`7`, `A`,
+`AA`, `A1`) centred just above it in the direction the lettering reads,
+lettered at least 0.9 times as large as the sheet number (a small tag over
+larger lettering is something else); a row of a list of sheet numbers (a
+cover's index) is not one. A bubble naming the sheet it is on, with
+wording to its right on its level (in its reading frame), is a view's
+title mark, and that wording is the view's title; the views found that way
+are what a callout to the sheet is checked against. A bubble naming its own
+sheet with no title is a callout to that sheet. Every other upright bubble,
+and every "view/sheet" on one line ("W/ S-201" is "with"), is a callout. A
+view number standing alone with a title beside it (a mark holding the view
+number only, or one whose sheet half was not read), and a turned bubble
+naming its own sheet with no title, are marks that read like a view's and
+were not read as one (`CrossReferences.unread_marks`).
+
+Each callout is judged in this order. Its sheet not in the index:
+`cannot_tell` if any number is read on two pages (one of them may be the
+missing sheet), or if a sheet that could not be indexed may be it (one with
+no text layer always; a readable one only when its band prints the number,
+unless no sheet in the document was read from its title block at all, when
+any may be), or if no sheet of its discipline is in the document (letters
+before the first digit, or the series before the dot: the set may be
+issued in parts); otherwise `unresolved`. Its sheet in the index:
+`cannot_tell` if the number is read on two pages, the sheet has no text
+layer, no view marks were recognised on it, or the view is not among them
+and the sheet has a mark not read as one; `unresolved` if the view is not
+among the recognised marks and nothing else there reads like one;
+`resolved` otherwise. Each `why` says what was and was not found ("view
+marks recognised on A-501: 1 to 6; none for 7"). `cannot_tell` is
+deliberate: a review comment sent to a design team on a wrong
+`unresolved` costs the reviewer more than a callout left to look at.
 
 **The tools** (`sheet_index`, `check_cross_references`) are in
 `SHEET_TOOL_SPECS`, apart from `TOOL_SPECS`, and a toolkit serves them only
 with `sheet_tools=True`. Both apps bind to the published lists, so a new
 tool in them would have changed every host's surface on upgrade.
+`sheet_index` marks a row whose number did not come from the slot (`from`:
+"label", "large lettering", "view titles", "page label") and a number read
+on two pages (`duplicate: true`), and its `note` explains only the marks
+that occur. The sheets not indexed are grouped by reason with page ranges
+(a scattered list is cut, with `more_sheets`); groups and notes get a share
+of the limit, and what does not fit is counted (`not_indexed_left_out`,
+`notes_left_out`), so the result fits any limit and the rows page on.
 
 **What it does not do, and where it will be wrong.**
 - It has been run only on made-up sheets (planlens' fixture and the app's
@@ -1666,11 +1718,30 @@ tool in them would have changed every host's surface on upgrade.
   the same. The result says how many sheets that was.
 - A sheet number with no letter and no decimal part ("3", "101") is not
   recognised as one.
-- A sheet where only some view marks are recognised makes a callout to one
-  of the others `unresolved`. The `why` names the views that were found.
+- A view whose title mark is not read as a mark at all (titled in some
+  other way, with nothing that reads like a view number beside its title)
+  is invisible: if the sheet's other views were recognised, a callout to
+  it is `unresolved`. The `why` names the views that were found. An
+  untitled bubble naming its own sheet is read as a callout to that sheet,
+  so a set that titles its views with no wording beside the mark has its
+  view marks checked as callouts (they resolve only if titled marks for
+  the same views are found).
+- Turned callouts (lettering reading up or down the sheet) are not read;
+  turned view marks are.
+- A readable sheet that could not be indexed hides a missing sheet only if
+  its band prints that number. A sheet whose number is drawn as lines
+  prints none, so in a set read from its title blocks a callout to it is
+  `unresolved`.
+- In a one-sheet (or one-discipline) document, a callout to a missing sheet
+  of a discipline that is present is `unresolved`: the document cannot say
+  whether it is the whole of that discipline's set.
+- Any sheet number read on two pages makes every callout to a sheet not in
+  the index `cannot_tell`, so a set bound in twice gets no `unresolved` for
+  missing sheets.
 - A set numbered `10.31` gives no way to tell a sheet number from a
-  dimension of the same shape, so a "2" over "12.50" would be read as a
-  callout to a sheet that is not there.
+  dimension of the same shape: a "2" over "12.50" is a callout to sheet
+  12.50, `cannot_tell` where the document has no 12.x sheets and
+  `unresolved` where it has some.
 - Titles and revision blocks lettered up the sheet: the title's first line
   is read, wrapped lines are not joined, and a turned revision block is
   not read.

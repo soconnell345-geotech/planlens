@@ -76,9 +76,12 @@ among them. `HOST_TOOLS` and `host_tool_names()` are what they were, and
 serve them, `tool_names()` and `specs()` list them after the others, and
 the dispatcher treats them as any document tool (a file name where the
 handle goes, `pdf_pages`, the viewer's page beside every page in the
-result). A host that does not ask is answered "unknown tool". A
-conversation's toolkit is built once, so the option is the host's from the
-start, not something to switch on part-way through a conversation.
+result). Whether they are served is decided by the host making each call,
+not by the host whose call built the conversation's toolkit (hosts with no
+working folder share one conversation): a host that asked is served them,
+and a host that did not is answered "unknown tool" with its own tool names,
+exactly as each is offered them. The conversation's toolkit is built with
+them on, so the order of the calls does not matter.
 
 ## Modules
 
