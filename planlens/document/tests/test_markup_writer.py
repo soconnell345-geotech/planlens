@@ -286,6 +286,37 @@ def test_the_source_is_never_written_to(source, gt, tmp_path):
         write_markups(source, source, [], author=AI)
 
 
+def respelled(path, how, tmp_path):
+    """The same file under another path string -- its name in other letter
+    case, or through a linked folder -- or ``None`` where this system has no
+    such spelling (names keep their case; a link needs a privilege)."""
+    folder, name = os.path.split(path)
+    if how == "case":
+        other = os.path.join(folder, name.upper())
+        return other if other != path and os.path.exists(other) else None
+    link = str(tmp_path / "linked")
+    try:
+        os.symlink(folder, link, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        return None
+    return os.path.join(link, name)
+
+
+@pytest.mark.parametrize("how", ["case", "link"])
+def test_the_source_is_told_under_another_spelling_of_its_path(source,
+                                                               tmp_path, how):
+    other = respelled(source, how, tmp_path)
+    if other is None:
+        pytest.skip("this system has no such second spelling of a path")
+    before = open(source, "rb").read()
+    with pytest.raises(ValueError, match="never modifies"):
+        write_markups(source, other, [
+            {"kind": "note", "page": 0, "comment": "x",
+             "point": [100.0, 100.0]},
+        ], author=AI)
+    assert open(source, "rb").read() == before
+
+
 def test_bytes_in_a_path_out(gt, tmp_path):
     out = str(tmp_path / "from_bytes.pdf")
     report = write_markups(gt.pdf, out, [

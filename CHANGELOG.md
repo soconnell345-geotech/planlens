@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+- **Fixes from the 2026-11-10 code review (app BACKLOG PL-36).**
+  *A marked copy never replaces the document or a file the app did not
+  write.* `planlens.review`'s `annotate_document` with `output_path` equal
+  to the opened document's own name (append on) put the marks into the
+  original, and an upload already named `<document>_marked.pdf` took them
+  under the default name. The copy now goes into an existing file only when
+  that file is a marked copy of this host's: one this process wrote that
+  has not changed since, or a PDF holding a mark of the host's. Otherwise
+  it is saved beside it (`<document>_marked.pdf` for the document itself,
+  else the name with `_2`, `_3`, ...; the same call again adds to that
+  file) and the result's `saved_elsewhere` says which file and why.
+  `remove` on a file holding no mark of the host's is refused. In the
+  toolkit and `write_markups`, the check that the output is not the
+  document compared path strings; it now compares files, so the same file
+  spelled in other letter case or through a linked folder is refused too.
+  *Exact search finds what a reader sees.* `Document.search` (and so
+  `search_document` and a markup's `quote`) compared the PDF's stored
+  characters, so "specified" missed a page that stores the "fi" as one
+  ligature character, and a phrase missed across two spaces, a no-break
+  space, or a word hyphenated at a line end. Both sides are now compared
+  folded (`planlens.document.search_text`): each character's compatibility
+  decomposition (NFKD), every run of white space as one space, and a
+  line-end hyphen between letters or digits read three ways (as joined,
+  closed up, and without the hyphen where letters meet). A hit's `match`,
+  `snippet`, line ids and box are still the page's own. A regular
+  expression is taken as written and matched against the folded page text.
+  Fuzzy search is unchanged.
+  *A search with many hits is shortened, not refused.* `search_document`
+  fitted its hits into the size limit less a flat 500 characters for
+  everything else, so a search with hits on many pages (whose per-page
+  counts alone ran past that) came back as "produced N characters, over
+  the limit" with no hit in it. The result is now measured whole: it holds
+  the first hits that fit, `hits_omitted_for_size`, and a `hint` (placed
+  before the list) saying the list was cut, how many of `n_hits` it holds
+  and how to narrow the search. Per-page counts that would take more than
+  a quarter of the limit are given for the first pages, with the other
+  pages that have hits as ranges in a new `pages_with_hits_not_listed`. A
+  single hit longer than the limit (a regular expression matching a whole
+  block) has its `match` and `snippet` cut and marked. A result that fits
+  is unchanged.
+  *A file that does not open says what is wrong and what to do.*
+  `open_document` on a PDF that asks for a password returned MuPDF's
+  "document closed or encrypted" and kept a handle that answered nothing;
+  an empty file returned its `EmptyFileError`, a damaged one "FileDataError:
+  Failed to open stream", and a PDF with no pages opened as a document of
+  none. Each is now refused when it is opened, with no handle left behind:
+  "could not open '<source>': the file is protected with a password", "...
+  the file is empty (0 bytes)", "... the PDF has no pages", or "could not
+  open '<source>' as a PDF or image: the file is damaged, incomplete or of
+  another kind", each with a `hint` saying what the user can do
+  (`planlens.tools.toolkit.OPEN_HINTS`). A PDF that only restricts printing
+  or copying opens as before. New `Document.needs_password`.
+
 ## 0.15.0 — 2026-11-09
 
 - **`Label (unit): value` is read as a quantity (app BACKLOG PL-11).** The

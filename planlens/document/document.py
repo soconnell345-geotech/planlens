@@ -42,6 +42,7 @@ from planlens.document.model import (
 )
 from planlens.document.pdf_text import MAX_UNMAPPED_FRACTION, extract_text
 from planlens.document.scale import page_viewports
+from planlens.document.search_text import find_spans, fold, readings
 from planlens.document.structure import (
     BAND_MAX_CHARS, TEXT_DUP_MIN_WORDS, band_texts, body_word_count,
     content_hash, divider_title, markup_divider_title, printed_numbers,
@@ -309,6 +310,12 @@ class Document:
     @property
     def n_pages(self) -> int:
         return self._doc.page_count
+
+    @property
+    def needs_password(self) -> bool:
+        """Whether the PDF asks for a password before anything in it can be
+        read (every page-level call then fails)."""
+        return bool(self._doc.needs_pass)
 
     @property
     def metadata(self) -> Dict[str, str]:
@@ -751,6 +758,13 @@ class Document:
         the union box of those lines, so the caller can render or open exactly
         that spot. Markup comments, authors and subjects are searched too.
 
+        The comparison is of what a reader sees, not of how the PDF stores
+        it (:mod:`planlens.document.search_text`): a ligature matches its
+        letters, any run of white space or a no-break space matches one
+        space, and a word hyphenated at a line end matches with or without
+        its hyphen. A hit's ``match`` and ``snippet`` are the page's own
+        text.
+
         ``fuzzy=True`` matches approximately instead of exactly (see
         :meth:`_search_fuzzy`), for text that was read optically or plotted as
         strokes and so carries letter errors. It needs the optional package
@@ -762,7 +776,13 @@ class Document:
                 include_markups=include_markups, max_hits=max_hits,
                 context_chars=context_chars, min_score=min_score)
         flags = 0 if case_sensitive else re.IGNORECASE
-        rx = re.compile(pattern if regex else re.escape(pattern), flags)
+        # Both sides are compared folded (planlens.document.search_text):
+        # ligatures as their letters, each run of white space as one space,
+        # a line-end hyphen read each way. A regular expression is taken as
+        # written and matched against the folded page text. What a hit
+        # returns is the page's own text.
+        rx = re.compile(pattern if regex else re.escape(fold(pattern).text),
+                        flags)
         hits: List[Dict[str, Any]] = []
         per_page: Dict[int, int] = {}
         truncated = False
@@ -771,14 +791,15 @@ class Document:
             groups, markups = self._search_groups(index)
             for group in groups:
                 text, spans = self._join_group(group)
-                for m in rx.finditer(text):
+                forms = readings(text, [b for _a, b, _ln in spans[:-1]])
+                for start, end in find_spans(rx, forms):
                     if len(hits) >= max_hits:
                         truncated = True
                         break
-                    hit = self._line_hit(index, text, spans, m.start(),
-                                         m.end(), m.group(0), context_chars)
+                    hit = self._line_hit(index, text, spans, start, end,
+                                         text[start:end], context_chars)
                     involved = [ln for a, b, ln in spans
-                                if a < m.end() and b > m.start()]
+                                if a < end and b > start]
                     if involved and involved[0].source != SOURCE_PDF_TEXT:
                         hit["source"] = involved[0].source
                     hits.append(hit)
@@ -787,14 +808,16 @@ class Document:
                 for mk in markups:
                     hay = " | ".join(x for x in (mk.text, mk.author,
                                                  mk.subject) if x)
-                    m = rx.search(hay)
+                    form = fold(hay)
+                    m = rx.search(form.text)
                     if not m:
                         continue
                     if len(hits) >= max_hits:
                         truncated = True
                         break
+                    start, end = form.span(m.start(), m.end())
                     hits.append({
-                        "page": index, "match": m.group(0),
+                        "page": index, "match": hay[start:end],
                         "snippet": mk.text[:2 * context_chars + 40],
                         "markup_id": mk.id, "author": mk.author,
                         "bbox": [round(v, 1) for v in mk.bbox],

@@ -193,6 +193,40 @@ def _cut_styles(out: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+#: What the user can do about a file that does not open, by what is wrong
+#: with it (review 2026-11-10: a file that asks for a password came back as
+#: MuPDF's "document closed or encrypted", an empty one as its
+#: EmptyFileError, and a PDF with no pages opened as a document of none).
+OPEN_HINTS = {
+    "password": ("these tools cannot enter a password. Ask the user to open "
+                 "the file with its password, save or print it as a new PDF "
+                 "without one, and give you that copy"),
+    "empty": ("nothing was received for this file: the upload or download "
+              "probably did not finish. Ask the user to send it again"),
+    "no_pages": ("the file is incomplete or damaged. Ask the user to check "
+                 "that it opens in a PDF viewer, and to export or send it "
+                 "again"),
+    "unreadable": ("ask the user to check that the file opens in a PDF "
+                   "viewer, and to send it again, or to save it as a PDF if "
+                   "it is another kind of file"),
+}
+
+
+def _cannot_open(source: str, exc: BaseException) -> ToolError:
+    """The refusal for a file the document layer could not open: in plain
+    words when MuPDF or the layer says the bytes are not a document (their
+    own messages, "Failed to open stream", tell a reader nothing), else the
+    error as it came."""
+    if type(exc).__name__ in ("FileDataError", "EmptyFileError") \
+            or isinstance(exc, ValueError):
+        return ToolError(
+            f"could not open '{source}' as a PDF or image: the file is "
+            "damaged, incomplete or of another kind",
+            hint=OPEN_HINTS["unreadable"])
+    return ToolError(f"could not open '{source}' as a PDF or image: "
+                     f"{type(exc).__name__}: {exc}")
+
+
 def _default_resolver(source: str) -> Source:
     if os.path.isfile(source):
         return source
@@ -420,16 +454,32 @@ class ReviewToolkit:
             name = os.path.basename(source) or source
             text_source = (self.text_source_for(name, key)
                            if self.text_source_for else None)
+            in_memory = isinstance(resolved, (bytes, bytearray))
+            if not (len(resolved) if in_memory
+                    else os.path.getsize(resolved)):
+                raise ToolError(
+                    f"could not open '{source}': the file is empty (0 bytes)",
+                    hint=OPEN_HINTS["empty"])
             try:
-                if isinstance(resolved, (bytes, bytearray)):
+                if in_memory:
                     doc = Document(content=bytes(resolved), name=name,
                                    text_source=text_source)
                 else:
                     doc = Document(filepath=resolved, name=name,
                                    text_source=text_source)
             except Exception as exc:
-                raise ToolError(f"could not open '{source}' as a PDF or "
-                                f"image: {type(exc).__name__}: {exc}")
+                raise _cannot_open(source, exc)
+            # A document that opens but cannot be read is refused here, with
+            # what is wrong, before it gets a handle that answers nothing.
+            wrong = ("password" if doc.needs_password
+                     else "no_pages" if doc.n_pages < 1 else None)
+            if wrong:
+                doc.close()
+                raise ToolError(
+                    f"could not open '{source}': "
+                    + ("the file is protected with a password"
+                       if wrong == "password" else "the PDF has no pages"),
+                    hint=OPEN_HINTS[wrong])
             handle = "doc_" + hashlib.sha1(key.encode()).hexdigest()[:10]
             entry = _Entry(handle, name, doc,
                            path=(None if isinstance(resolved, (bytes, bytearray))
@@ -871,7 +921,7 @@ class ReviewToolkit:
         except ImportError as exc:
             raise ToolError(str(exc),
                             hint="retry without fuzzy for an exact search")
-        hits, nxt = fit_items(res["hits"], self._budget(500))
+        hits = res["hits"]
         out = {"handle": handle, "pattern": pattern, "n_hits": res["n_hits"],
                "pages_with_hits": {str(k): v for k, v in
                                    res["pages_with_hits"].items()},
@@ -908,11 +958,82 @@ class ReviewToolkit:
                            else tip)
         if res["truncated"]:
             out["max_hits_reached"] = True
-        if nxt is not None:
-            out["hits_omitted_for_size"] = len(res["hits"]) - nxt
-            out["hint"] = ("narrow with pages=... (see pages_with_hits) to "
-                           "see the rest")
-        return out
+        return self._fit_hits(out)
+
+    def _fit_hits(self, out: Dict[str, Any]) -> Dict[str, Any]:
+        """A search result inside the size limit: as it is when it fits,
+        else the first hits that do, with how many were left out and how to
+        see them.
+
+        Measured as the whole result, the way ``open_document``'s is. The
+        hits used to be fitted into the limit less a flat 500 characters
+        for everything else, and a search with hits on many pages (their
+        per-page counts alone ran past that) came back as "over the limit"
+        with no hit in it (review 2026-11-10).
+        """
+        ceiling = self._budget(0)
+        if json_len(out) <= ceiling or not out["hits"]:
+            return out
+        hits, per_page = out["hits"], out["pages_with_hits"]
+        # The statement that the list was cut goes before the list.
+        cut: Dict[str, Any] = {k: out[k] for k in ("handle", "pattern",
+                                                   "n_hits")}
+        cut["hits_omitted_for_size"] = len(hits)
+        cut["hint"] = ""
+        cut["pages_with_hits"] = per_page
+        if json_len(per_page) > ceiling // 4:
+            # Counts for the first pages that fit a quarter of the limit; the
+            # other pages with hits as ranges, which is what narrows a search.
+            listed: Dict[str, int] = {}
+            for page, n in per_page.items():
+                if json_len(listed) + len(page) + len(str(n)) + 4 \
+                        > ceiling // 4:
+                    break
+                listed[page] = n
+            rest = compact_ranges(int(p) for p in per_page if p not in listed)
+            if len(rest) > ceiling // 6:
+                rest = rest[:ceiling // 6].rsplit(",", 1)[0] + ",..."
+            cut["pages_with_hits"] = listed
+            cut["pages_with_hits_not_listed"] = rest
+        cut.update((k, v) for k, v in out.items()
+                   if k not in cut and k != "hits")
+        cut["hits"] = []
+
+        def said(shown: int) -> str:
+            return (f"the hit list was cut to fit the result size limit: it "
+                    f"holds the first {shown} of {len(hits)} hits. To see "
+                    f"the others, search again with pages= set to the pages "
+                    f"you need (pages_with_hits counts the hits on each "
+                    f"page), or with a longer pattern")
+
+        cut["hint"] = said(len(hits))            # as long as it can be
+        room = ceiling - json_len(cut)
+        rows, _ = fit_items(hits, room)
+        if rows and json_len(rows) > room:
+            # fit_items returns one item whatever its size: a regular
+            # expression can match a whole block.
+            rows = [self._cut_hit(rows[0], room - 2)]
+        cut["hits"] = rows
+        if len(rows) < len(hits):
+            cut["hits_omitted_for_size"] = len(hits) - len(rows)
+            cut["hint"] = said(len(rows))
+        else:                    # every hit is in it: the list was not cut
+            del cut["hits_omitted_for_size"], cut["hint"]
+        return cut
+
+    @staticmethod
+    def _cut_hit(hit: Dict[str, Any], room: int) -> Dict[str, Any]:
+        """``hit`` with its match and snippet cut until it fits ``room``
+        characters, each cut marked."""
+        hit = dict(hit)
+        keep = max(40, room // 3)
+        while json_len(hit) > room and keep >= 20:
+            for key in ("snippet", "match"):
+                text = str(hit.get(key) or "")
+                if len(text) > keep:
+                    hit[key] = text[:keep] + " ...[cut: longer than the limit]"
+            keep //= 2
+        return hit
 
     def _tool_find_quantities(self, handle: str, pages: Any = None,
                               kinds: Any = None, units: Any = None,
@@ -1001,7 +1122,9 @@ class ReviewToolkit:
                                 markups: Any = None,
                                 author: Optional[str] = None,
                                 append: bool = True) -> Dict[str, Any]:
-        from planlens.document.markup_writer import DEFAULT_AUTHOR, write_markups
+        from planlens.document.markup_writer import (
+            DEFAULT_AUTHOR, _same_file, write_markups,
+        )
 
         entry = self._entry(handle)
         if isinstance(markups, dict):
@@ -1012,7 +1135,7 @@ class ReviewToolkit:
                 hint="each markup is {kind, page, comment} plus ONE anchor: "
                      "quote, bbox, point or reply_to")
         out_path = self._resolve_output(output_path)
-        if entry.path and os.path.abspath(entry.path) == os.path.abspath(out_path):
+        if entry.path and _same_file(entry.path, out_path):
             raise ToolError(
                 "output_path is the document itself; a marked-up copy is a "
                 "NEW file", hint="use a name like '<document>_marked.pdf'")

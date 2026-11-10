@@ -144,6 +144,91 @@ def test_invalid_regex_is_explained(kit):
     assert "regex=false" in out["hint"]
 
 
+# -- a file that does not open says what is wrong with it --------------------------
+
+def _one_page_pdf(**save):
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 100), "A made-up page of text.")
+    data = doc.tobytes(**save)
+    doc.close()
+    return data
+
+
+#: A PDF whose page tree is empty: it opens, with no pages.
+PDF_WITHOUT_PAGES = (
+    b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+    b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n"
+    b"xref\n0 3\n0000000000 65535 f \n0000000009 00000 n \n"
+    b"0000000058 00000 n \ntrailer\n<< /Size 3 /Root 1 0 R >>\n"
+    b"startxref\n107\n%%EOF\n")
+
+
+def _files_that_do_not_open():
+    """``(name, bytes, what is wrong, what to do)``; a PDF cut short is
+    damaged to one MuPDF and a PDF with no pages to another."""
+    locked = _one_page_pdf(encryption=pymupdf.PDF_ENCRYPT_AES_256,
+                           user_pw="made-up", owner_pw="also-made-up")
+    whole = _one_page_pdf()
+    damaged = "damaged, incomplete or of another kind"
+    return [
+        ("locked.pdf", locked, ["protected with a password"], "without one"),
+        ("empty.pdf", b"", ["the file is empty (0 bytes)"], "send it again"),
+        ("blank.pdf", PDF_WITHOUT_PAGES, ["the PDF has no pages"],
+         "export or send it again"),
+        ("words.pdf", b"not a document at all, only words. " * 20,
+         [damaged], "opens in a PDF viewer"),
+        ("cut.pdf", whole[:len(whole) // 3],
+         [damaged, "the PDF has no pages"], "opens in a PDF viewer"),
+    ]
+
+
+UNOPENABLE = _files_that_do_not_open()
+
+
+@pytest.mark.parametrize("from_a_file", [False, True])
+@pytest.mark.parametrize("name, data, wrong, to_do", UNOPENABLE,
+                         ids=[row[0] for row in UNOPENABLE])
+def test_a_file_that_does_not_open_says_why_and_what_to_do(
+        tmp_path, name, data, wrong, to_do, from_a_file):
+    """A file that asks for a password came back as MuPDF's "document closed
+    or encrypted" (and kept a handle that answered nothing), an empty one as
+    its EmptyFileError, and a PDF with no pages opened as a document."""
+    if from_a_file:
+        path = tmp_path / name
+        path.write_bytes(data)
+        k, source = ReviewToolkit(), str(path)
+    else:
+        k, source = ReviewToolkit(resolve_source=lambda key: data), name
+    try:
+        for _ in range(2):              # the refusal is not remembered wrong
+            out = call(k, "open_document", source=source)
+            assert out["error"].startswith(f"could not open '{source}'")
+            assert any(w in out["error"] for w in wrong), out["error"]
+            assert to_do in out["hint"]
+            # Plain words: nothing of the library's own error.
+            said = out["error"] + out["hint"]
+            for raw in ("Error", "encrypted", "stream", "MuPDF"):
+                assert raw not in said, said
+        assert "none" in call(k, "read_document", handle="doc_0")["hint"]
+        if from_a_file:
+            path.unlink()               # nothing holds the file open
+    finally:
+        k.close()
+
+
+def test_a_pdf_that_only_restricts_what_may_be_done_still_opens():
+    data = _one_page_pdf(encryption=pymupdf.PDF_ENCRYPT_AES_256,
+                         user_pw="", owner_pw="made-up")
+    k = ReviewToolkit(resolve_source=lambda key: data)
+    try:
+        out = call(k, "open_document", source="restricted.pdf")
+        assert out["n_pages"] == 1
+        text = call(k, "read_document", handle=out["handle"])["text"]
+        assert "A made-up page of text." in text
+    finally:
+        k.close()
+
+
 # -- reading ---------------------------------------------------------------------------
 
 def _read_all(kit, handle, **kw):
@@ -349,6 +434,98 @@ def test_open_document_keeps_the_handle_when_nothing_else_fits(gt):
         assert out["handle"].startswith("doc_")
         assert out["n_pages"] == 5
         assert "document_page_map" in out["truncated"]
+    finally:
+        k.close()
+
+
+@pytest.fixture(scope="module")
+def many_pages():
+    """A made-up 150-page document, the same three hits on every page."""
+    doc = pymupdf.open()
+    for i in range(150):
+        page = doc.new_page(width=612, height=792)
+        page.insert_text((72, 100), f"Sheet note {i}: each pile is driven "
+                                    f"to refusal.", fontsize=11)
+        page.insert_text((72, 130), f"Pile cap {i} is 3 ft thick; the pile "
+                                    f"spacing is 6 ft.", fontsize=11)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+@pytest.mark.parametrize("max_chars", [1000, 1700, 3000, 7500])
+def test_a_search_with_hits_on_many_pages_is_shortened_not_refused(
+        many_pages, max_chars):
+    """The per-page counts of a search with hits on 150 pages ran past the
+    flat reserve for everything but the hits, and the model got "produced N
+    characters, over the limit" back in place of any hit."""
+    k = ReviewToolkit(resolve_source=lambda key: many_pages,
+                      max_chars=max_chars)
+    try:
+        handle = call(k, "open_document", source="many.pdf")["handle"]
+        text = k.call_json("search_document", {
+            "handle": handle, "pattern": "pile", "max_hits": 500})
+        assert len(text) <= max_chars
+        out = json.loads(text)
+        assert "error" not in out, text[:200]
+        assert out["n_hits"] == 450
+        shown = len(out["hits"])
+        assert shown >= 1
+        assert [h["page"] for h in out["hits"]] == [i // 3
+                                                    for i in range(shown)]
+        assert out["hits_omitted_for_size"] == 450 - shown
+        assert f"the first {shown} of 450 hits" in out["hint"]
+        assert "pages=" in out["hint"]
+        # The statement comes before the list it is about.
+        assert list(out).index("hint") < list(out).index("hits")
+        # Every page with a hit is still named: counted, or in the ranges.
+        listed = out["pages_with_hits"]
+        assert set(listed.values()) == {3}
+        if len(listed) < 150:
+            assert out["pages_with_hits_not_listed"] == f"{len(listed)}-149"
+        else:
+            assert "pages_with_hits_not_listed" not in out
+    finally:
+        k.close()
+
+
+def test_a_search_that_fits_is_returned_as_before(many_pages):
+    k = ReviewToolkit(resolve_source=lambda key: many_pages)
+    try:
+        handle = call(k, "open_document", source="many.pdf")["handle"]
+        out = call(k, "search_document", handle=handle, pattern="pile",
+                   pages="0-3")
+        assert list(out) == ["handle", "pattern", "n_hits",
+                             "pages_with_hits", "hits"]
+        assert out["n_hits"] == len(out["hits"]) == 12
+    finally:
+        k.close()
+
+
+def test_one_hit_longer_than_the_limit_is_cut_and_marked():
+    doc = pymupdf.open()
+    page = doc.new_page(width=612, height=792)
+    writer = pymupdf.TextWriter(page.rect)
+    font = pymupdf.Font("helv")
+    for i in range(45):
+        writer.append((72, 80 + 14 * i), f"Row {i}: the made-up reading "
+                      f"for station {i} is {100 + i} units.", font=font,
+                      fontsize=10)
+    writer.write_text(page)
+    data = doc.tobytes()
+    doc.close()
+    k = ReviewToolkit(resolve_source=lambda key: data, max_chars=1200)
+    try:
+        handle = call(k, "open_document", source="rows.pdf")["handle"]
+        out = call(k, "search_document", handle=handle,
+                   pattern=r"Row 0:.+is 144 units\.", regex=True)
+        assert out["n_hits"] == 1 and len(out["hits"]) == 1
+        hit = out["hits"][0]
+        assert hit["match"].startswith("Row 0: the made-up reading")
+        assert hit["match"].endswith("[cut: longer than the limit]")
+        assert hit["page"] == 0 and hit["bbox"]
+        # The one hit is there, so nothing is said about the list.
+        assert "hits_omitted_for_size" not in out and "hint" not in out
     finally:
         k.close()
 
@@ -628,6 +805,29 @@ def test_annotate_document_will_not_write_over_the_document_it_read(gt,
         handle = call(kit, "open_document", source=str(original))["handle"]
         out = call(kit, "annotate_document", handle=handle,
                    output_path=str(original),
+                   markups=[{"kind": "note", "page": 0, "comment": "x",
+                             "point": [90, 90]}])
+        assert "the document itself" in out["error"]
+        assert original.read_bytes() == gt.pdf
+    finally:
+        kit.close()
+
+
+@pytest.mark.parametrize("how", ["case", "link"])
+def test_the_document_is_told_under_another_spelling_of_its_path(gt, tmp_path,
+                                                                 how):
+    from planlens.document.tests.test_markup_writer import respelled
+    folder = tmp_path / "in"
+    folder.mkdir()
+    original = folder / "set.pdf"
+    original.write_bytes(gt.pdf)
+    other = respelled(str(original), how, tmp_path)
+    if other is None:
+        pytest.skip("this system has no such second spelling of a path")
+    kit = _kit_writing_to(gt, tmp_path)
+    try:
+        handle = call(kit, "open_document", source=str(original))["handle"]
+        out = call(kit, "annotate_document", handle=handle, output_path=other,
                    markups=[{"kind": "note", "page": 0, "comment": "x",
                              "point": [90, 90]}])
         assert "the document itself" in out["error"]

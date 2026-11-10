@@ -235,6 +235,113 @@ def test_a_copy_open_elsewhere_is_saved_under_a_new_name(gt, folder,
     assert calls["n"] == 3
 
 
+# -- the copy never replaces the document, or a file this app did not write --------
+
+def _uploaded(gt, folder, *names):
+    """The synthetic document saved in the working folder under each name,
+    as an upload is, and the tools (nothing attached in memory)."""
+    for name in names:
+        (folder / name).write_bytes(gt.pdf)
+    return make_tools(None, folder, {}, signer=SIGNER)
+
+
+@pytest.mark.parametrize("append", [True, False])
+def test_marks_never_go_into_the_document_that_was_opened(gt, folder,
+                                                          append):
+    tools = _uploaded(gt, folder, "plan.pdf")
+    src = _invoke(tools["open_document"], source="plan.pdf")["handle"]
+    out = _annotate(tools, handle=src, output_path="plan.pdf",
+                    append=append, markups=_two_marks(gt))
+    assert "error" not in out, out
+    assert out["output_path"] == "plan_marked.pdf"
+    assert out["appended_to_existing"] is False
+    assert (folder / "plan.pdf").read_bytes() == gt.pdf
+    said = out["saved_elsewhere"]
+    assert "'plan.pdf' is the document you opened" in said
+    assert "saved as 'plan_marked.pdf'" in said
+    assert len(_ours_in(folder, "plan_marked.pdf")[0]) == 2
+    assert out["in_file"]["kept_from_before"] == 5
+
+
+def test_a_file_this_app_did_not_write_is_left_as_it_is(gt, folder):
+    tools = _uploaded(gt, folder, "plan.pdf", "plan_marked.pdf")
+    src = _invoke(tools["open_document"], source="plan.pdf")["handle"]
+    out = _annotate(tools, handle=src, markups=_two_marks(gt))
+    assert "error" not in out, out
+    assert out["output_path"] == "plan_marked_2.pdf"
+    assert out["appended_to_existing"] is False
+    said = out["saved_elsewhere"]
+    assert "'plan_marked.pdf'" in said
+    assert "holds no mark this app wrote" in said
+    assert "saved as 'plan_marked_2.pdf'" in said
+    # The same call again adds to the copy it made, not to a third file.
+    more = _annotate(tools, handle=src, markups=[_box(gt, 420, "[#3] third")])
+    assert more["output_path"] == "plan_marked_2.pdf"
+    assert more["appended_to_existing"] is True
+    assert "saved as 'plan_marked_2.pdf'" in more["saved_elsewhere"]
+    assert not (folder / "plan_marked_3.pdf").exists()
+    assert len(_ours_in(folder, "plan_marked_2.pdf")[0]) == 3
+    assert (folder / "plan_marked.pdf").read_bytes() == gt.pdf
+    assert (folder / "plan.pdf").read_bytes() == gt.pdf
+
+
+def test_rebuilding_does_not_replace_a_file_this_app_did_not_write(gt,
+                                                                   folder):
+    tools = _uploaded(gt, folder, "plan.pdf", "notes.pdf")
+    src = _invoke(tools["open_document"], source="plan.pdf")["handle"]
+    out = _annotate(tools, handle=src, output_path="notes.pdf",
+                    append=False, markups=_two_marks(gt))
+    assert out["output_path"] == "notes_2.pdf"
+    assert "holds no mark this app wrote" in out["saved_elsewhere"]
+    assert (folder / "notes.pdf").read_bytes() == gt.pdf
+    assert len(_ours_in(folder, "notes_2.pdf")[0]) == 2
+
+
+def test_remove_on_a_file_this_app_did_not_write_is_refused(gt, folder):
+    tools = _uploaded(gt, folder, "plan.pdf", "plan_marked.pdf")
+    src = _invoke(tools["open_document"], source="plan.pdf")["handle"]
+    out = _annotate(tools, handle=src, output_path="plan_marked.pdf",
+                    remove=["p0.m0"], markups=[_box(gt, 300, "[#1] first")])
+    assert "holds no mark this app wrote" in out["error"]
+    assert "without remove" in out["hint"]
+    assert (folder / "plan_marked.pdf").read_bytes() == gt.pdf
+    assert sorted(p.name for p in folder.glob("*.pdf")) == [
+        "plan.pdf", "plan_marked.pdf"]
+
+
+def test_adding_to_this_apps_copy_opened_as_the_document_still_works(gt,
+                                                                    folder):
+    tools, src = _setup(gt, folder, "s.pdf")
+    _annotate(tools, handle=src, output_path="s_marked.pdf",
+              markups=_two_marks(gt)[:1])
+    copy = _invoke(tools["open_document"], source="s_marked.pdf")["handle"]
+    more = _annotate(tools, handle=copy, output_path="s_marked.pdf",
+                     markups=_two_marks(gt)[1:])
+    assert more["output_path"] == "s_marked.pdf"
+    assert more["appended_to_existing"] is True
+    assert "saved_elsewhere" not in more
+    assert len(_ours_in(folder, "s_marked.pdf")[0]) == 2
+
+
+def test_a_copy_left_with_none_of_this_apps_marks_is_still_its_copy(gt,
+                                                                    folder):
+    tools, src = _setup(gt, folder, "s.pdf")
+    _annotate(tools, handle=src, markups=[_box(gt, 300, "[#1] first")])
+    gone = _annotate(tools, handle=src, output_path="s_marked.pdf",
+                     remove=["[#1] first"])
+    assert len(gone["removed"]) == 1
+    assert _ours_in(folder, "s_marked.pdf") == ([], [])
+    more = _annotate(tools, handle=src, markups=[_box(gt, 360, "[#2] next")])
+    assert more["output_path"] == "s_marked.pdf"
+    assert "saved_elsewhere" not in more
+    assert not (folder / "s_marked_2.pdf").exists()
+    # Replaced since by a file that is not this app's: left as it is.
+    (folder / "s_marked.pdf").write_bytes(gt.pdf + b"\n")
+    other = _annotate(tools, handle=src, markups=[_box(gt, 420, "[#3] last")])
+    assert other["output_path"] == "s_marked_2.pdf"
+    assert (folder / "s_marked.pdf").read_bytes() == gt.pdf + b"\n"
+
+
 # -- E9: remove by a label's words -------------------------------------------------
 
 def test_a_mark_is_removed_by_the_words_of_its_label(gt, folder):

@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+from collections import OrderedDict
 from typing import Any, Dict, Optional
 
 from planlens.review import conversation as _conv
@@ -361,6 +363,100 @@ def _handle_path(handle: str) -> Optional[str]:
         return _host().readable(handle)
     except Exception:  # noqa: BLE001 - not a file, then
         return None
+
+
+def _same_file(a: Optional[str], b: Optional[str]) -> bool:
+    """Whether two paths name one file."""
+    from planlens.document.markup_writer import _same_file as same
+    return bool(a and b) and same(a, b)
+
+
+#: The marked copies this process wrote, by path: each file's time and size
+#: as it was left. A copy whose last mark of this host's was removed holds
+#: nothing that says whose it is, and the next mark still belongs on it.
+_WRITTEN: "OrderedDict[str, tuple]" = OrderedDict()
+_WRITTEN_LOCK = threading.Lock()
+#: Copies remembered; the oldest is forgotten first.
+MAX_REMEMBERED_COPIES = 1024
+
+
+def _file_state(path: str) -> tuple:
+    st = os.stat(path)
+    return st.st_mtime_ns, st.st_size
+
+
+def _remember_copy(path: str) -> None:
+    """Note the marked copy just written at ``path`` (:data:`_WRITTEN`)."""
+    key = os.path.normcase(os.path.abspath(path))
+    try:
+        state = _file_state(path)
+    except OSError:
+        return
+    with _WRITTEN_LOCK:
+        _WRITTEN[key] = state
+        _WRITTEN.move_to_end(key)
+        while len(_WRITTEN) > MAX_REMEMBERED_COPIES:
+            _WRITTEN.popitem(last=False)
+
+
+def _is_our_copy(path: str, signer: str) -> bool:
+    """Whether the file at ``path`` is a marked copy this host wrote: one
+    this process wrote that has not changed since (:data:`_WRITTEN`), or a
+    PDF holding at least one markup of this host's (:func:`_ours`). A file
+    that is neither -- or that does not open as a PDF -- is not one."""
+    import pymupdf
+    with _WRITTEN_LOCK:
+        left = _WRITTEN.get(os.path.normcase(os.path.abspath(path)))
+    try:
+        if left is not None and _file_state(path) == left:
+            return True
+    except OSError:
+        pass
+    try:
+        with pymupdf.open(path) as doc:
+            if not doc.is_pdf:
+                return False
+            for page in doc:
+                for annot in page.annots() or ():
+                    if _ours((annot.info or {}).get("title"), signer):
+                        return True
+    except Exception:  # noqa: BLE001 - not a copy of ours, then
+        return False
+    return False
+
+
+def _destination(final: str, handle: str, signer: str):
+    """``(path, note)``: where this call's marked copy is written, and what
+    the result says when that is not ``final`` (``None`` when it is).
+
+    Marks never go into the document that was opened, nor into an existing
+    file that is not a marked copy of this host's (review 2026-11-10: with
+    append on, output_path = the document's own name put the marks in the
+    original, and an upload already named <document>_marked.pdf took them
+    under the default name). The copy then goes to the document's default
+    name when ``final`` is the document itself, else to ``final``'s name
+    with _2, _3, ... -- the first of those that is free or is a marked copy
+    of this host's, so the same call again adds to the same file."""
+    if not os.path.exists(final) or _is_our_copy(final, signer):
+        return final, None
+    name = os.path.basename(final)
+    if _same_file(_handle_path(handle), final):
+        why = (f"'{name}' is the document you opened, and marks are never "
+               "written into it")
+        stem, ext = os.path.splitext(markup_output_path("", handle))
+        path, n = stem + ext, 1
+    else:
+        why = (f"'{name}' is already there and holds no mark this app "
+               "wrote, so it is left as it is")
+        stem, ext = os.path.splitext(final)
+        path, n = f"{stem}_2{ext}", 2
+    while os.path.exists(path) and not _is_our_copy(path, signer):
+        n += 1
+        path = f"{stem}_{n}{ext}"
+    return path, (f"{why}: the marked copy was saved as "
+                  f"'{os.path.basename(path)}'; give that name as "
+                  "output_path to add to it or change a mark, and tell the "
+                  "user which file to open")
 
 
 def write_marked_copy(handle: str, markups: Optional[list], output_path: str,
@@ -781,6 +877,9 @@ def _write_marked_copy(handle, markups, output_path, append, author, call,
     if off is not None:
         return off
     final = markup_output_path(output_path, handle)
+    elsewhere = None
+    if not remove:
+        final, elsewhere = _destination(final, handle, author)
     existed = os.path.isfile(final)
     tmp = _temp_beside(final)
     try:
@@ -793,6 +892,17 @@ def _write_marked_copy(handle, markups, output_path, append, author, call,
                     "does not exist yet"),
                     "hint": ("remove takes marks out of a marked copy "
                              "written earlier; name it in output_path")}
+            if not _is_our_copy(final, author):
+                # Nothing of this host's to take out, and the marks given
+                # with remove would go into a file it did not write.
+                return {"error": (
+                    f"nothing to remove from: '{os.path.basename(final)}' "
+                    "holds no mark this app wrote, so it is not a marked "
+                    "copy of this app's and it is left as it is"),
+                    "hint": ("remove takes marks out of a marked copy "
+                             "written earlier; name it in output_path. To "
+                             "put new marks on the document, call again "
+                             "without remove: they go on a copy of it")}
             with open(final, "rb") as fh:
                 data = fh.read()
             data, removed, refused = remove_markups(data, remove, author)
@@ -884,6 +994,7 @@ def _write_marked_copy(handle, markups, output_path, append, author, call,
             written, moved = _replace_into(tmp, final)
         except OSError as exc:
             raise _write_failure(final, exc) from exc
+        _remember_copy(written)
         result["output_path"] = written
         result["appended_to_existing"] = bool(existed and (append or remove))
         _merge_adjusted(result, unsigned)
@@ -892,8 +1003,9 @@ def _write_marked_copy(handle, markups, output_path, append, author, call,
             result["empty_comments"] = empty
         if frame is not None:
             result["_image_frame"] = frame
-        if moved:
-            result["saved_elsewhere"] = moved
+        if elsewhere or moved:
+            result["saved_elsewhere"] = " ".join(
+                s for s in (elsewhere, moved) if s)
         if removed is not None:
             result["removed"] = removed
             if refused:
