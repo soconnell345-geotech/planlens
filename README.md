@@ -588,6 +588,12 @@ Apache-2.0/MIT/BSD).
   markup ids (`Markup.uid`), an atomic save and `ReviewToolkit.forget`;
   PyMuPDF 2.0 supported through `planlens.pymupdf_settings` (floor raised to
   1.27.2); numpy floor 1.26.
+- **0.15.1** — four fixes from a code review of `planlens.review`: a
+  marked copy never replaces the document that was opened or a file the
+  app did not write; exact search compares what a reader sees (ligatures,
+  runs of white space, a word hyphenated at a line end); a search with
+  many hits is shortened with a statement, not refused; a protected,
+  empty or damaged PDF is refused at open in plain words.
 - **0.15.0** — `planlens.review`: the app's document tools moved in (one
   toolkit per conversation, markups on a copy, the markup check,
   `find_like`, page numbers, frames and zoom windows), with what the host
