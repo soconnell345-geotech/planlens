@@ -29,6 +29,19 @@
   `snippet`, line ids and box are still the page's own. A regular
   expression is taken as written and matched against the folded page text.
   Fuzzy search is unchanged.
+  *A search with many hits is shortened, not refused.* `search_document`
+  fitted its hits into the size limit less a flat 500 characters for
+  everything else, so a search with hits on many pages (whose per-page
+  counts alone ran past that) came back as "produced N characters, over
+  the limit" with no hit in it. The result is now measured whole: it holds
+  the first hits that fit, `hits_omitted_for_size`, and a `hint` (placed
+  before the list) saying the list was cut, how many of `n_hits` it holds
+  and how to narrow the search. Per-page counts that would take more than
+  a quarter of the limit are given for the first pages, with the other
+  pages that have hits as ranges in a new `pages_with_hits_not_listed`. A
+  single hit longer than the limit (a regular expression matching a whole
+  block) has its `match` and `snippet` cut and marked. A result that fits
+  is unchanged.
 
 ## 0.15.0 — 2026-11-09
 

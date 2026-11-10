@@ -871,7 +871,7 @@ class ReviewToolkit:
         except ImportError as exc:
             raise ToolError(str(exc),
                             hint="retry without fuzzy for an exact search")
-        hits, nxt = fit_items(res["hits"], self._budget(500))
+        hits = res["hits"]
         out = {"handle": handle, "pattern": pattern, "n_hits": res["n_hits"],
                "pages_with_hits": {str(k): v for k, v in
                                    res["pages_with_hits"].items()},
@@ -908,11 +908,82 @@ class ReviewToolkit:
                            else tip)
         if res["truncated"]:
             out["max_hits_reached"] = True
-        if nxt is not None:
-            out["hits_omitted_for_size"] = len(res["hits"]) - nxt
-            out["hint"] = ("narrow with pages=... (see pages_with_hits) to "
-                           "see the rest")
-        return out
+        return self._fit_hits(out)
+
+    def _fit_hits(self, out: Dict[str, Any]) -> Dict[str, Any]:
+        """A search result inside the size limit: as it is when it fits,
+        else the first hits that do, with how many were left out and how to
+        see them.
+
+        Measured as the whole result, the way ``open_document``'s is. The
+        hits used to be fitted into the limit less a flat 500 characters
+        for everything else, and a search with hits on many pages (their
+        per-page counts alone ran past that) came back as "over the limit"
+        with no hit in it (review 2026-11-10).
+        """
+        ceiling = self._budget(0)
+        if json_len(out) <= ceiling or not out["hits"]:
+            return out
+        hits, per_page = out["hits"], out["pages_with_hits"]
+        # The statement that the list was cut goes before the list.
+        cut: Dict[str, Any] = {k: out[k] for k in ("handle", "pattern",
+                                                   "n_hits")}
+        cut["hits_omitted_for_size"] = len(hits)
+        cut["hint"] = ""
+        cut["pages_with_hits"] = per_page
+        if json_len(per_page) > ceiling // 4:
+            # Counts for the first pages that fit a quarter of the limit; the
+            # other pages with hits as ranges, which is what narrows a search.
+            listed: Dict[str, int] = {}
+            for page, n in per_page.items():
+                if json_len(listed) + len(page) + len(str(n)) + 4 \
+                        > ceiling // 4:
+                    break
+                listed[page] = n
+            rest = compact_ranges(int(p) for p in per_page if p not in listed)
+            if len(rest) > ceiling // 6:
+                rest = rest[:ceiling // 6].rsplit(",", 1)[0] + ",..."
+            cut["pages_with_hits"] = listed
+            cut["pages_with_hits_not_listed"] = rest
+        cut.update((k, v) for k, v in out.items()
+                   if k not in cut and k != "hits")
+        cut["hits"] = []
+
+        def said(shown: int) -> str:
+            return (f"the hit list was cut to fit the result size limit: it "
+                    f"holds the first {shown} of {len(hits)} hits. To see "
+                    f"the others, search again with pages= set to the pages "
+                    f"you need (pages_with_hits counts the hits on each "
+                    f"page), or with a longer pattern")
+
+        cut["hint"] = said(len(hits))            # as long as it can be
+        room = ceiling - json_len(cut)
+        rows, _ = fit_items(hits, room)
+        if rows and json_len(rows) > room:
+            # fit_items returns one item whatever its size: a regular
+            # expression can match a whole block.
+            rows = [self._cut_hit(rows[0], room - 2)]
+        cut["hits"] = rows
+        if len(rows) < len(hits):
+            cut["hits_omitted_for_size"] = len(hits) - len(rows)
+            cut["hint"] = said(len(rows))
+        else:                   # every hit is in it: nothing to say of the list
+            del cut["hits_omitted_for_size"], cut["hint"]
+        return cut
+
+    @staticmethod
+    def _cut_hit(hit: Dict[str, Any], room: int) -> Dict[str, Any]:
+        """``hit`` with its match and snippet cut until it fits ``room``
+        characters, each cut marked."""
+        hit = dict(hit)
+        keep = max(40, room // 3)
+        while json_len(hit) > room and keep >= 20:
+            for key in ("snippet", "match"):
+                text = str(hit.get(key) or "")
+                if len(text) > keep:
+                    hit[key] = text[:keep] + " ...[cut: longer than the limit]"
+            keep //= 2
+        return hit
 
     def _tool_find_quantities(self, handle: str, pages: Any = None,
                               kinds: Any = None, units: Any = None,

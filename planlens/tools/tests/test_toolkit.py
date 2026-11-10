@@ -353,6 +353,98 @@ def test_open_document_keeps_the_handle_when_nothing_else_fits(gt):
         k.close()
 
 
+@pytest.fixture(scope="module")
+def many_pages():
+    """A made-up 150-page document, the same three hits on every page."""
+    doc = pymupdf.open()
+    for i in range(150):
+        page = doc.new_page(width=612, height=792)
+        page.insert_text((72, 100), f"Sheet note {i}: each pile is driven "
+                                    f"to refusal.", fontsize=11)
+        page.insert_text((72, 130), f"Pile cap {i} is 3 ft thick; the pile "
+                                    f"spacing is 6 ft.", fontsize=11)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+@pytest.mark.parametrize("max_chars", [1000, 1700, 3000, 7500])
+def test_a_search_with_hits_on_many_pages_is_shortened_not_refused(
+        many_pages, max_chars):
+    """The per-page counts of a search with hits on 150 pages ran past the
+    flat reserve for everything but the hits, and the model got "produced N
+    characters, over the limit" back in place of any hit."""
+    k = ReviewToolkit(resolve_source=lambda key: many_pages,
+                      max_chars=max_chars)
+    try:
+        handle = call(k, "open_document", source="many.pdf")["handle"]
+        text = k.call_json("search_document", {
+            "handle": handle, "pattern": "pile", "max_hits": 500})
+        assert len(text) <= max_chars
+        out = json.loads(text)
+        assert "error" not in out, text[:200]
+        assert out["n_hits"] == 450
+        shown = len(out["hits"])
+        assert shown >= 1
+        assert [h["page"] for h in out["hits"]] == [i // 3
+                                                    for i in range(shown)]
+        assert out["hits_omitted_for_size"] == 450 - shown
+        assert f"the first {shown} of 450 hits" in out["hint"]
+        assert "pages=" in out["hint"]
+        # The statement comes before the list it is about.
+        assert list(out).index("hint") < list(out).index("hits")
+        # Every page with a hit is still named: counted, or in the ranges.
+        listed = out["pages_with_hits"]
+        assert set(listed.values()) == {3}
+        if len(listed) < 150:
+            assert out["pages_with_hits_not_listed"] == f"{len(listed)}-149"
+        else:
+            assert "pages_with_hits_not_listed" not in out
+    finally:
+        k.close()
+
+
+def test_a_search_that_fits_is_returned_as_before(many_pages):
+    k = ReviewToolkit(resolve_source=lambda key: many_pages)
+    try:
+        handle = call(k, "open_document", source="many.pdf")["handle"]
+        out = call(k, "search_document", handle=handle, pattern="pile",
+                   pages="0-3")
+        assert list(out) == ["handle", "pattern", "n_hits",
+                             "pages_with_hits", "hits"]
+        assert out["n_hits"] == len(out["hits"]) == 12
+    finally:
+        k.close()
+
+
+def test_one_hit_longer_than_the_limit_is_cut_and_marked():
+    doc = pymupdf.open()
+    page = doc.new_page(width=612, height=792)
+    writer = pymupdf.TextWriter(page.rect)
+    font = pymupdf.Font("helv")
+    for i in range(45):
+        writer.append((72, 80 + 14 * i), f"Row {i}: the made-up reading "
+                      f"for station {i} is {100 + i} units.", font=font,
+                      fontsize=10)
+    writer.write_text(page)
+    data = doc.tobytes()
+    doc.close()
+    k = ReviewToolkit(resolve_source=lambda key: data, max_chars=1200)
+    try:
+        handle = call(k, "open_document", source="rows.pdf")["handle"]
+        out = call(k, "search_document", handle=handle,
+                   pattern=r"Row 0:.+is 144 units\.", regex=True)
+        assert out["n_hits"] == 1 and len(out["hits"]) == 1
+        hit = out["hits"][0]
+        assert hit["match"].startswith("Row 0: the made-up reading")
+        assert hit["match"].endswith("[cut: longer than the limit]")
+        assert hit["page"] == 0 and hit["bbox"]
+        # The one hit is there, so nothing is said about the list.
+        assert "hits_omitted_for_size" not in out and "hint" not in out
+    finally:
+        k.close()
+
+
 def test_per_call_limit_overrides_the_toolkit_limit(kit, gt):
     handle = _open(kit)
     small = kit.call_json("read_document", {"handle": handle}, max_chars=1000)
