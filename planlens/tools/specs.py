@@ -806,12 +806,17 @@ SHEET_TOOL_SPECS = [
         "description": (
             "The drawing set's sheets, read from their title blocks: for "
             "each sheet its page, its sheet number, its title and latest "
-            "revision as the title block prints them, and the view numbers "
-            "found on it. Use it to turn a sheet number into a page (\"the "
-            "callouts on S-201\") and to check the set against the index "
-            "printed on its cover sheet. A sheet with no text layer is "
-            "listed under not_indexed with no number: read its title block "
-            "by viewing it. Continues via next_offset."),
+            "revision as the title block prints them, and the view marks "
+            "recognised on it. Use it to turn a sheet number into a page "
+            "(\"the callouts on S-201\") and to check the document against "
+            "the index printed on its cover sheet. A row with from was not "
+            "read from the place the set's title blocks print the number "
+            "(from says how it was found); a row marked duplicate shares "
+            "its number with another page. A sheet whose number could not "
+            "be read (no text layer, or none found in its text) is listed "
+            "under not_indexed with the reason, unless the PDF's page label "
+            "names it (from: page label): read its title block by viewing "
+            "it. Continues via next_offset."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -824,19 +829,31 @@ SHEET_TOOL_SPECS = [
     {
         "name": "check_cross_references",
         "description": (
-            "Every section, detail and plan callout in the drawing set (a "
-            "bubble with the view number over the sheet number, or "
-            "\"view/sheet\" written in a note), checked against the sheet "
-            "index and against the views on the sheet it names. status "
-            "unresolved: there is no such sheet in the set, or the sheet "
-            "is there and does not hold that view. cannot_tell: the views "
-            "on that sheet could not be read from its text. Unresolved "
-            "callouts come first, each with the box it is drawn in: view it "
-            "before you comment. It reads the text layer only: callouts on "
-            "a sheet with no text layer are not listed "
-            "(n_sheets_without_text says how many sheets that is). Whether "
-            "a detail suits the place it is called from is yours to judge. "
-            "Filter by pages or by status. Continues via next_offset."),
+            "The callouts it can read in the text layer of the drawing "
+            "set, checked against the sheet index and against the view "
+            "marks recognised on the sheet each names. It reads a bubble "
+            "whose view number and sheet number are separate pieces of "
+            "upright text, the view number centred over a sheet number "
+            "shaped like the document's own, and \"view/sheet\" written in "
+            "a note. It misses a bubble lettered as one piece of text or "
+            "drawn as lines, a turned callout, an elevation marker's "
+            "views other than its top one, and a bubble whose sheet half "
+            "reads \"-\" or \"SIM\". A view mark is a bubble naming its "
+            "own sheet with a title beside it. status unresolved: there is "
+            "no such sheet in this document though sheets of its "
+            "discipline are here, or view marks were recognised on that "
+            "sheet but no mark for that view was recognised on it. "
+            "cannot_tell (the why says which): a sheet that could not be "
+            "indexed may be it; no sheet of its discipline is in this "
+            "document (the set may be issued in parts); a sheet number is "
+            "read on two pages; or the sheet has no text layer, no "
+            "recognised view marks, or a view mark not read as one. "
+            "Unresolved callouts come first, each with the box it is drawn "
+            "in: view it before you comment. Callouts on a sheet with no "
+            "text layer are not listed (n_sheets_without_text says how "
+            "many sheets that is). Whether a detail suits the place it is "
+            "called from is yours to judge. Filter by pages or by status. "
+            "Continues via next_offset."),
         "parameters": {
             "type": "object",
             "properties": {

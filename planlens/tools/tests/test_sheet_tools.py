@@ -8,7 +8,9 @@ import pytest
 
 pymupdf = pytest.importorskip("pymupdf")
 
-from planlens.testing.sheet_set_fixtures import build_sheet_set  # noqa: E402
+from planlens.testing.sheet_set_fixtures import (  # noqa: E402
+    build_sheet_set, sketch_pdf,
+)
 from planlens.tools import (  # noqa: E402
     SHEET_TOOL_SPECS, TOOL_SPECS, ReviewToolkit,
 )
@@ -178,12 +180,13 @@ def test_check_cross_references_puts_the_unresolved_first(gt):
         ["unresolved"] * 2 + ["cannot_tell"] + ["resolved"] * 6)
     assert rows[0] == {
         "page": 1, "sheet": "A-101", "callout": "5/A-501",
-        "status": "unresolved", "why": "A-501 holds views 1 to 4, not 5",
+        "status": "unresolved",
+        "why": "view marks recognised on A-501: 1 to 4; none for 5",
         "target": {"sheet": "A-501", "page": 3},
         "bbox": rows[0]["bbox"]}
     assert all(isinstance(v, int) for v in rows[0]["bbox"])
     assert rows[1]["callout"] == "1/A-301" and "target" not in rows[1]
-    assert rows[1]["why"] == "there is no sheet A-301 in this set"
+    assert rows[1]["why"] == "there is no sheet A-301 in this document"
     assert rows[2]["callout"] == "1/A-601"
     assert [r["callout"] for r in rows if r.get("form") == "text"] == [
         "4/A-501", "2/A-501"]
@@ -280,4 +283,178 @@ def test_a_sheet_named_by_its_page_label_is_marked_so():
     assert refs["n_sheets_without_text"] == 1
     assert refs["counts"] == {"callouts": 8, "unresolved": 1,
                               "cannot_tell": 6, "resolved": 1}
+    kit.close()
+
+
+# -- a result that always fits, and says how each number was found -----------
+
+def _strip(number, nth, of, label="SHEET NO."):
+    def draw(s, _i):
+        s.strip_block(number, f"PLAN {nth}", nth, of, label=label)
+    return draw
+
+
+def _pages_of(group):
+    out = []
+    for part in group.split(","):
+        a, _, b = part.partition("-")
+        out.extend(range(int(a), int(b or a) + 1))
+    return out
+
+
+@pytest.mark.parametrize("max_chars", [1000, 2500, 12000])
+def test_sheet_index_always_fits_and_says_what_it_left_out(max_chars):
+    """Sixty sheets numbered and sixty between them that print no number:
+    the sheets not indexed are one reason with its pages, cut where they
+    are scattered, and the rows page on by next_offset whatever the
+    limit."""
+    of = 120
+    draw = [_strip(None if i % 2 == 0 else f"A-{101 + i}", i + 1, of)
+            for i in range(of)]
+    kit = _kit(sketch_pdf(draw))
+    handle = _open(kit)
+    out = call(kit, "sheet_index", max_chars=max_chars, handle=handle)
+    assert "error" not in out and out["sheets"]
+    assert (out["n_sheets"], out["n_indexed"]) == (120, 60)
+    if "not_indexed" in out:
+        (group,) = out["not_indexed"]
+        assert group["reason"] == ("no sheet number found in the title "
+                                   "block's text (it prints a sheet count)")
+        shown = _pages_of(group["pages"])
+        assert shown == list(range(0, 2 * len(shown), 2))
+        assert len(group["pages"]) <= 120
+        assert group["more_sheets"] == 60 - len(shown)
+    else:                               # a small limit: a count in its place
+        assert out["not_indexed_left_out"] == {"reasons": 1, "sheets": 60}
+    assert ("notes" in out) != ("notes_left_out" in out)
+    got, offset = [], 0
+    while offset is not None:
+        part = call(kit, "sheet_index", max_chars=max_chars, handle=handle,
+                    offset=offset)
+        got.extend(part["sheets"])
+        offset = part.get("next_offset")
+    assert [r["sheet"] for r in got] == [f"A-{101 + i}"
+                                         for i in range(1, of, 2)]
+    kit.close()
+
+
+def test_sheet_index_of_sheets_that_print_only_a_count_is_one_line():
+    draw = [_strip(None, i + 1, 80, label=None) for i in range(80)]
+    kit = _kit(sketch_pdf(draw))
+    out = call(kit, "sheet_index", max_chars=1000, handle=_open(kit))
+    assert out["n_indexed"] == 0 and out["sheets"] == []
+    assert out["not_indexed"] == [{
+        "pages": "0-79", "reason": "no sheet number found in the title "
+                                   "block's text (it prints a sheet count)"}]
+    kit.close()
+
+
+def test_a_set_bound_in_twice_is_said_plainly_and_fits(gt):
+    kit = _kit(_joined(gt.pdf, gt.pdf))
+    handle = _open(kit)
+    out = call(kit, "sheet_index", max_chars=1500, handle=handle)
+    assert "error" not in out
+    assert out["notes"] == [
+        "every sheet number in this document is read on two pages (5 "
+        "numbers: G-001 (pages 0, 5), A-101 (pages 1, 6), A-102 (pages 2, "
+        "7), and 2 more); the document may hold the set twice over"]
+    assert all(row["duplicate"] is True for row in out["sheets"])
+    assert "duplicate: the number is read on another page too" in out["note"]
+    kit.close()
+
+
+def test_each_row_says_how_its_number_was_found(gt):
+    """Four sheets read from the place their title blocks share carry no
+    mark; one read from its large corner lettering, one from its own view
+    titles and one from its label say so; a number on two pages is marked
+    on both; the note explains the marks that occur."""
+    def big(s, _i):
+        s.bottom_block("S-201", "FOUNDATION PLAN", number_size=28.0)
+
+    def titled(s, _i):
+        s.bottom_block("S-202", "FRAMING PLAN", number_size=14.0)
+        s.view_title(330, 1300, "1", "S-202", "FRAMING PLAN")
+
+    def labelled(s, _i):
+        s.page.draw_rect((36, 36, 2412, 1548), width=1.5)
+        s.text(2100, 120, "DWG NO.", 7)
+        s.text(2160, 124, "M-101", 14, bold=True)
+
+    draw = [_strip(n, i + 1, 8) for i, n in
+            enumerate(["G-001", "A-101", "A-102", "A-501"])]
+    draw += [big, titled, labelled, _strip("A-102", 8, 8)]
+    kit = _kit(sketch_pdf(draw))
+    out = call(kit, "sheet_index", handle=_open(kit))
+    marks = [(r["sheet"], r.get("from"), r.get("duplicate"))
+             for r in out["sheets"]]
+    assert marks == [
+        ("G-001", None, None), ("A-101", None, None), ("A-102", None, True),
+        ("A-501", None, None), ("S-201", "large lettering", None),
+        ("S-202", "view titles", None), ("M-101", "label", None),
+        ("A-102", None, True)]
+    note = out["note"]
+    for words in ("large lettering: the largest number in the title "
+                  "block's corner", "view titles: named by the sheet's own "
+                  "view titles", "label: beside a SHEET NO. label",
+                  "duplicate: the number is read on another page too"):
+        assert words in note
+    assert "page label" not in note
+    kit.close()
+    # a set read wholly from its slot: no marks, and the note does not
+    # explain any
+    kit = _kit(gt.pdf)
+    out = call(kit, "sheet_index", handle=_open(kit))
+    assert not any("from" in r or "duplicate" in r for r in out["sheets"])
+    assert out["note"] == (
+        "page is the 0-based PDF page these tools take; sheet, title and "
+        "rev are as the sheet's own title block prints them; views are the "
+        "view marks recognised on the sheet")
+    kit.close()
+
+
+def test_the_tool_text_says_what_the_code_reads():
+    specs = {s["name"]: s["description"] for s in SHEET_TOOL_SPECS}
+    for text in specs.values():
+        assert "in the set" not in text and "document" in text
+    check = specs["check_cross_references"]
+    assert not check.startswith("Every")
+    for words in ("upright text", "turned callout", "elevation marker",
+                  "SIM", "no mark for that view was recognised",
+                  "could not be indexed", "discipline", "two pages",
+                  "not read as one", "no text layer"):
+        assert words in check, words
+    index = specs["sheet_index"]
+    assert "view marks recognised" in index and "page label" in index
+
+
+def test_sheet_index_fits_whatever_the_index_holds(gt):
+    """An index with thirty reasons, long notes and long titles: under any
+    limit the result fits, holds rows, and counts what it left out."""
+    from planlens.document.crossrefs import CrossReferences
+    from planlens.document.sheets import SheetIndex, SheetRow
+    rows = [SheetRow(page=i, reason=f"reason {i}: " + "x" * 250)
+            for i in range(0, 60, 2)]
+    rows += [SheetRow(page=i, number=f"A-{100 + i}", title="T" * 150,
+                      how="label", confidence=0.75) for i in range(1, 60, 2)]
+    rows.sort(key=lambda r: r.page)
+    index = SheetIndex(rows=rows, n_pages=60,
+                       notes=[f"note {k}: " + "y" * 300 for k in range(8)])
+    kit = _kit(gt.pdf)
+    handle = _open(kit)
+    doc = kit._entries[handle].doc
+    doc._sheet_index, doc._cross_references = index, CrossReferences()
+    seen_cut = set()
+    for max_chars in (1000, 1500, 4000, 12000):
+        out = call(kit, "sheet_index", max_chars=max_chars, handle=handle)
+        assert "error" not in out and out["sheets"], max_chars
+        shown = len(out.get("not_indexed", []))
+        left = out.get("not_indexed_left_out", {"reasons": 0, "sheets": 0})
+        assert shown + left["reasons"] == 30
+        assert shown + left["sheets"] == 30
+        assert len(out.get("notes", [])) + out.get("notes_left_out", 0) == 8
+        if "notes_left_out" in out:
+            seen_cut.add("notes")
+        if "not_indexed" not in out:
+            seen_cut.add("not_indexed")
+    assert seen_cut == {"notes", "not_indexed"}
     kit.close()

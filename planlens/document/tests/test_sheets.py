@@ -14,11 +14,13 @@ pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document  # noqa: E402
 from planlens.document.sheets import (  # noqa: E402
-    SHEET_COUNT, SHEET_NUMBER, normalize_number, number_shape, sheet_index,
+    HOW_LABEL, HOW_SIZE, HOW_SLOT, HOW_VIEW_TITLES, NUMBER_LABEL,
+    SHEET_COUNT, SHEET_NUMBER, discipline, normalize_number, number_shape,
+    sheet_index,
 )
 from planlens.testing import build_synthetic_submittal  # noqa: E402
 from planlens.testing.sheet_set_fixtures import (  # noqa: E402
-    SCHEMES, SHEET, build_sheet_set,
+    SCHEMES, SHEET, build_sheet_set, sketch_pdf,
 )
 
 SET_STYLES = ("strip", "bottom", "inline", "turned")
@@ -88,16 +90,25 @@ def test_a_sheet_count_is_never_a_sheet_number(style, numbers):
             assert not re.fullmatch(r"\d+", row.number)
 
 
-def test_sheets_that_print_only_a_count_are_listed_without_a_number():
+def test_sheets_that_print_only_a_count_are_numbered_by_their_view_titles():
+    """No title block prints a number: a sheet whose view titles name it
+    (the plans, the details) takes that number and says so; the cover and
+    the schedule, with none, are listed without one."""
     index = _index(_built("count_only"))
-    assert [r.number for r in index.rows] == [None] * 5
+    assert [r.number for r in index.rows] == [None, "A-101", "A-102",
+                                              "A-501", None]
     assert [r.count for r in index.rows] == [f"{n} of 5" for n in range(1, 6)]
-    for row in index.rows:
-        assert "no sheet number found" in row.reason
-        assert row.count in row.reason
+    for row in index.rows[1:4]:
+        assert row.how == HOW_VIEW_TITLES and row.confidence < 0.6
+        assert row.reason is None and row.bbox is None
+    for row in (index.rows[0], index.rows[4]):
+        assert row.reason == ("no sheet number found in the title block's "
+                              "text (it prints a sheet count)")
         assert row.title is None and row.how is None
-    assert index.notes == ["5 of 5 sheets could not be indexed from their "
-                           "text"]
+    assert index.notes == [
+        "2 of 5 sheets could not be indexed from their text",
+        "3 of 5 sheets are numbered from their own view titles (each names "
+        "the sheet it is on), not read from their title blocks"]
     # the same on the sheets of planlens' made-up submittal: "SHEET 1 OF 2"
     with open_document(build_synthetic_submittal().pdf) as doc:
         rows = doc.sheet_index().rows
@@ -133,10 +144,13 @@ def test_one_sheet_on_its_own_is_read_by_its_label_or_its_size(
 
 
 def test_one_sheet_that_prints_only_a_count_is_not_indexed():
-    index = _index(_built("count_only", only=1))
+    index = _index(_built("count_only", only=4))        # the schedule
     row = index.rows[0]
-    assert row.number is None and row.count == "2 of 5"
-    assert "it prints a sheet count, 2 of 5" in row.reason
+    assert row.number is None and row.count == "5 of 5"
+    assert row.reason.endswith("(it prints a sheet count)")
+    # a plan names itself in its view title
+    plan = _index(_built("count_only", only=1)).rows[0]
+    assert (plan.number, plan.how) == ("A-101", HOW_VIEW_TITLES)
 
 
 def test_the_order_of_the_text_does_not_matter():
@@ -192,7 +206,8 @@ def test_a_number_printed_on_two_pages_is_noted():
         index = doc.sheet_index()
     twice.close()
     assert [r.number for r in index.rows][-1] == "A-101"
-    assert "sheet number A-101 is printed on pages 1, 5" in index.notes
+    assert index.notes == ["sheet number A-101 is read on pages 1, 5"]
+    assert index.duplicates() == {"A-101": [1, 5]}
     assert index.page_of("A-101") == 1
 
 
@@ -222,6 +237,7 @@ def test_a_report_on_letter_pages_has_no_sheets():
     ("SHEET NO. S-201A", ["S-201A"]), ("DWG NO: A-101.", ["A-101"]),
     ("3", []), ("2031-01-12", []), ("W12X26", []), ("SCALE 1:100", []),
     ("PROJECT NO. 2417", []), ("SEE 4/A-501", []),
+    ("A1-01", ["A1-01"]), ("SHEET # A2-03", ["A2-03"]),
 ])
 def test_what_is_shaped_like_a_sheet_number(text, found):
     assert SHEET_NUMBER.findall(text) == found
@@ -264,7 +280,8 @@ def test_a_page_label_names_a_sheet_whose_title_block_prints_no_number():
         "G-001", "A-101", "A-102", "A-501", None]
     assert index.rows[1].how == "PDF page label"
     assert index.rows[1].count == "2 of 5" and index.rows[1].readable
-    assert "it prints a sheet count, 5 of 5" in index.rows[4].reason
+    assert index.rows[4].reason.endswith("(it prints a sheet count)")
+    assert index.rows[4].count == "5 of 5"
 
 
 def test_a_page_label_never_replaces_what_the_title_block_prints():
@@ -276,3 +293,200 @@ def test_a_page_label_never_replaces_what_the_title_block_prints():
     assert [r.title for r in index.rows] == gt.titles
     assert {r.how for r in index.rows} == {"title-block slot"}
     assert index.notes == []
+
+
+# -- what a sheet's number is not, and sheets read some other way ------------
+
+def _strip_set(numbers, extra=None, of=None):
+    """Sheets in the strip title block, numbered ``numbers`` (``None``: the
+    number cell left blank); ``extra(sheet, number)`` draws the rest."""
+    of = of or len(numbers)
+
+    def paint(i):
+        def draw(s, _i):
+            s.strip_block(numbers[i], f"SHEET TITLE {i}", i + 1, of)
+            if extra is not None:
+                extra(s, numbers[i])
+        return draw
+    return [paint(i) for i in range(len(numbers))]
+
+
+def _consultant(number, title, size=14.0, note=None):
+    def draw(s, _i):
+        s.bottom_block(number, title, number_size=size)
+        s.view_title(330, 1300, "1", number, title)
+        if note:
+            s.text(1800, 300, "GENERAL NOTES", 9, bold=True)
+            s.text(1800, 320, note, 7)
+    return draw
+
+
+def _sketched(draw):
+    with open_document(sketch_pdf(draw)) as doc:
+        return doc.sheet_index()
+
+
+@pytest.mark.parametrize("text, is_label", [
+    ("SHEET NO.", True), ("DWG NO. A-101", True), ("SHEET #", True),
+    ("DWG #: A-101", True), ("SHEET NUMBER: S-201A REV 2", True),
+    ("1. REFER TO DWG NO. S-201 FOR TYPICAL DETAILS", False),
+    ("SEE SHEET NO. A-501 FOR WALL TYPES", False),
+])
+def test_a_label_is_a_short_line_or_the_head_of_one(text, is_label):
+    from planlens.document.sheets import _label_in
+    assert (_label_in(text) is not None) is is_label
+    assert NUMBER_LABEL.search(text)                # each holds the words
+
+
+@pytest.mark.parametrize("size, how", [(14.0, HOW_VIEW_TITLES),
+                                       (28.0, HOW_SIZE)])
+def test_a_sheet_number_named_in_a_note_is_not_the_sheet_number(size, how):
+    """Two consultant sheets beside four in the strip block; one has a
+    general note naming another drawing ("REFER TO DWG NO. S-201"). Its
+    own number is read (from its large lettering, or failing that from
+    its view titles), never the note's."""
+    draw = _strip_set(["G-001", "A-101", "A-102", "A-501"], of=6) + [
+        _consultant("S-201", "FOUNDATION PLAN", size),
+        _consultant("S-202", "FRAMING PLAN", size,
+                    note="1. REFER TO DWG NO. S-201 FOR TYPICAL DETAILS")]
+    index = _sketched(draw)
+    assert [r.number for r in index.rows] == [
+        "G-001", "A-101", "A-102", "A-501", "S-201", "S-202"]
+    assert [r.how for r in index.rows][4:] == [how, how]
+    assert [r.title for r in index.rows][4:] == ["FOUNDATION PLAN",
+                                                 "FRAMING PLAN"]
+    assert index.duplicates() == {}
+    assert not any("read on pages" in note for note in index.notes)
+
+
+def test_a_reading_its_own_view_titles_contradict_gives_way_to_them():
+    """The corner lettering of a consultant's sheet reads one number and
+    every view title on it names another, which no other page holds: the
+    sheet is taken as the view titles' and the note says so."""
+    def odd(s, _i):
+        s.bottom_block("S-205", "FRAMING PLAN", number_size=28.0)
+        s.view_title(330, 1300, "1", "S-202", "FRAMING PLAN")
+        s.view_title(1030, 1300, "2", "S-202", "BRACING ELEVATION")
+
+    index = _sketched(_strip_set(["G-001", "A-101", "A-102", "A-501"],
+                                 of=5) + [odd])
+    row = index.rows[4]
+    assert (row.number, row.how, row.reason) == ("S-202", HOW_VIEW_TITLES,
+                                                 None)
+    assert row.title == "FRAMING PLAN" and row.confidence < 0.6
+    assert index.notes[-1] == (
+        "1 sheet(s) whose title-block reading disagreed with their own view "
+        "titles are numbered from the view titles (page 4: S-205 (largest "
+        "lettering in the title-block corner) against S-202)")
+
+    # where another page is that sheet, the bubbles are callouts: the
+    # reading stays
+    def holder(s, _i):
+        s.strip_block("S-202", "FRAMING PLAN", 6, 6)
+
+    index = _sketched(_strip_set(["G-001", "A-101", "A-102", "A-501"],
+                                 of=6) + [odd, holder])
+    assert [(r.number, r.how) for r in index.rows][4:] == [
+        ("S-205", HOW_SIZE), ("S-202", HOW_SLOT)]
+
+
+def test_a_second_title_block_layout_is_read_by_its_own_slot():
+    """Six sheets in the strip block and four in a consultant's block
+    across the bottom, all of one size: the four are left by the first
+    slot and form one of their own."""
+    arch = ["G-001", "A-101", "A-102", "A-201", "A-301", "A-501"]
+    draw = _strip_set(arch, of=10) + [
+        _consultant(n, f"FRAMING {n[2:]}")
+        for n in ("S-001", "S-101", "S-201", "S-501")]
+    index = _sketched(draw)
+    assert index.numbers() == arch + ["S-001", "S-101", "S-201", "S-501"]
+    assert {r.how for r in index.rows} == {HOW_SLOT}
+    assert [r.title for r in index.rows][6:] == [
+        "FRAMING 001", "FRAMING 101", "FRAMING 201", "FRAMING 501"]
+    assert index.notes == []
+
+
+def _report(footer, pages=6, size=(1224.0, 792.0)):
+    doc = pymupdf.open()
+    for p in range(pages):
+        page = doc.new_page(width=size[0], height=size[1])
+        y = 80.0
+        for _k in range(20):
+            page.insert_text((72, y), "The bearing values follow Table 3.2 "
+                             "and Figure A-1; see sheet C1.1.", fontsize=10)
+            y += 26.0
+        page.insert_text((1040, 760), footer(p // 3 + 1, p % 3 + 1),
+                         fontsize=9)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+@pytest.mark.parametrize("footer", [
+    lambda ch, pp: f"Page {ch}.{pp}",
+    lambda ch, pp: f"Fig. {ch}.{pp}",
+    lambda ch, pp: f"Report part {ch}.{pp} draft",
+])
+def test_a_report_on_large_pages_is_given_no_sheet_numbers(footer):
+    """An 11 x 17 report counts as sheets by its size; its numbered
+    footers are not sheet numbers: one after PAGE, FIG and the like is
+    something else, and one inside a longer line is no title block's."""
+    with open_document(_report(footer)) as doc:
+        index = doc.sheet_index()
+    assert len(index.rows) == 6 and index.indexed == []
+    assert {r.reason for r in index.rows} == {
+        "no sheet number found in the title block's text"}
+
+
+def test_one_sparse_sheet_is_read_by_its_large_number():
+    """A sheet holding little but its number: the number's own line is not
+    counted in the lettering it must stand out from."""
+    def sparse(s, _i):
+        s.page.draw_rect((36, 36, 2412, 1548), width=1.5)
+        s.text(2150, 1450, "A-101", 40, bold=True)
+        s.text(400, 1450, "PROJECT P-100", 8)
+
+    row = _sketched([sparse]).rows[0]
+    assert (row.number, row.how) == ("A-101", HOW_SIZE)
+
+
+def test_numbers_read_on_two_pages_are_noted_once():
+    gt = _built()
+    doubled = pymupdf.open(stream=gt.pdf, filetype="pdf")
+    doubled.insert_pdf(pymupdf.open(stream=gt.pdf, filetype="pdf"))
+    with open_document(doubled.tobytes()) as doc:
+        index = doc.sheet_index()
+    doubled.close()
+    assert index.numbers() == gt.numbers * 2
+    assert index.notes == [
+        "every sheet number in this document is read on two pages (5 "
+        "numbers: G-001 (pages 0, 5), A-101 (pages 1, 6), A-102 (pages 2, "
+        "7), and 2 more); the document may hold the set twice over"]
+    # two numbers of several read twice: one note, the count and the first
+    some = pymupdf.open(stream=gt.pdf, filetype="pdf")
+    some.insert_pdf(pymupdf.open(stream=gt.pdf, filetype="pdf"),
+                    from_page=1, to_page=2)
+    with open_document(some.tobytes()) as doc:
+        notes = doc.sheet_index().notes
+    some.close()
+    assert notes == ["2 sheet numbers are each read on more than one page: "
+                     "A-101 (pages 1, 5), A-102 (pages 2, 6)"]
+
+
+def test_an_unnumbered_readable_sheet_keeps_the_numbers_it_prints():
+    def noted(s, number):
+        if number is None:
+            s.text(2200, 500, "SEE A-302", 8)     # in the right-hand band
+
+    index = _sketched(_strip_set([None, "A-101", "A-102", "A-501"], noted))
+    cover = index.rows[0]
+    assert cover.number is None and cover.readable
+    assert cover.tokens == frozenset({"A-302"})
+    assert index.rows[1].tokens == frozenset()  # kept only where unnumbered
+
+
+@pytest.mark.parametrize("number, part", [
+    ("S-201A", "S"), ("FP-101", "FP"), ("A5.01", "A"), ("G001", "G"),
+    ("10.31", "10"), ("10.31A", "10"), ("a-501", "A")])
+def test_the_discipline_of_a_sheet_number(number, part):
+    assert discipline(number) == part

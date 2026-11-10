@@ -51,10 +51,10 @@ def _host():
 
 def _sheet_tools(host) -> bool:
     """Whether ``host`` asked for the sheet tools
-    (``toolkit_options={"sheet_tools": True}``: its toolkits then serve
-    them, and they are listed)."""
-    return bool((getattr(host, "toolkit_options", None) or {})
-                .get("sheet_tools"))
+    (``toolkit_options={"sheet_tools": True}``): they are then listed for
+    it, and served on its calls, whichever host's call built the
+    conversation's toolkit."""
+    return _conv._asked_for_sheet_tools(host)
 
 
 def tool_names(host=None) -> tuple:

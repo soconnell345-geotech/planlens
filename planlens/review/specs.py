@@ -70,6 +70,7 @@ DOCUMENT_TOOL_NOTES = {
         " For a Word, Excel or DXF file, handle is its file name; hits are "
         "its lines." + PDF_PAGES_NOTE),
     "document_page_map": PDF_PAGES_NOTE,
+    "check_cross_references": PDF_PAGES_NOTE,
     "document_markups": PDF_PAGES_NOTE,
     "find_quantities": PDF_PAGES_NOTE,
     "render_page_thumbnails": PDF_PAGES_NOTE,
@@ -192,7 +193,8 @@ _ARGS: Dict[str, List[Tuple[str, str, Any]]] = {
     "sheet_index": [("handle", "str", _REQUIRED), ("offset", "int", 0)],
     "check_cross_references": [("handle", "str", _REQUIRED),
                                ("pages", "any", None),
-                               ("status", "str", ""), ("offset", "int", 0),
+                               ("status", "opt_str", None),
+                               ("offset", "int", 0),
                                ("pdf_pages", "any", None)],
     "find_like": [("attachment_key", "str", _REQUIRED),
                   ("page", "opt_int", None), ("bbox", "opt_list", None),
@@ -287,7 +289,8 @@ def _shown(name: str) -> Dict[str, Dict[str, Any]]:
     """Arguments shown to the model with a schema of their own rather than
     the one their declared type gives: ``annotate_document``'s ``markups``
     with the toolkit's markup fields and ``remove`` as strings;
-    ``search_document``'s ``min_score`` with the toolkit's default, 80."""
+    ``search_document``'s ``min_score`` with the toolkit's default, 80;
+    ``check_cross_references``' ``status`` with the toolkit's words."""
     if name == "annotate_document":
         shown = {"remove": {"type": "array", "items": {"type": "string"}}}
         item = annotate_markups_schema()
@@ -296,6 +299,15 @@ def _shown(name: str) -> Dict[str, Dict[str, Any]]:
         return shown
     if name == "search_document":
         return {"min_score": {"type": "integer", "default": 80}}
+    if name == "check_cross_references":
+        # the toolkit's words for a callout's status, read off its spec
+        spec = _toolkit_spec(name) or {}
+        status = ((spec.get("parameters") or {}).get("properties")
+                  or {}).get("status") or {}
+        if status.get("enum"):
+            return {"status": {"anyOf": [
+                {"type": "string", "enum": list(status["enum"])},
+                {"type": "null"}]}}
     return {}
 
 

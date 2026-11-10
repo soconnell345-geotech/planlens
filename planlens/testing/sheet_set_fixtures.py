@@ -59,12 +59,13 @@ FIRM = "NORTHGATE DESIGN GROUP"
 PROJECT = "HARBOR STREET CLINIC"
 
 #: Sheet numbers by role (cover, plan one, plan two, details, schedule) and a
-#: number of the same series that the set does not have.
+#: number the set does not have, of a discipline it does have (its sheets
+#: are all here, so the number is missing, not issued elsewhere).
 SCHEMES: Dict[str, Tuple[Tuple[str, ...], str]] = {
     "dash": (("G-001", "A-101", "A-102", "A-501", "A-601"), "A-301"),
     "dot": (("G0.01", "A1.01", "A1.02", "A5.01", "A6.01"), "A3.01"),
     "civil": (("C0.1", "C1.1", "C1.2", "C5.1", "C6.1"), "C3.1"),
-    "decimal": (("00.01", "10.31", "10.31A", "50.01", "60.01"), "30.01"),
+    "decimal": (("00.01", "10.31", "10.31A", "50.01", "60.01"), "10.41"),
     "suffix": (("S-001", "S-201", "S-201A", "S-501", "S-601"), "S-301"),
 }
 STYLES = ("strip", "bottom", "inline", "turned", "bare", "count_only")
@@ -456,5 +457,117 @@ def build_sheet_set(style: str = "strip", numbers: str = "dash",
     return gt
 
 
+class SketchSheet:
+    """One made-up 34 x 22 in sheet drawn piece by piece, for a test that
+    needs a layout the set above does not have. Text is written in the
+    order it is given. Every name and number is the caller's (made up)."""
+
+    def __init__(self, doc, size: Tuple[float, float] = SHEET):
+        self.page = doc.new_page(width=size[0], height=size[1])
+        self.w, self.h = size
+
+    def text(self, x: float, y: float, text: str, size: float = 8.0,
+             bold: bool = False, rotate: int = 0) -> None:
+        """Text starting at ``(x, y)``; ``rotate=90`` reads up the sheet."""
+        self.page.insert_text((x, y), text, fontsize=size,
+                              fontname="hebo" if bold else "helv",
+                              rotate=rotate)
+
+    def centred(self, cx: float, y: float, text: str, size: float,
+                bold: bool = False) -> None:
+        import pymupdf
+        width = pymupdf.get_text_length(
+            text, fontname="hebo" if bold else "helv", fontsize=size)
+        self.text(cx - width / 2.0, y, text, size, bold)
+
+    def bubble(self, cx: float, cy: float, view: str, sheet: str,
+               view_size: float = 9.0, sheet_size: float = 6.0) -> None:
+        """A reference bubble: the view number over the sheet number."""
+        self.page.draw_circle((cx, cy), 15.0, width=0.7)
+        self.page.draw_line((cx - 15.0, cy), (cx + 15.0, cy), width=0.7)
+        self.centred(cx, cy - 3.0, view, view_size, bold=True)
+        self.centred(cx, cy + 9.0, sheet, sheet_size)
+
+    def view_title(self, cx: float, cy: float, view: str, sheet: str,
+                   title: Optional[str], solo: bool = False) -> None:
+        """A view's title mark: a bubble naming ``sheet`` (``solo``: the
+        view number alone in its circle) with ``title`` to its right."""
+        if solo:
+            self.page.draw_circle((cx, cy), 15.0, width=0.7)
+            self.centred(cx, cy + 4.0, view, 12.0, bold=True)
+        else:
+            self.bubble(cx, cy, view, sheet)
+        if title:
+            self.page.draw_line((cx + 15.0, cy), (cx + 260.0, cy),
+                                width=0.7)
+            self.text(cx + 22.0, cy - 4.0, title, 12.0, bold=True)
+            self.text(cx + 22.0, cy + 10.0, "SCALE 1:5", 7.0)
+
+    def turned_view_title(self, cx: float, cy: float, view: str, sheet: str,
+                          title: Optional[str]) -> None:
+        """The same, drawn turned to read up the sheet (a detail drawn on
+        its side): the view number to the left of the sheet number, the
+        title running up the sheet from just above the circle."""
+        import pymupdf
+        self.page.draw_circle((cx, cy), 15.0, width=0.7)
+        wv = pymupdf.get_text_length(view, fontname="hebo", fontsize=9.0)
+        ws = pymupdf.get_text_length(sheet, fontname="helv", fontsize=6.0)
+        self.text(cx, cy + wv / 2.0, view, 9.0, bold=True, rotate=90)
+        self.text(cx + 8.5, cy + ws / 2.0, sheet, 6.0, rotate=90)
+        if title:
+            self.text(cx + 4.0, cy - 20.0, title, 12.0, bold=True,
+                      rotate=90)
+
+    def strip_block(self, number: Optional[str], title: str, nth: int,
+                    of: int, label: Optional[str] = "SHEET NO.") -> None:
+        """A title block down the right edge: the firm, the project, a
+        revision, the title under "SHEET TITLE", the number under
+        ``label`` (none where ``number`` is ``None``), and the count."""
+        x0 = self.w - MARGIN - STRIP
+        self.page.draw_rect((MARGIN, MARGIN, self.w - MARGIN,
+                             self.h - MARGIN), width=1.5)
+        self.page.draw_line((x0, MARGIN), (x0, self.h - MARGIN), width=1.2)
+        self.text(x0 + 12, 80, FIRM, 12, bold=True)
+        self.text(x0 + 12, 150, PROJECT, 16)
+        self.text(x0 + 12, 170, "PROJECT NO. 2417", 8)
+        self.text(x0 + 12, 700, "REVISIONS", 7)
+        self.text(x0 + 14, 728, "0", 7)
+        self.text(x0 + 44, 728, "2031-01-12", 7)
+        self.text(x0 + 110, 728, "ISSUED FOR PERMIT", 7)
+        self.text(x0 + 12, 1176, "SHEET TITLE", 6)
+        self.text(x0 + 12, 1198, title, 12, bold=True)
+        if label:
+            self.text(x0 + 12, 1296, label, 6)
+        if number:
+            self.text(x0 + 12, 1350, number, 40, bold=True)
+        self.text(x0 + 12, 1420, f"SHEET {nth} OF {of}", 7)
+
+    def bottom_block(self, number: str, title: str,
+                     number_size: float = 14.0) -> None:
+        """A consultant's title block across the bottom: its firm, the
+        title beside "DRAWING TITLE", and the number beside "SHEET ID" (a
+        label this module's readers do not know)."""
+        self.page.draw_rect((MARGIN, MARGIN, self.w - MARGIN,
+                             self.h - MARGIN), width=1.5)
+        self.text(80, self.h - 104, "MADE-UP STRUCTURAL CONSULTANT", 10, bold=True)
+        self.text(900, self.h - 114, "DRAWING TITLE", 6)
+        self.text(900, self.h - 94, title, 11, bold=True)
+        self.text(2200, self.h - 114, "SHEET ID", 6)
+        self.text(2200, self.h - 92, number, number_size, bold=True)
+
+
+def sketch_pdf(draw: Sequence[Any]) -> bytes:
+    """A PDF of one :class:`SketchSheet` per callable in ``draw``, each
+    called with its sheet and its 0-based place."""
+    import pymupdf
+    doc = pymupdf.open()
+    try:
+        for i, paint in enumerate(draw):
+            paint(SketchSheet(doc), i)
+        return doc.tobytes(garbage=3, deflate=True, no_new_id=True)
+    finally:
+        doc.close()
+
+
 __all__ = ["SheetSetGT", "build_sheet_set", "SCHEMES", "STYLES", "TITLES",
-           "VIEWS", "FIRM", "PROJECT"]
+           "VIEWS", "FIRM", "PROJECT", "SketchSheet", "sketch_pdf"]

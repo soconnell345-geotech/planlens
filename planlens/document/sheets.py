@@ -8,29 +8,44 @@ one row per sheet: the page, the sheet number, the title, the latest revision,
 and how the number was found.
 
 HOW THE NUMBER IS FOUND. Title blocks differ from firm to firm, so nothing
-here knows a layout. Two readings, in this order:
+here knows a layout. In this order:
 
 * **The slot.** Across a set, the sheet number sits at the same place on
   every sheet and is different on each. So: collect every piece of text
-  shaped like a sheet number in the right and bottom bands of each sheet,
-  group the pieces that sit at the same place from sheet to sheet, and take
-  the group that covers most sheets with a different value on each. What
-  the set repeats (the project, the firm, a label) is the same on every
-  sheet and never wins; a callout's sheet number is at a different place on
-  each sheet and never forms a group.
-* **The label.** For a sheet the slot does not cover, and for a document of
-  one or two sheets: a number beside or under a label ("SHEET NO.", "DWG
-  NO.", "DRAWING NUMBER"), on the label's line or in the next cell. Failing
-  a label, a number standing alone in the title block's corner in lettering
-  well above everything round it.
+  shaped like a sheet number in the right and bottom bands of each sheet
+  (a whole line, or straight after a number label; not a number inside a
+  note's sentence), group the pieces that sit at the same place from sheet
+  to sheet, and take the group that covers most sheets with a different
+  value on each. What the set repeats (the project, the firm, a label) is
+  the same on every sheet and never wins; a callout's sheet number is at a
+  different place on each sheet and never forms a group. Sheets the slot
+  leaves (a consultant's title block bound into the set) are searched the
+  same way for a slot of their own.
+* **The label.** For a sheet no slot covers, and for a document of one or
+  two sheets: a number after a label ("SHEET NO.", "DWG NO.", "SHEET #",
+  "DRAWING NUMBER"). A label counts only as a title block prints one: a
+  short line of its own or the start of one, with the number straight
+  after it, or alone in the cell beside or under it. "REFER TO DWG NO.
+  S-201" in a note is not a label.
+* **The size.** Failing a label, a number standing alone in the title
+  block's corner in lettering at least twice the band's usual lettering.
+* **The view titles.** Failing all of those, or where the label or size
+  reading is contradicted: if every view title mark on the sheet names one
+  number and no other page holds it, the sheet is that number. The row
+  says so and a note lists the contradictions.
 
-Where the title block gives no number (a scan, a number drawn as lines) and
-the PDF itself labels the page with one ("A-101 FIRST FLOOR PLAN"), the
-sheet takes that, and the row says it came from the page label.
+A number after PAGE, FIG., TABLE, SECTION or APPENDIX is never a sheet
+number. Where the title block gives no number (a scan, a number drawn as
+lines) and the PDF itself labels the page with one ("A-101 FIRST FLOOR
+PLAN"), the sheet takes that, and the row says it came from the page label.
 
 A sheet count ("SHEET 3 OF 24", "3 of 24") is never a sheet number: it is
 kept apart as ``count``. A sheet with no text layer is listed with the reason
-and no number: it is read by looking, and nothing here guesses.
+and no number: it is read by looking, and nothing here guesses. A number read
+on two pages is one note; :meth:`SheetIndex.duplicates` lists them. A
+readable sheet left without a number keeps the sheet numbers its title-block
+band prints (``SheetRow.tokens``), so the callout check can tell whether it
+could be a sheet a callout names.
 
 THE TITLE is the text of the title block that changes from sheet to sheet
 (the project name does not), under a title label where there is one, else
@@ -50,9 +65,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 BBox = Tuple[float, float, float, float]
 
-#: A sheet number with a discipline letter (A-501, S-201A, A5.01, C1.1,
-#: FP-101, G001) or without one but with a decimal part (10.31A, 30.01).
-_LETTERED = r"[A-Z]{1,3}[-.]?\d{1,4}(?:\.\d{1,3})?[A-Z]?"
+#: A sheet number with a discipline letter (A-501, S-201A, A5.01, A1-01,
+#: C1.1, FP-101, G001) or without one but with a decimal part (10.31A,
+#: 20.01).
+_LETTERED = r"[A-Z]{1,3}[-.]?\d{1,4}(?:[-.]\d{1,3})?[A-Z]?"
 _DECIMAL = r"\d{1,3}\.\d{1,3}[A-Z]?"
 SHEET_NUMBER = re.compile(
     rf"(?<![\w./-])(?:{_LETTERED}|{_DECIMAL})(?![\w/-]|\.\d)")
@@ -64,8 +80,13 @@ SHEET_COUNT = re.compile(r"\b(\d{1,3})\s+OF\s+(\d{1,3})\b", re.I)
 
 #: A label a sheet number is printed beside or under.
 NUMBER_LABEL = re.compile(
-    r"\b(?:SHEET|SHT|DWG|DRAWING)\.?\s*(?:NO|NUM|NUMBER|#)\b\.?:?|"
+    r"\b(?:SHEET|SHT|DWG|DRAWING)\.?\s*(?:(?:NO|NUM|NUMBER)\b|#)\.?:?|"
     r"^\s*(?:SHEET|SHT|DWG|DRAWING)\.?\s*:?\s*$", re.I)
+#: A word that makes the number after it something else: "Page 1.1",
+#: "Figure A-1", "Table 3.2", "Section 4.1", "Appendix B-2".
+NOT_A_SHEET_BEFORE = re.compile(
+    r"\b(?:PAGE|PG|FIG|FIGURE|TABLE|SECTION|APPENDIX)\b\.?\s*"
+    r"(?:(?:NO\b\.?|#)\s*)?$", re.I)
 #: A label a sheet's title is printed beside or under.
 TITLE_LABEL = re.compile(
     r"^\s*(?:(?:SHEET|SHT|DWG|DRAWING)\.?\s+)?TITLE\s*:?\s*$", re.I)
@@ -102,6 +123,15 @@ CORNER_X = 0.68
 CORNER_Y = 0.60
 STANDS_OUT = 2.0
 
+#: How a row's number was found (:attr:`SheetRow.how`).
+HOW_SLOT = "title-block slot"
+HOW_LABEL = "label"
+HOW_SIZE = "largest lettering in the title-block corner"
+HOW_PAGE_LABEL = "PDF page label"
+HOW_VIEW_TITLES = "the sheet's own view titles"
+#: The reason a readable sheet has no number.
+NO_NUMBER = "no sheet number found in the title block's text"
+
 
 @dataclass
 class SheetRow:
@@ -120,6 +150,10 @@ class SheetRow:
     #: ``False`` for a sheet with no usable text layer: nothing on it was
     #: read, whatever its page label says.
     readable: bool = True
+    #: For a readable sheet with no number: every sheet-number-shaped piece
+    #: of text in its title-block bands (normalized). A sheet prints its own
+    #: number there, so a number not among these is not this sheet's.
+    tokens: frozenset = frozenset()
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {"page": self.page}
@@ -175,11 +209,28 @@ class SheetIndex:
     def numbers(self) -> List[str]:
         return [r.number for r in self.rows if r.number]
 
+    def duplicates(self) -> Dict[str, List[int]]:
+        """Each number read on more than one page (normalized), with its
+        pages in order."""
+        held: Dict[str, List[int]] = {}
+        for r in self.indexed:
+            held.setdefault(normalize_number(r.number), []).append(r.page)
+        return {n: pages for n, pages in held.items() if len(pages) > 1}
+
 
 def normalize_number(number: str) -> str:
     """A sheet number for comparison: upper case, no spaces ("a-501" and
     "A-501" are one sheet; "A501" is not assumed to be "A-501")."""
     return re.sub(r"\s+", "", str(number or "")).upper()
+
+
+def discipline(number: str) -> str:
+    """The discipline part of a sheet number: the letters before its first
+    digit ("S-201A" -> "S", "FP-101" -> "FP", "A5.01" -> "A"), or for a
+    number with no letter the part before the dot ("10.31" -> "10")."""
+    n = normalize_number(number)
+    m = re.match(r"[A-Z]+", n)
+    return m.group(0) if m else n.split(".")[0]
 
 
 def number_shape(number: str) -> str:
@@ -215,6 +266,9 @@ class _Sheet:
     has_text: bool
     reason: Optional[str] = None
     pieces: List[_Piece] = field(default_factory=list)
+    #: Every sheet-number-shaped token in the bands, before any is set
+    #: aside (normalized).
+    tokens: set = field(default_factory=set)
 
 
 def _size(line) -> float:
@@ -261,14 +315,17 @@ def _token_box(line, start: int, end: int) -> BBox:
 
 def _reading(box: BBox, rotation) -> BBox:
     """``box`` in the frame its lettering is read in: x along the line, y
-    from line to line. Lettering turned to read up the sheet (90) or down
-    it (270) is turned back; anything else is left as it is."""
+    from line to line. Lettering turned to read up the sheet (90), down it
+    (270) or upside down (180) is turned back; anything else is left as it
+    is."""
     x0, y0, x1, y1 = box
     turn = float(rotation or 0.0) % 360.0
     if abs(turn - 90.0) < 20.0:
         return (-y1, x0, -y0, x1)
     if abs(turn - 270.0) < 20.0:
         return (y0, -x1, y1, -x0)
+    if abs(turn - 180.0) < 20.0:
+        return (-x1, -y1, -x0, -y0)
     return box
 
 
@@ -290,6 +347,26 @@ def _numbers_in(line):
     match)``: the line with any sheet count blanked out, and each match."""
     masked = SHEET_COUNT.sub(lambda m: " " * len(m.group(0)), line.text)
     return [(masked, m) for m in SHEET_NUMBER.finditer(masked)]
+
+
+def _label_in(text: str):
+    """The number label of a line that is a label, else ``None``: a short
+    line holding one (three words or fewer: "SHEET NO.", "DWG NO. A-101"),
+    or a line that begins with one. A label inside a sentence ("1. REFER
+    TO DWG NO. S-201 FOR DETAILS") is not one: it names another sheet."""
+    m = NUMBER_LABEL.search(text)
+    if m is None:
+        return None
+    if len(text.split()) <= 3 or not text[:m.start()].strip():
+        return m
+    return None
+
+
+def _after_label(between: str) -> bool:
+    """Whether the text between a label and a number is only what
+    separates them (space, a colon, a dot, a dash): the number is the
+    label's value, the rest of its line."""
+    return not between.strip(" \t:.#-")
 
 
 def _read_page(doc, page: int) -> _Sheet:
@@ -315,18 +392,31 @@ def _read_page(doc, page: int) -> _Sheet:
                         "sheet does: read its title block by looking")
         sheet.has_text = False
         return sheet
-    labels = [ln for ln in lines if NUMBER_LABEL.search(ln.text)
-              and _in_band(ln.bbox, sheet.width, sheet.height)]
+    # a label whose value is in the next cell: a label line with nothing
+    # after its label (one with a value on it labels only that value)
+    labels = []
+    for ln in lines:
+        if not _in_band(ln.bbox, sheet.width, sheet.height):
+            continue
+        m = _label_in(ln.text)
+        if m is not None and _after_label(ln.text[m.end():]):
+            labels.append(ln)
     for ln in lines:
         if not _in_band(ln.bbox, sheet.width, sheet.height):
             continue
         text = ln.text
+        on_line = _label_in(text)
         for masked, m in _numbers_in(ln):
+            sheet.tokens.add(normalize_number(m.group(0)))
             box = _token_box(ln, m.start(), m.end())
             if not _in_band(box, sheet.width, sheet.height):
                 continue
             before = masked[:m.start()]
-            labelled = bool(NUMBER_LABEL.search(before)) or any(
+            if NOT_A_SHEET_BEFORE.search(before):
+                continue                   # "Page 1.1", "Figure A-1"
+            labelled = (
+                on_line is not None and on_line.end() <= m.start()
+                and _after_label(masked[on_line.end():m.start()])) or any(
                 lab is not ln and _beside_label(box, lab.bbox, ln.rotation)
                 for lab in labels)
             sheet.pieces.append(_Piece(
@@ -353,13 +443,18 @@ def _same_place(a, b, turned: bool) -> bool:
 
 def _slots(sheets: Sequence[_Sheet]) -> List[Dict[str, Any]]:
     """Groups of pieces at the same place from sheet to sheet, best first:
-    ``{"pieces": {page: piece}, "cover", "distinct", "score"}``."""
+    ``{"pieces": {page: piece}, "cover", "distinct", "score"}``. Only a
+    piece that is a line of its own or the value of a label takes part: a
+    number inside a sentence ("Page 1.1 of the report") is not a title
+    block's."""
     groups: List[Dict[str, Any]] = []
     # groups are looked up by a grid of tolerance-sized cells, so a long
     # set of dense sheets costs one pass, not one comparison per pair
     cells: Dict[Tuple[bool, int, int], List[Dict[str, Any]]] = {}
     for sheet in sheets:
         for piece in sheet.pieces:
+            if not (piece.whole_line or piece.labelled):
+                continue
             at = _centre(piece, sheet)
             along, across = (1, 0) if piece.turned else (0, 1)
             ia = int(at[along] // SLOT_ALONG)
@@ -401,6 +496,33 @@ def _slots(sheets: Sequence[_Sheet]) -> List[Dict[str, Any]]:
     return sorted(out, key=lambda g: -g["score"])
 
 
+def _slots_for(group: Sequence[_Sheet]
+               ) -> Dict[int, Tuple[_Piece, Dict[str, Any]]]:
+    """``{page: (piece, slot)}`` for the sheets of one size. The best slot
+    numbers the sheets it covers; the sheets it leaves are searched again
+    for a slot of their own, its cover measured against those sheets (a
+    set can hold two title-block layouts: a consultant's sheets among the
+    architect's). A further slot is taken only where none of its values is
+    a number already read."""
+    out: Dict[int, Tuple[_Piece, Dict[str, Any]]] = {}
+    rest = [s for s in group if s.has_text]
+    while len(rest) >= SLOT_MIN_SHEETS:
+        taken = {normalize_number(p.token) for p, _slot in out.values()}
+        found = None
+        for slot in _slots(rest):
+            values = {normalize_number(p.token)
+                      for p in slot["pieces"].values()}
+            if not values & taken:
+                found = slot
+                break
+        if found is None:
+            break
+        for page, piece in found["pieces"].items():
+            out[page] = (piece, found)
+        rest = [s for s in rest if s.page not in found["pieces"]]
+    return out
+
+
 def _by_label(sheet: _Sheet) -> Optional[_Piece]:
     """The sheet number of one sheet on its own: the labelled piece (the
     largest, if several)."""
@@ -414,7 +536,8 @@ def _by_size(sheet: _Sheet) -> Optional[_Piece]:
     """The sheet number of one sheet with no label to go by: a number
     standing alone in the title block's corner (the lower right) in
     lettering well above the rest of the title block's and above every
-    other number there. ``None`` unless one piece stands out so."""
+    other number there (the usual lettering is the median of the bands'
+    other lines). ``None`` unless one piece stands out so."""
     corner = [p for p in sheet.pieces if p.whole_line
               and (p.bbox[0] + p.bbox[2]) / 2.0 >= CORNER_X * sheet.width
               and (p.bbox[1] + p.bbox[3]) / 2.0 >= CORNER_Y * sheet.height]
@@ -422,8 +545,9 @@ def _by_size(sheet: _Sheet) -> Optional[_Piece]:
         return None
     best = max(corner, key=lambda p: p.size)
     band = [_size(ln) for ln in sheet.lines
-            if _in_band(ln.bbox, sheet.width, sheet.height)]
-    if best.size < STANDS_OUT * median(band):
+            if _in_band(ln.bbox, sheet.width, sheet.height)
+            and ln.text != best.line_text]
+    if not band or best.size < STANDS_OUT * median(band):
         return None
     if any(p is not best and p.token != best.token
            and p.size >= 0.8 * best.size for p in sheet.pieces):
@@ -488,7 +612,7 @@ def _static_texts(sheets: Sequence[_Sheet]
 
 
 def _block_box(sheet: _Sheet, places: Dict[str, List[Tuple[float, float]]],
-               number: _Piece) -> Optional[BBox]:
+               number: Optional[_Piece]) -> Optional[BBox]:
     """The title block of ``sheet`` as far as the text shows it: the box
     round the wording the set prints at the same place on every sheet, and
     the sheet number. ``None`` when the set shows no such wording."""
@@ -497,7 +621,8 @@ def _block_box(sheet: _Sheet, places: Dict[str, List[Tuple[float, float]]],
                     for spot in places.get(_clean(ln.text), ()))]
     if not boxes:
         return None
-    boxes.append(number.bbox)
+    if number is not None:
+        boxes.append(number.bbox)
     pad = 0.01 * max(sheet.width, sheet.height)
     return (min(b[0] for b in boxes) - pad, min(b[1] for b in boxes) - pad,
             max(b[2] for b in boxes) + pad, max(b[3] for b in boxes) + pad)
@@ -510,12 +635,13 @@ _NOT_A_TITLE = re.compile(
     r"|^\s*SCALE\b|\bPROJECT\s+NO\b|^\s*ISSUE\b|^\s*DATE\b", re.I)
 
 
-def _title(sheet: _Sheet, number: _Piece, static: set,
+def _title(sheet: _Sheet, number: Optional[_Piece], static: set,
            places: Optional[Dict[str, List[Tuple[float, float]]]] = None
            ) -> Optional[str]:
     """The sheet's title: under or beside a title label where there is one,
     else the largest lettering of the title block that is this sheet's own,
-    wrapped lines joined."""
+    wrapped lines joined. ``number`` is the sheet number's piece, ``None``
+    for a sheet numbered some other way."""
     band = [ln for ln in sheet.lines
             if _in_band(ln.bbox, sheet.width, sheet.height)]
     revision_boxes = _revision_rows(sheet)[1]
@@ -529,7 +655,8 @@ def _title(sheet: _Sheet, number: _Piece, static: set,
             return False
         if NUMBER_LABEL.search(text) or TITLE_LABEL.match(text):
             return False
-        if SHEET_NUMBER.fullmatch(text) or number.line_text == ln.text:
+        if SHEET_NUMBER.fullmatch(text) or (
+                number is not None and number.line_text == ln.text):
             return False
         return not any(_inside(ln.bbox, box) for box in revision_boxes)
 
@@ -707,44 +834,43 @@ def sheet_index(doc) -> SheetIndex:
     for s in sheets:
         by_size.setdefault((round(s.width / 4), round(s.height / 4)),
                            []).append(s)
+    contexts: Dict[int, Tuple[_Sheet, set, Dict[str, Any]]] = {}
     for group in by_size.values():
-        slots = _slots(group)
-        slot = slots[0] if slots else None
+        slotted = _slots_for(group)
         static, places = _static_texts(group)
         for s in group:
+            contexts[s.page] = (s, static, places)
             row = SheetRow(page=s.page, count=_count(s) if s.has_text
                            else None, readable=s.has_text)
             index.rows.append(row)
             piece, how, confidence = None, None, 0.0
             if not s.has_text:
                 row.reason = s.reason
-            elif slot is not None and s.page in slot["pieces"]:
-                piece = slot["pieces"][s.page]
-                how = "title-block slot"
+            elif s.page in slotted:
+                piece, slot = slotted[s.page]
+                how = HOW_SLOT
                 confidence = min(0.98, 0.6 + 0.4 * slot["cover"]
                                  * slot["distinct"])
             else:
                 piece = _by_label(s)
                 if piece is not None:
-                    how, confidence = "label", 0.75
+                    how, confidence = HOW_LABEL, 0.75
                 else:
                     piece = _by_size(s)
                     if piece is not None:
-                        how = "largest lettering in the title-block corner"
+                        how = HOW_SIZE
                         confidence = 0.5
             if piece is None:
                 if s.has_text:
-                    row.reason = (
-                        "no sheet number found in the title block's text"
-                        + (f" (it prints a sheet count, {row.count})"
-                           if row.count else ""))
+                    row.reason = NO_NUMBER + (
+                        " (it prints a sheet count)" if row.count else "")
                 labelled = _from_label(doc.label(s.page))
                 if labelled is not None:
                     # the file's own name for the page, not a reading of
                     # the sheet: said so, and trusted less
                     row.number, title = labelled
                     row.title = title
-                    row.how = "PDF page label" + (
+                    row.how = HOW_PAGE_LABEL + (
                         "" if s.has_text else " (no text layer on the sheet)")
                     row.confidence, row.reason = 0.6, None
                 continue
@@ -753,28 +879,123 @@ def sheet_index(doc) -> SheetIndex:
             row.title = _title(s, piece, static, places)
             row.revision, row.revision_note = _revision(s)
     index.rows.sort(key=lambda r: r.page)
-    held: Dict[str, List[int]] = {}
-    for r in index.indexed:
-        held.setdefault(normalize_number(r.number), []).append(r.page)
-    for number, pages in held.items():
-        if len(pages) > 1:
-            index.notes.append(
-                f"sheet number {number} is printed on pages "
-                f"{', '.join(str(p) for p in pages)}")
+    changed = _by_view_titles(index, contexts)
+    for row in index.rows:
+        if row.readable and not row.number:
+            row.tokens = frozenset(contexts[row.page][0].tokens)
+    note = _duplicate_note(index)
+    if note:
+        index.notes.append(note)
     missing = index.not_indexed
     if missing:
         index.notes.append(
             f"{len(missing)} of {len(index.rows)} sheets could not be "
             f"indexed from their text")
     by_label = [r for r in index.indexed
-                if (r.how or "").startswith("PDF page label")]
+                if (r.how or "").startswith(HOW_PAGE_LABEL)]
     if by_label:
         index.notes.append(
             f"{len(by_label)} of {len(index.rows)} sheets are numbered from "
             f"the PDF's page labels, not read from their title blocks")
+    by_views = [r for r in index.indexed if r.how == HOW_VIEW_TITLES]
+    if by_views:
+        index.notes.append(
+            f"{len(by_views)} of {len(index.rows)} sheets are numbered from "
+            f"their own view titles (each names the sheet it is on), not "
+            f"read from their title blocks")
+    if changed:
+        shown = "; ".join(f"page {page}: {was} ({how}) against {now}"
+                          for page, was, how, now in changed[:3])
+        more = f"; and {len(changed) - 3} more" if len(changed) > 3 else ""
+        index.notes.append(
+            f"{len(changed)} sheet(s) whose title-block reading disagreed "
+            f"with their own view titles are numbered from the view titles "
+            f"({shown}{more})")
     return index
 
 
+def _by_view_titles(index: SheetIndex,
+                    contexts: Dict[int, Tuple[_Sheet, set, Dict[str, Any]]]
+                    ) -> List[Tuple[int, str, str, str]]:
+    """Number a readable sheet from its own view titles where the title
+    block did not give its number by the slot: when every bubble drawn on
+    it with a title beside it (a view's title mark,
+    :func:`planlens.document.crossrefs.titled_bubbles`) names one sheet,
+    and no other page is that sheet, the sheet is that one. A sheet with
+    no number takes it; a sheet whose label, corner lettering or page
+    label read another number takes it in place of that reading (returned
+    as ``(page, number read, how, number taken)``). Where another page
+    already holds the number the bubbles name, they are callouts with a
+    note beside them, and nothing changes."""
+    from planlens.document.crossrefs import titled_bubbles
+    numbers = {normalize_number(r.number) for r in index.indexed}
+    shapes = {number_shape(n) for n in numbers}
+
+    def sheet_like(token: str) -> bool:
+        token = normalize_number(token)
+        return bool(WHOLE_SHEET_NUMBER.match(token)) and (
+            not shapes or token in numbers or number_shape(token) in shapes)
+
+    changed: List[Tuple[int, str, str, str]] = []
+    for row in index.rows:
+        if not row.readable or row.how == HOW_SLOT:
+            continue
+        sheet, static, places = contexts[row.page]
+        named: Dict[str, str] = {}
+        for _view, printed in titled_bubbles(sheet.lines, sheet_like):
+            named.setdefault(normalize_number(printed), printed)
+        if len(named) != 1:
+            continue
+        key, printed = next(iter(named.items()))
+        if row.number and normalize_number(row.number) == key:
+            continue                              # the two agree
+        if any(r.page != row.page and r.number
+               and normalize_number(r.number) == key for r in index.rows):
+            continue
+        if row.number:
+            changed.append((row.page, row.number, row.how or "", printed))
+        row.number, row.how, row.confidence = printed, HOW_VIEW_TITLES, 0.55
+        row.bbox, row.reason = None, None
+        row.title = _title(sheet, None, static, places)
+        row.revision, row.revision_note = _revision(sheet)
+    return changed
+
+
+def _pages_text(pages: Sequence[int], most: int = 6) -> str:
+    shown = ", ".join(str(p) for p in pages[:most])
+    return shown + (f" and {len(pages) - most} more"
+                    if len(pages) > most else "")
+
+
+def _duplicate_note(index: SheetIndex) -> Optional[str]:
+    """One note for every number read on more than one page: the number
+    and its pages where there is one, else how many and the first few;
+    where every number of the document is read the same number of times,
+    that is said plainly (a set bound in twice)."""
+    dups = sorted(index.duplicates().items(), key=lambda kv: kv[1][0])
+    if not dups:
+        return None
+    if len(dups) == 1:
+        number, pages = dups[0]
+        return (f"sheet number {number} is read on pages "
+                f"{_pages_text(pages)}")
+    head = ", ".join(f"{number} (pages {_pages_text(pages)})"
+                     for number, pages in dups[:3])
+    more = f", and {len(dups) - 3} more" if len(dups) > 3 else ""
+    times = {len(pages) for _number, pages in dups}
+    distinct = {normalize_number(n) for n in index.numbers()}
+    if len(times) == 1 and len(dups) == len(distinct):
+        k = times.pop()
+        word = "two" if k == 2 else str(k)
+        return (f"every sheet number in this document is read on {word} "
+                f"pages ({len(dups)} numbers: {head}{more}); the document "
+                f"may hold the set {'twice' if k == 2 else f'{k} times'} "
+                f"over")
+    return (f"{len(dups)} sheet numbers are each read on more than one "
+            f"page: {head}{more}")
+
+
 __all__ = ["SheetRow", "SheetIndex", "sheet_index", "normalize_number",
-           "number_shape", "SHEET_NUMBER", "WHOLE_SHEET_NUMBER",
-           "SHEET_COUNT"]
+           "number_shape", "discipline", "SHEET_NUMBER", "WHOLE_SHEET_NUMBER",
+           "SHEET_COUNT", "HOW_SLOT", "HOW_LABEL", "HOW_SIZE",
+           "HOW_PAGE_LABEL", "HOW_VIEW_TITLES"]

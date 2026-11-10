@@ -136,3 +136,53 @@ def test_a_small_limit_cuts_the_list_and_says_where_to_go_on(gt):
     rest = _invoke(tools["check_cross_references"], handle=handle,
                    offset=part["next_offset"])
     assert rest["callouts"][0] != part["callouts"][0]
+
+
+def test_the_calling_host_decides_whether_the_sheet_tools_are_served(gt):
+    """Hosts with no working folder share one conversation and its
+    toolkit. Whichever host's call built it, a host that asked is served
+    the sheet tools and a host that did not is refused them, exactly as
+    each is offered them."""
+    from planlens.review import conversation
+    from planlens.review.host import ReviewHost
+    att = {"set.pdf": gt.pdf}
+    plain, asked = ReviewHost(), ReviewHost(toolkit_options=ASK)
+    for first in (plain, asked):
+        conversation._SPACES.clear()
+        opened = json.loads(review.call("open_document",
+                                        {"source": "set.pdf"}, att,
+                                        host=first))
+        handle = opened["handle"]
+        served = json.loads(review.call("sheet_index", {"handle": handle},
+                                        att, host=asked))
+        assert served["n_indexed"] == 5, served
+        refused = json.loads(review.call("sheet_index", {"handle": handle},
+                                         att, host=plain))
+        assert refused["error"] == "unknown tool 'sheet_index'"
+        assert "sheet_index" not in refused["hint"]
+        # the same at the dispatcher the app's own tool functions call
+        from planlens.review.host import using
+        with using(plain):
+            raw = conversation.dispatch_document_tool(
+                "check_cross_references", {"handle": handle}, att)
+        assert json.loads(raw)["error"] == \
+            "unknown tool 'check_cross_references'"
+        with using(asked):
+            raw = conversation.dispatch_document_tool(
+                "check_cross_references", {"handle": handle}, att)
+        assert json.loads(raw)["counts"]["callouts"] == 9
+        # one toolkit throughout: the handle opened by the first host works
+        assert len(conversation._SPACES) == 1
+
+
+def test_status_and_viewer_pages_are_described_to_the_model(gt):
+    make_tools(None, None, {"set.pdf": gt.pdf}, toolkit_options=ASK)
+    shown = {s["name"]: s for s in review.tool_specs()}
+    check = shown["check_cross_references"]
+    status = check["input_schema"]["properties"]["status"]
+    assert status["anyOf"][0] == {"type": "string",
+                                  "enum": ["unresolved", "cannot_tell",
+                                           "resolved"]}
+    assert status["default"] is None
+    assert check["description"].endswith(specs.PDF_PAGES_NOTE)
+    assert "in this set" not in check["description"]

@@ -1234,9 +1234,22 @@ class ReviewToolkit:
             out["next_offset"] = nxt
         return out
 
+    #: How a sheet's number was found: the start of the index row's
+    #: ``how``, the short words a tool row carries (``from``), and what they
+    #: mean. A number read from the title-block slot carries none.
+    SHEET_FROM = (
+        ("PDF page label", "page label",
+         "the PDF's page label, the title block not read"),
+        ("label", "label", "beside a SHEET NO. label"),
+        ("largest lettering", "large lettering",
+         "the largest number in the title block's corner"),
+        ("the sheet's own view titles", "view titles",
+         "named by the sheet's own view titles"))
+
     def _tool_sheet_index(self, handle: str,
                           offset: int = 0) -> Dict[str, Any]:
         from planlens.document.crossrefs import _compact
+        from planlens.document.sheets import normalize_number
         entry = self._entry(handle)
         with entry.lock:
             index = entry.doc.sheet_index()
@@ -1244,6 +1257,14 @@ class ReviewToolkit:
         rows = index.indexed
         if offset < 0 or (rows and offset >= len(rows)):
             raise ToolError(f"offset {offset} is outside 0-{len(rows) - 1}")
+        doubled = index.duplicates()
+
+        def read_from(r) -> Optional[str]:
+            how = r.how or ""
+            for start, words, _meaning in self.SHEET_FROM:
+                if how.startswith(start):
+                    return words
+            return None
 
         def row(r):
             shown = {"page": r.page, "sheet": r.number}
@@ -1254,39 +1275,97 @@ class ReviewToolkit:
             views = refs.views.get(r.number)
             if views:
                 shown["views"] = _compact(views)
-            if (r.how or "").startswith("PDF page label"):
-                shown["from"] = "page label"
+            words = read_from(r)
+            if words:
+                shown["from"] = words
+            if normalize_number(r.number) in doubled:
+                shown["duplicate"] = True
             return shown
 
         out: Dict[str, Any] = {
             "handle": handle, "n_pages": index.n_pages,
             "n_sheets": len(index.rows), "n_indexed": len(rows)}
+        budget = self._budget(300)
+        # what was not indexed and the notes count against the room, each
+        # kept to a share of it so the rows always have some
+        share = max(120, budget // 4)
         missing = index.not_indexed
         if missing:
             by_reason: Dict[str, List[int]] = {}
             for r in missing:
                 by_reason.setdefault(r.reason or "not indexed",
                                      []).append(r.page)
-            out["not_indexed"] = [{"pages": compact_ranges(pages),
-                                   "reason": reason}
-                                  for reason, pages in by_reason.items()]
+            groups = []
+            for reason, pages in by_reason.items():
+                group: Dict[str, Any] = {"pages": compact_ranges(pages),
+                                         "reason": reason}
+                if len(group["pages"]) > 120:
+                    # scattered pages: the first ranges, and how many more
+                    shown_pages = pages[:]
+                    while len(compact_ranges(shown_pages)) > 120:
+                        shown_pages = shown_pages[:max(1, len(shown_pages)
+                                                       * 3 // 4)]
+                    group["pages"] = compact_ranges(shown_pages)
+                    group["more_sheets"] = len(pages) - len(shown_pages)
+                groups.append(group)
+            kept, cut = fit_items(groups, share)
+            out["not_indexed"] = kept
+            if cut is not None:
+                out["not_indexed_left_out"] = {
+                    "reasons": len(groups) - cut,
+                    "sheets": sum(len(by_reason[g["reason"]])
+                                  for g in groups[cut:])}
             out["look"] = self._look([
                 "a sheet under not_indexed has no number here: read its "
                 "title block by viewing it"])[0]
         if index.notes:
-            out["notes"] = list(index.notes)
-        out["note"] = (
+            kept, cut = fit_items(index.notes, share)
+            out["notes"] = kept
+            if cut is not None:
+                out["notes_left_out"] = len(index.notes) - cut
+        note = (
             "page is the 0-based PDF page these tools take; sheet, title "
-            "and rev are as the sheet's own title block prints them (from: "
-            "page label marks a sheet named by the PDF's page label "
-            "instead, its title block not read); views are the view "
-            "numbers found on the sheet")
-        shown, nxt = fit_items(rows, self._budget(300) - json_len(out),
-                               to_payload=row, start=offset)
-        out["sheets"] = shown
-        if nxt is not None:
-            out["next_offset"] = nxt
-        return out
+            "and rev are as the sheet's own title block prints them; views "
+            "are the view marks recognised on the sheet")
+        used = {read_from(r) for r in rows} - {None}
+        marks = []
+        if used:
+            marks.append(
+                "from: the number was not read from the place every title "
+                "block of the set prints it, and is trusted less (" + "; ".join(
+                    f"{words}: {meaning}" for _start, words, meaning
+                    in self.SHEET_FROM if words in used) + ")")
+        if doubled:
+            marks.append("duplicate: the number is read on another page too")
+        out["note"] = "; ".join([note] + marks)
+
+        def with_rows() -> Dict[str, Any]:
+            shown, nxt = fit_items(rows, budget - json_len(out),
+                                   to_payload=row, start=offset)
+            whole = dict(out, sheets=shown)
+            if nxt is not None:
+                whole["next_offset"] = nxt
+            return whole
+
+        # under a small limit what the rows are read with gives way, never
+        # the rows: the notes, then what was not indexed, each to a count,
+        # then the long note
+        whole = with_rows()
+        for step in ("notes", "not_indexed", "note"):
+            if json_len(whole) <= budget + 280:
+                break
+            if step == "notes" and "notes" in out:
+                out["notes_left_out"] = len(index.notes)
+                del out["notes"]
+            elif step == "not_indexed" and "not_indexed" in out:
+                del out["not_indexed"]
+                out["not_indexed_left_out"] = {
+                    "reasons": len(groups),
+                    "sheets": len(missing)}
+            elif step == "note":
+                out["note"] = note
+            whole = with_rows()
+        return whole
 
     def _tool_check_cross_references(self, handle: str, pages: Any = None,
                                      status: Optional[str] = None,
@@ -1324,8 +1403,8 @@ class ReviewToolkit:
         out["note"] = (
             "a callout is view/sheet; page is the 0-based PDF page it is "
             "drawn on and bbox its place there (PDF points, top-left "
-            "origin); target is the sheet it names, where that is in the "
-            "set")
+            "origin); target is the sheet it names, where that is in this "
+            "document; why says what was and was not found")
         if counts["unresolved"] or counts["cannot_tell"]:
             out["look"] = self._look([
                 "view an unresolved callout at its bbox, and the sheet it "
