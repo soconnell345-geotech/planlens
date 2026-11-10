@@ -1017,7 +1017,7 @@ class ReviewToolkit:
         if len(rows) < len(hits):
             cut["hits_omitted_for_size"] = len(hits) - len(rows)
             cut["hint"] = said(len(rows))
-        else:                   # every hit is in it: nothing to say of the list
+        else:                    # every hit is in it: the list was not cut
             del cut["hits_omitted_for_size"], cut["hint"]
         return cut
 
