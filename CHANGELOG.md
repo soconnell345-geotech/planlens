@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Fixes from the 2026-11-10 code review.**
+- **Fixes from the 2026-11-10 code review (app BACKLOG PL-36).**
   *A marked copy never replaces the document or a file the app did not
   write.* `planlens.review`'s `annotate_document` with `output_path` equal
   to the opened document's own name (append on) put the marks into the
