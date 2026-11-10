@@ -17,6 +17,18 @@
   toolkit and `write_markups`, the check that the output is not the
   document compared path strings; it now compares files, so the same file
   spelled in other letter case or through a linked folder is refused too.
+  *Exact search finds what a reader sees.* `Document.search` (and so
+  `search_document` and a markup's `quote`) compared the PDF's stored
+  characters, so "specified" missed a page that stores the "fi" as one
+  ligature character, and a phrase missed across two spaces, a no-break
+  space, or a word hyphenated at a line end. Both sides are now compared
+  folded (`planlens.document.search_text`): each character's compatibility
+  decomposition (NFKD), every run of white space as one space, and a
+  line-end hyphen between letters or digits read three ways (as joined,
+  closed up, and without the hyphen where letters meet). A hit's `match`,
+  `snippet`, line ids and box are still the page's own. A regular
+  expression is taken as written and matched against the folded page text.
+  Fuzzy search is unchanged.
 
 ## 0.15.0 — 2026-11-09
 
