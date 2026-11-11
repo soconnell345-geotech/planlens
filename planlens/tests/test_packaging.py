@@ -23,10 +23,16 @@ tool would make this test skip in the very environments it protects.
 from __future__ import annotations
 
 import fnmatch
-import tomllib
 from pathlib import Path
 
 import pytest
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    # Python 3.10, the floor the package declares, has no tomllib. tomli is
+    # the same reader under its first name and comes with pytest there.
+    tomllib = pytest.importorskip("tomli")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
