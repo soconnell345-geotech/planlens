@@ -98,8 +98,9 @@ located, attributed data:
   from their title blocks (page, sheet number, title, latest revision, the
   view marks recognised on each), and `check_cross_references` reads the
   section and detail callouts in the text layer and says which lead to a
-  view recognised in the document, which do not, and which it cannot tell,
-  with the reason. And `annotate_document` sends the review BACK: notes,
+  view recognised in the document, which name a view the sheet does not
+  show, which name a sheet the file does not hold, and which it cannot
+  tell, with the reason. And `annotate_document` sends the review BACK: notes,
   highlights over the words quoted, boxes, callouts and replies written onto a
   NEW copy of the PDF as ordinary annotations, anchored to text that is
   searched for rather than to coordinates guessed at, with anything it could

@@ -15,18 +15,20 @@
   that does exactly that; what the set repeats (project, firm, labels) is
   the same everywhere and a callout's sheet number is somewhere else on
   each sheet. Sheets in a second title-block layout (a consultant's sheets
-  bound into the set) get a shared place of their own. A sheet no shared
-  place covers, and a document of one or two sheets, is read by its label
+  bound into the set) get a shared place of their own, taken only where its
+  numbers have the shape of the set's (a key plan's "C1", "C2" beside a set
+  numbered "A-101" are not sheet numbers); their rows say so and are
+  trusted less. A sheet no shared place covers, and a document of one or
+  two sheets, is read by its label
   ("SHEET NO.", "DWG NO.", "SHEET #", "DRAWING NUMBER"), only where the
   label is a title block's: a short line of its own or the start of one,
   with the number straight after it or alone in the cell beside or under
   it ("REFER TO DWG NO. S-201" in a general note is not a label). Failing
   that, a number standing alone in the corner in lettering at least twice
-  the band's usual lettering; failing that, the sheet's own view titles,
-  when every one names the same number and no other page holds it (they
-  also overrule a label or size reading they contradict, with a note). A
-  number after PAGE, FIG., TABLE, SECTION or APPENDIX is not a sheet
-  number, so a report printed on large pages gets none. Forms read:
+  the band's usual lettering. Nothing else numbers a sheet: not its view
+  titles, not the callouts drawn on it. A number after PAGE, FIG., TABLE,
+  SECTION or APPENDIX is not a sheet number, so a report printed on large
+  pages gets none. Forms read:
   `A-101`, `S-201A`, `A5.01`, `A1-01`, `C1.1`, `10.31A`, `G001`, lettering
   turned to read up the sheet. A sheet count ("SHEET 3 OF 24", "3 of 24")
   is never returned as a number; it is the row's `count`. A sheet with no
@@ -45,20 +47,25 @@
   those are the views a callout to that sheet is checked against; without
   a title it is a callout like any other. A bubble's view number is
   lettered at least as large as its sheet number. Each callout comes back
-  with its page, its box, the sheet it names and a status, `unresolved`
-  only where the text shows it: there is no such sheet in this document
-  though sheets of its discipline are here and every sheet that could be
-  it was read ("there is no sheet A-301 in this document"), or the sheet
-  is here, its view marks were recognised, and none is that view ("view
-  marks recognised on A-501: 1 to 6; none for 7"). `cannot_tell`, with a
-  plain reason, where the text cannot show it: no sheets of that
-  discipline in this document (the set may be issued in parts); a sheet
-  that could not be indexed may be it; a sheet number is read on two
-  pages; no view marks were recognised on that sheet, or it has a mark
-  that reads like a view's and was not read as one (a view number alone
-  with a title, a turned untitled mark); the sheet has no text layer.
-  It reads the text layer and upright callouts only, and says how many
-  sheets it could not read.
+  with its page, its box, the sheet it names and a status that states a
+  fact, for the agent reading it to judge. `unresolved`: the sheet is in
+  this document, view marks were recognised on it, and none for that view
+  ("view marks recognised on A-501: 1 to 6; none for 7"). `not_in_document`:
+  no sheet with that number was read in this document and no sheet that
+  could not be indexed could be it, with how many sheets the document
+  holds and, where true, that it holds none of that discipline; a finding
+  only if the file is the whole set (compare the cover's drawing index),
+  expected in a file that is part of one. `cannot_tell`, with the reason
+  and the pages to view: a sheet that could not be indexed could be it
+  (one with no usable text, or one whose page prints the number anywhere,
+  spaces aside, so wide lettering is found); a sheet number is read on two
+  pages; the sheet has no text layer or no recognised view mark; or a
+  number standing alone with words beside it reads as the called view
+  there ("a 7 with words beside it is on A-501 and was not read as a view
+  title: view it"). `resolved` otherwise. Results list them in that order:
+  unresolved, not_in_document, cannot_tell, resolved. It reads the text
+  layer and upright callouts only, and says how many sheets it could not
+  read.
   *Two tools.* `sheet_index` and `check_cross_references`
   (`planlens.tools.SHEET_TOOL_SPECS`) are served by
   `ReviewToolkit(sheet_tools=True)` and, through the host layer, by
@@ -68,13 +75,14 @@
   limit and continue by `next_offset`, and through the host layer carry the
   viewer's 1-based page beside every 0-based one and take `pdf_pages`.
   A `sheet_index` row whose number was not read from the place the set
-  shares says where it came from (`from`: label, large lettering, view
-  titles, page label), and a number read on two pages is marked
+  shares says where it came from (`from`: label, large lettering, second
+  title block, page label), and a number read on two pages is marked
   `duplicate`; the sheets not indexed come grouped by reason with their
   pages, and the result always fits its limit, counting what it left out.
   Whether the tools are served is decided by the host making each call,
   so hosts sharing one conversation's toolkit are each answered as they
-  asked. `TOOL_SPECS`, `HOST_TOOLS` and `open_document`'s result are
+  asked, and an unknown tool name is answered with the calling host's own
+  tool list. `TOOL_SPECS`, `HOST_TOOLS` and `open_document`'s result are
   unchanged.
   *A fixture.* `planlens.testing.build_sheet_set`: five made-up sheets in
   four title blocks and five ways of numbering, with the truth for the
@@ -82,8 +90,14 @@
   any sheets turned into scans; `sketch_pdf` draws one-off sheets (title
   blocks, bubbles, view titles, turned marks) for a test.
   Not measured on real drawing sets: the tests are planlens' own made-up
-  sheets. Limits are in `planlens/document/DESIGN.md`, "Sheet index and
-  cross-references".
+  sheets. Where it will be wrong or say nothing: a file holding the set
+  twice gets no verdicts (every number is read on two pages); a sheet
+  whose view titles are in a style the code does not read gets
+  `cannot_tell` for every callout to it; a view mark with no text beside
+  it is not seen, so a callout to it is `unresolved` where the sheet's
+  other views were recognised; tags shaped like the sheet numbers of a
+  discipline in the file can still pair as callouts. The rest are in
+  `planlens/document/DESIGN.md`, "Sheet index and cross-references".
 
 ## 0.15.1 — 2026-11-10
 

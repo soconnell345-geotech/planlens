@@ -80,8 +80,10 @@ result). Whether they are served is decided by the host making each call,
 not by the host whose call built the conversation's toolkit (hosts with no
 working folder share one conversation): a host that asked is served them,
 and a host that did not is answered "unknown tool" with its own tool names,
-exactly as each is offered them. The conversation's toolkit is built with
-them on, so the order of the calls does not matter.
+exactly as each is offered them. Any name the toolkit does not have is
+answered the same way, with the calling host's list, never the toolkit's.
+The conversation's toolkit is built with them on, so the order of the
+calls does not matter.
 
 ## Modules
 
