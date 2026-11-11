@@ -1,0 +1,65 @@
+name: Tests
+
+# The whole suite on GitHub's runners, so a merge is not gated on the
+# developer's own machine (the suite is about 2,350 tests and 25 minutes in
+# one process).
+#
+# - A push to main runs it.
+# - A push to a branch named ci/<anything> runs it on that branch: push a
+#   feature branch under that name to gate it here before the merge.
+# - A pull request to main runs it; workflow_dispatch runs it by hand.
+on:
+  push:
+    branches: [main, "ci/**"]
+    # A commit that touches only prose does not start the suite.
+    paths-ignore: ["**.md"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Only the newest commit of a branch needs testing: a newer push cancels
+# the run still going.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # Pinned, as the app's workflow is: ubuntu-latest moves between releases.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      # One Python version failing must not cancel the other's run.
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor the package declares; 3.12 is what the hosts
+        # the app runs on have.
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the package, the MCP extra and pytest
+        # The OCR extra is left out on purpose: every rapidocr distribution
+        # requires the full opencv-python, which shares a namespace with
+        # the headless build the package depends on (README "Install").
+        # The tests that need it skip.
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[mcp]"
+          pip install pytest
+
+      - name: What is installed
+        run: |
+          python -c "import planlens; print('planlens', planlens.__version__)"
+          pip list 2>/dev/null | grep -i -E "^(numpy|opencv|pymupdf|ezdxf|rapidfuzz|mcp|pytest) "
+          lscpu | grep -E "Model name|^CPU\(s\)"
+
+      - name: Run tests
+        # One process, as the suite is run before a merge: nothing here has
+        # been checked under parallel workers.
+        run: python -m pytest -q --tb=short --durations=15 -p no:cacheprovider
