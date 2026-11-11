@@ -80,8 +80,9 @@ def test_the_sheet_tools_through_the_host_give_both_page_numbers(gt):
     assert first["callout"] == "5/A-501"
     assert (first["page"], first["pdf_page"]) == (1, 2)
     assert first["target"] == {"sheet": "A-501", "page": 3, "pdf_page": 4}
-    assert refs["counts"] == {"callouts": 9, "unresolved": 2,
-                              "cannot_tell": 1, "resolved": 6}
+    assert refs["counts"] == {"callouts": 9, "unresolved": 1,
+                              "not_in_document": 1, "cannot_tell": 1,
+                              "resolved": 6}
 
 
 def test_the_sheet_tools_take_what_the_other_document_tools_take(gt):
@@ -94,7 +95,7 @@ def test_the_sheet_tools_take_what_the_other_document_tools_take(gt):
     assert third["counts"]["callouts"] == 4
     only = _invoke(tools["check_cross_references"], handle=handle,
                    status="unresolved")
-    assert [r["callout"] for r in only["callouts"]] == ["5/A-501", "1/A-301"]
+    assert [r["callout"] for r in only["callouts"]] == ["5/A-501"]
     # a file name where the handle goes opens the file
     again = _invoke(tools["sheet_index"], handle="set.pdf")
     assert again["n_indexed"] == 5
@@ -181,8 +182,31 @@ def test_status_and_viewer_pages_are_described_to_the_model(gt):
     check = shown["check_cross_references"]
     status = check["input_schema"]["properties"]["status"]
     assert status["anyOf"][0] == {"type": "string",
-                                  "enum": ["unresolved", "cannot_tell",
-                                           "resolved"]}
+                                  "enum": ["unresolved", "not_in_document",
+                                           "cannot_tell", "resolved"]}
     assert status["default"] is None
     assert check["description"].endswith(specs.PDF_PAGES_NOTE)
     assert "in this set" not in check["description"]
+
+
+def test_an_unknown_tool_lists_only_the_calling_hosts_tools(gt):
+    """A host that asked for the sheet tools builds the conversation's
+    toolkit; a plain host then dispatches a name no toolkit has. It is
+    told the tools IT is offered, never the sheet tools; the host that
+    asked is told its own, sheet tools and all."""
+    from planlens.review import conversation
+    from planlens.review import specs as review_specs
+    from planlens.review.host import ReviewHost, using
+    att = {"set.pdf": gt.pdf}
+    plain, asked = ReviewHost(), ReviewHost(toolkit_options=ASK)
+    handle = json.loads(review.call("open_document", {"source": "set.pdf"},
+                                    att, host=asked))["handle"]
+    for host, sheet_tools in ((plain, False), (asked, True)):
+        with using(host):
+            out = json.loads(conversation.dispatch_document_tool(
+                "no_such_tool", {"handle": handle}, att))
+        assert out["error"] == "unknown tool 'no_such_tool'"
+        offered = list(review_specs.host_tool_names(
+            look=False, sheet_tools=sheet_tools))
+        assert out["hint"] == f"available tools: {offered}"
+        assert ("sheet_index" in out["hint"]) is sheet_tools

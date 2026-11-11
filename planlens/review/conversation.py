@@ -120,6 +120,19 @@ def _asked_for_sheet_tools(host) -> bool:
 _OPT_IN_TOOLS = ("sheet_index", "check_cross_references")
 
 
+def _unknown_tool(name: str) -> str:
+    """"unknown tool" for the calling host, naming the tools THAT host is
+    offered: the conversation's toolkit serves more than some hosts are
+    offered (the sheet tools), so its own list is never shown."""
+    from planlens.review import specs as _specs
+    host = _host()
+    offered = list(_specs.host_tool_names(
+        look=host.look is not None,
+        sheet_tools=_asked_for_sheet_tools(host)))
+    return json.dumps({"error": f"unknown tool '{name}'",
+                       "hint": f"available tools: {offered}"})
+
+
 def _refused_opt_in(name: str) -> Optional[str]:
     """The refusal of an opt-in tool the calling host did not ask for, or
     ``None``. A conversation's toolkit is shared by every host that calls
@@ -128,11 +141,7 @@ def _refused_opt_in(name: str) -> Optional[str]:
     exactly what it is offered."""
     if name not in _OPT_IN_TOOLS or _asked_for_sheet_tools(_host()):
         return None
-    from planlens.review import specs as _specs
-    host = _host()
-    offered = list(_specs.host_tool_names(look=host.look is not None))
-    return json.dumps({"error": f"unknown tool '{name}'",
-                       "hint": f"available tools: {offered}"})
+    return _unknown_tool(name)
 
 
 def _new_toolkit(folder: Optional[str]):
@@ -389,6 +398,8 @@ def dispatch_document_tool(name: str, arguments: Dict[str, Any],
     one_based = False
     try:
         space = _space(hold=True)
+        if name not in space.kit.tool_names:
+            return _unknown_tool(name)
         arguments = dict(arguments or {})
         one_based, refused = _one_based_pages(arguments)
         if refused is not None:

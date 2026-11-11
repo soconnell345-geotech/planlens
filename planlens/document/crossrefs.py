@@ -23,26 +23,28 @@ WHAT IS READ, from the text and where it sits (nothing is looked at):
 * **A callout** is any other upright bubble, and any "view/sheet" written
   on one line. A turned bubble naming another sheet is not read as a
   callout.
-* **A view mark not read as one**: a view number standing alone (its
-  sheet half not read, or a bubble holding the view number only) with a
-  title beside it, or a turned bubble naming its own sheet with no title
-  beside it. Where a sheet has one that is not among its recognised
-  views, the views recognised there may not be all it holds.
+* **A view number standing alone with words beside it** (a bubble holding
+  the view number only, or one whose sheet half was not read; equally a
+  keynote or a note's number): kept for its sheet as ``unread_marks``. It
+  may be a view's title in a style not read, and only for its own number.
 
-WHAT IS SAID of each callout:
+WHAT IS SAID of each callout. Facts only; the agent reading them judges:
 
 * ``resolved``: the sheet is in the document and a mark for that view was
   recognised on it;
-* ``unresolved``: there is no such sheet in this document though its
-  discipline's sheets are here and every sheet that could be it was read,
-  or the sheet is here, view marks were recognised on it, none for that
-  view, and nothing else on it reads like a view mark;
-* ``cannot_tell``, with the reason: the sheet is not in the index but a
-  sheet that could not be indexed may be it; or no sheet of its
-  discipline is in this document (the set may be issued in parts); or a
-  sheet number is read on more than one page; or the sheet is here but has
-  no text layer, or no view marks were recognised on it, or it has a view
-  mark that was not read as one.
+* ``unresolved``: the sheet is in the document, at least one view mark was
+  recognised on it, none for that view, and no view number standing alone
+  there reads as that view;
+* ``not_in_document``: no sheet with that number was read in this
+  document, and no sheet that could not be indexed could be it. A finding
+  only if the file is the whole set; in a file that is part of one it is
+  expected;
+* ``cannot_tell``, with the reason: a sheet that could not be indexed could
+  be it (one with no usable text always could; a readable one could when
+  its page prints the number anywhere, spaces aside: a sheet prints its own
+  number); a sheet number is read on two pages; the sheet has no text
+  layer, no view mark recognised on it, or a view number standing alone
+  with words beside it that reads as the called view.
 
 It reads what the text layer holds. A sheet with no text layer has no
 callouts here, and the result says how many sheets that was. Whether a
@@ -58,9 +60,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from planlens.document.sheets import (
-    _LETTERED, _DECIMAL, HOW_LABEL, HOW_SIZE, HOW_SLOT, SheetIndex,
-    SheetRow, WHOLE_SHEET_NUMBER, _reading, _size, discipline,
-    normalize_number, number_shape, sheet_index)
+    _LETTERED, _DECIMAL, SheetIndex, WHOLE_SHEET_NUMBER, _reading, _size,
+    discipline, normalize_number, number_shape, sheet_index)
 
 BBox = Tuple[float, float, float, float]
 
@@ -73,6 +74,9 @@ TEXT_CALLOUT = re.compile(
     rf"({_LETTERED}|{_DECIMAL})(?![\w/-]|\.\d)")
 
 RESOLVED, UNRESOLVED, CANNOT_TELL = "resolved", "unresolved", "cannot_tell"
+NOT_IN_DOCUMENT = "not_in_document"
+#: Every status, those that flag a callout first: the order results use.
+STATUSES = (UNRESOLVED, NOT_IN_DOCUMENT, CANNOT_TELL, RESOLVED)
 
 #: A bubble's view number is lettered at least this share of its sheet
 #: number's size (as large, less what a size read off a box can be out).
@@ -118,8 +122,8 @@ class CrossReferences:
     """A document's callouts and the views they were checked against.
     ``views`` maps a sheet number to the view numbers recognised on it,
     ``view_titles`` ``(sheet, view)`` to the title beside the view's mark,
-    ``unread_marks`` a sheet number to the view numbers of marks on it that
-    read like a view's but were not recognised as one."""
+    ``unread_marks`` a sheet number to the view numbers standing alone on
+    it with words beside them that are not among its recognised views."""
     callouts: List[Callout] = field(default_factory=list)
     views: Dict[str, List[str]] = field(default_factory=dict)
     view_titles: Dict[Tuple[str, str], str] = field(default_factory=dict)
@@ -127,8 +131,8 @@ class CrossReferences:
     unread_marks: Dict[str, List[str]] = field(default_factory=dict)
 
     def counts(self) -> Dict[str, int]:
-        out = {"callouts": len(self.callouts), RESOLVED: 0, UNRESOLVED: 0,
-               CANNOT_TELL: 0}
+        out = {"callouts": len(self.callouts)}
+        out.update((status, 0) for status in STATUSES)
         for c in self.callouts:
             out[c.status] += 1
         return out
@@ -327,30 +331,20 @@ def _page_marks(lines: Sequence[Any], sheet_like,
     return bubbles, lone
 
 
-def titled_bubbles(lines: Sequence[Any], sheet_like) -> List[Tuple[str, str]]:
-    """``(view, sheet)`` of every bubble on a page that has a title beside
-    it (a view's title mark, in any reading direction): what
-    :mod:`planlens.document.sheets` numbers a sheet by when its title block
-    does not."""
-    return [(b.view, b.sheet) for b in _page_marks(lines, sheet_like)[0]
-            if b.title]
-
-
-def _could_be(row: SheetRow, target: str, prints_numbers: bool) -> bool:
-    """Whether a sheet that could not be indexed could be sheet ``target``:
-    one with no readable text always could; a readable one only if it
-    prints that number in its title-block bands, where the document shows
-    that its title blocks print numbers (``prints_numbers``: some sheet's
-    number was read from its title block). In a set whose title blocks
-    print none, any sheet could be any number."""
-    return (not row.readable or not prints_numbers
-            or target in row.tokens)
+def _squeezed(text: str) -> str:
+    """``text`` upper case with every space taken out, as a number printed
+    with wide lettering ("A - 6 0 1") or in two pieces is compared."""
+    return re.sub(r"\s+", "", str(text or "")).upper()
 
 
 def _pages(pages: Sequence[int], most: int = 4) -> str:
     shown = ", ".join(str(p) for p in pages[:most])
     return shown + (f" and {len(pages) - most} more"
                     if len(pages) > most else "")
+
+
+def _plural(items: Sequence[Any], one: str, many: str) -> str:
+    return one if len(items) == 1 else many
 
 
 def _discipline_text(number: str) -> str:
@@ -380,6 +374,8 @@ def cross_references(doc, index: Optional[SheetIndex] = None
 
     found: List[Callout] = []
     unread: Dict[str, set] = {}
+    #: page -> its whole text squeezed, for each readable sheet not indexed
+    printed: Dict[int, str] = {}
     for row in index.rows:
         try:
             lines = list(doc._page_text(row.page)[0])
@@ -387,24 +383,20 @@ def cross_references(doc, index: Optional[SheetIndex] = None
             lines = []
         if not lines:
             continue
+        if row.number is None:
+            printed[row.page] = _squeezed("".join(ln.text for ln in lines))
         own = normalize_number(row.number) if row.number else None
         bubbles, lone = _page_marks(lines, sheet_like, row.bbox)
         for b in bubbles:
             target = normalize_number(b.sheet)
-            if own is not None and target == own:
-                if b.title:
-                    held = refs.views.setdefault(row.number, [])
-                    if b.view not in held:
-                        held.append(b.view)
-                        refs.view_titles[(row.number, b.view)] = b.title
-                    continue
-                if b.way != 0:
-                    # a turned mark naming this sheet with no title found:
-                    # it may be a view, and is not read as a callout
-                    unread.setdefault(row.number, set()).add(b.view)
-                    continue
+            if own is not None and target == own and b.title:
+                held = refs.views.setdefault(row.number, [])
+                if b.view not in held:
+                    held.append(b.view)
+                    refs.view_titles[(row.number, b.view)] = b.title
+                continue
             if b.way != 0:
-                continue                 # a turned callout: not read here
+                continue                 # a turned bubble: not read here
             found.append(Callout(row.page, row.number, b.view, b.sheet,
                                  "bubble", b.box))
         if row.number and lone:
@@ -422,14 +414,17 @@ def cross_references(doc, index: Optional[SheetIndex] = None
             refs.unread_marks[number] = sorted(left)
 
     blind = {r.page for r in index.unread}
-    prints_numbers = any(r.how in (HOW_SLOT, HOW_LABEL, HOW_SIZE)
-                         for r in index.rows)
-    could: Dict[str, List[int]] = {}
+    missing = index.not_indexed
+    could: Dict[str, Tuple[List[int], List[int]]] = {}
     for c in found:
         target = normalize_number(c.target_sheet)
         if target not in could:
-            could[target] = [r.page for r in index.not_indexed
-                             if _could_be(r, target, prints_numbers)]
+            # a sheet with no usable text could be any sheet; a readable one
+            # only if it prints the number somewhere: a sheet prints its own
+            could[target] = (
+                [r.page for r in missing
+                 if r.readable and target in printed.get(r.page, "")],
+                [r.page for r in missing if not r.readable])
         _judge(c, index, refs, known, disciplines, doubled, blind,
                could[target])
     refs.callouts = sorted(found, key=lambda c: (c.page, c.bbox[1],
@@ -449,14 +444,16 @@ def cross_references(doc, index: Optional[SheetIndex] = None
 def _judge(c: Callout, index: SheetIndex, refs: CrossReferences,
            known: Dict[str, int], disciplines: set,
            doubled: Dict[str, List[int]], blind: set,
-           could: List[int]) -> None:
-    """Set ``c.status`` and ``c.why``: ``unresolved`` only where the text
-    shows it; where it cannot, ``cannot_tell`` with the reason. ``could``
-    is the pages of the sheets not indexed that could be the target."""
+           could: Tuple[List[int], List[int]]) -> None:
+    """Set ``c.status`` and ``c.why`` from what the text shows, and no
+    more. ``could`` is ``(printing, scans)``: the pages of the sheets not
+    indexed whose text prints the target's number, and of those with no
+    usable text."""
     target = normalize_number(c.target_sheet)
     if target not in known:
-        c.status = CANNOT_TELL
+        printing, scans = could
         if doubled:
+            c.status = CANNOT_TELL
             number, pages = next(iter(sorted(doubled.items(),
                                              key=lambda kv: kv[1][0])))
             more = (f" (and {len(doubled) - 1} more number(s) read on two "
@@ -464,17 +461,35 @@ def _judge(c: Callout, index: SheetIndex, refs: CrossReferences,
             c.why = (f"no sheet {c.target_sheet} among the sheets indexed, "
                      f"but {number} is read on pages {_pages(pages)}{more}: "
                      f"one of those may be {c.target_sheet}")
-        elif could:
-            c.why = (f"no sheet {c.target_sheet} among the sheets indexed, "
-                     f"and {len(could)} sheet(s) that could not be indexed "
-                     f"may be it (page(s) {_pages(could)})")
-        elif discipline(target) not in disciplines:
-            c.why = (f"no {_discipline_text(target)} in this document; the "
-                     f"set may be issued in parts, so {c.target_sheet} may "
-                     f"be in another document")
+        elif printing or scans:
+            c.status = CANNOT_TELL
+            parts = []
+            if printing:
+                parts.append(
+                    f"{_plural(printing, 'page', 'pages')} "
+                    f"{_pages(printing)} could not be indexed and "
+                    f"{_plural(printing, 'prints', 'print')} "
+                    f"{c.target_sheet}")
+            if scans:
+                parts.append(
+                    f"{_plural(scans, 'page', 'pages')} {_pages(scans)} "
+                    f"{_plural(scans, 'has', 'have')} no usable text")
+            them = _plural(printing + scans, "its title block",
+                           "their title blocks")
+            c.why = (f"no sheet {c.target_sheet} was read in this document, "
+                     f"but {' and '.join(parts)}: view {them}")
         else:
-            c.status = UNRESOLVED
-            c.why = f"there is no sheet {c.target_sheet} in this document"
+            c.status = NOT_IN_DOCUMENT
+            n = len(index.rows)
+            c.why = (f"no sheet {c.target_sheet} was read in this document; "
+                     f"the document holds {n} "
+                     f"{'sheet' if n == 1 else 'sheets'}")
+            if discipline(target) not in disciplines:
+                c.why += f" and no {_discipline_text(target)}"
+            unindexed = [r for r in index.not_indexed if r.readable]
+            if unindexed:
+                c.why += (f"; the {len(unindexed)} sheet(s) that could not "
+                          f"be indexed do not print {c.target_sheet}")
         return
     c.target_page = known[target]
     number = index.number_of(c.target_page) or c.target_sheet
@@ -492,14 +507,12 @@ def _judge(c: Callout, index: SheetIndex, refs: CrossReferences,
         c.why = (f"no view marks were recognised on {number}, so its "
                  f"views cannot be checked from the text")
     elif c.view not in held:
-        other = refs.unread_marks.get(number)
-        if other:
+        if c.view in refs.unread_marks.get(number, ()):
             c.status = CANNOT_TELL
             c.why = (f"view marks recognised on {number}: {_compact(held)}; "
-                     f"none for {c.view}, but {number} also has marks that "
-                     f"read like a view's and were not recognised as one "
-                     f"(view {_compact(other)}), so its views may not all "
-                     f"have been recognised")
+                     f"none for {c.view}, but a {c.view} with words beside "
+                     f"it is on {number} and was not read as a view title: "
+                     f"view it")
         else:
             c.status = UNRESOLVED
             c.why = (f"view marks recognised on {number}: {_compact(held)}; "
@@ -507,5 +520,5 @@ def _judge(c: Callout, index: SheetIndex, refs: CrossReferences,
 
 
 __all__ = ["Callout", "CrossReferences", "cross_references",
-           "titled_bubbles", "text_callouts", "VIEW_ID", "TEXT_CALLOUT",
-           "RESOLVED", "UNRESOLVED", "CANNOT_TELL"]
+           "text_callouts", "VIEW_ID", "TEXT_CALLOUT", "RESOLVED",
+           "UNRESOLVED", "NOT_IN_DOCUMENT", "CANNOT_TELL", "STATUSES"]

@@ -59,13 +59,12 @@ FIRM = "NORTHGATE DESIGN GROUP"
 PROJECT = "HARBOR STREET CLINIC"
 
 #: Sheet numbers by role (cover, plan one, plan two, details, schedule) and a
-#: number the set does not have, of a discipline it does have (its sheets
-#: are all here, so the number is missing, not issued elsewhere).
+#: number of the same series that the set does not have.
 SCHEMES: Dict[str, Tuple[Tuple[str, ...], str]] = {
     "dash": (("G-001", "A-101", "A-102", "A-501", "A-601"), "A-301"),
     "dot": (("G0.01", "A1.01", "A1.02", "A5.01", "A6.01"), "A3.01"),
     "civil": (("C0.1", "C1.1", "C1.2", "C5.1", "C6.1"), "C3.1"),
-    "decimal": (("00.01", "10.31", "10.31A", "50.01", "60.01"), "10.41"),
+    "decimal": (("00.01", "10.31", "10.31A", "50.01", "60.01"), "30.01"),
     "suffix": (("S-001", "S-201", "S-201A", "S-501", "S-601"), "S-301"),
 }
 STYLES = ("strip", "bottom", "inline", "turned", "bare", "count_only")
@@ -444,7 +443,7 @@ def build_sheet_set(style: str = "strip", numbers: str = "dash",
             {"page": 2, "view": "2", "target": d, "form": "bubble",
              "status": "resolved"},
             {"page": 2, "view": "1", "target": missing, "form": "bubble",
-             "status": "unresolved"},
+             "status": "not_in_document"},
             {"page": 2, "view": "1", "target": names[1], "form": "bubble",
              "status": "resolved"},
             {"page": 2, "view": "4", "target": d, "form": "text",

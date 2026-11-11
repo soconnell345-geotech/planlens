@@ -14,8 +14,8 @@ pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document  # noqa: E402
 from planlens.document.crossrefs import (  # noqa: E402
-    CANNOT_TELL, RESOLVED, UNRESOLVED, VIEW_ID, cross_references,
-    text_callouts,
+    CANNOT_TELL, NOT_IN_DOCUMENT, RESOLVED, UNRESOLVED, VIEW_ID,
+    cross_references, text_callouts,
 )
 from planlens.testing.sheet_set_fixtures import (  # noqa: E402
     SCHEMES, build_sheet_set, sketch_pdf,
@@ -48,10 +48,11 @@ def test_every_callout_is_found_and_judged(style, numbers):
     want = sorted(_key(c["page"], c["view"], c["target"], c["form"],
                        c["status"]) for c in gt.callouts)
     assert got == want
-    assert refs.counts() == {"callouts": 9, RESOLVED: 6, UNRESOLVED: 2,
-                             CANNOT_TELL: 1}
-    assert sorted(c.label for c in refs.with_status(UNRESOLVED)) == \
-        gt.with_status("unresolved")
+    assert refs.counts() == {"callouts": 9, UNRESOLVED: 1,
+                             NOT_IN_DOCUMENT: 1, CANNOT_TELL: 1, RESOLVED: 6}
+    for status in (UNRESOLVED, NOT_IN_DOCUMENT, CANNOT_TELL):
+        assert sorted(c.label for c in refs.with_status(status)) == \
+            gt.with_status(status)
     assert refs.views == gt.views
     assert refs.view_titles == gt.view_titles
     assert refs.notes == []
@@ -68,7 +69,9 @@ def test_an_unresolved_callout_says_what_is_missing_and_where_it_is():
     assert x0 < 1540 < x1 and y0 < 760 < y1
     assert x1 - x0 < 60 and y1 - y0 < 60
     sheet = by_label["1/A-301"]
-    assert sheet.why == "there is no sheet A-301 in this document"
+    assert sheet.status == NOT_IN_DOCUMENT
+    assert sheet.why == ("no sheet A-301 was read in this document; the "
+                         "document holds 5 sheets")
     assert sheet.target_page is None and sheet.page == 2
     assert "target" not in sheet.to_dict()
     unknown = by_label["1/A-601"]
@@ -108,7 +111,9 @@ def test_a_callout_to_a_sheet_that_could_not_be_read_is_not_called_wrong():
     to_details = [c for c in refs.callouts if c.target_sheet == "A-501"]
     assert len(to_details) == 6
     assert {c.status for c in to_details} == {CANNOT_TELL}
-    assert all("could not be indexed" in c.why for c in to_details)
+    assert all(c.why == "no sheet A-501 was read in this document, but "
+               "page 3 has no usable text: view its title block"
+               for c in to_details)
     # a sheet the set may or may not have: it could be the unread one
     assert [c.status for c in refs.callouts
             if c.target_sheet == "A-301"] == [CANNOT_TELL]
@@ -182,10 +187,11 @@ def test_a_scanned_sheet_named_by_its_page_label_is_there_but_unchecked():
         assert c.status == CANNOT_TELL and c.target_page == 3   # not read
         assert c.why == ("A-501 has no text layer, so its views cannot be "
                          "checked from the text")
-    # every sheet has a name now, so a sheet no page carries is missing
+    # every sheet has a name now, so a sheet no page carries is not here
     missing = [c for c in refs.callouts if c.target_sheet == "A-301"]
-    assert [c.status for c in missing] == [UNRESOLVED]
-    assert missing[0].why == "there is no sheet A-301 in this document"
+    assert [c.status for c in missing] == [NOT_IN_DOCUMENT]
+    assert missing[0].why == ("no sheet A-301 was read in this document; "
+                              "the document holds 5 sheets")
     assert refs.notes == ["1 sheet(s) have no usable text: their callouts "
                           "are not in this list"]
 
@@ -264,9 +270,11 @@ def test_views_titled_by_their_number_alone_are_not_called_missing():
     assert refs.with_status(UNRESOLVED) == []
 
 
-def test_a_view_mark_not_read_as_one_keeps_a_missing_view_unsaid():
+def test_a_lone_view_number_keeps_only_its_own_view_unsaid():
     """A-501 holds views 1 and 2 as full title bubbles and view 3 titled
-    by its number alone: a callout to 3, or to 7, cannot be told."""
+    by its number alone: a callout to 3 cannot be told, and the reason
+    says what is there; a callout to 7, which nothing on A-501 reads as,
+    is unresolved."""
     def extra(s, n):
         if n == "A-101":
             for k, v in enumerate("137"):
@@ -281,19 +289,48 @@ def test_a_view_mark_not_read_as_one_keeps_a_missing_view_unsaid():
     assert refs.unread_marks == {"A-501": ["3"]}
     assert _verdicts(refs) == [(1, "1/A-501", RESOLVED),
                                (1, "3/A-501", CANNOT_TELL),
-                               (1, "7/A-501", CANNOT_TELL)]
-    why = {c.label: c.why for c in refs.callouts}["7/A-501"]
-    assert why == ("view marks recognised on A-501: 1, 2; none for 7, but "
-                   "A-501 also has marks that read like a view's and were "
-                   "not recognised as one (view 3), so its views may not "
-                   "all have been recognised")
+                               (1, "7/A-501", UNRESOLVED)]
+    why = {c.label: c.why for c in refs.callouts}
+    assert why["3/A-501"] == ("view marks recognised on A-501: 1, 2; none "
+                              "for 3, but a 3 with words beside it is on "
+                              "A-501 and was not read as a view title: view "
+                              "it")
+    assert why["7/A-501"] == "view marks recognised on A-501: 1, 2; none for 7"
+
+
+def test_a_keynote_list_hides_no_view_but_its_own_numbers():
+    """A detail sheet with details 1 to 4 and a keynote legend numbered 1
+    to 6, each with its note beside it: 9/A-501 is a finding; 5/A-501 has
+    a 5 with words beside it, so it cannot be told, and says so."""
+    def extra(s, n):
+        if n == "A-101":
+            for k, v in enumerate("59"):
+                s.bubble(900 + 240 * k, 300, v, "A-501")
+        if n == "A-501":
+            for k, (x, y) in enumerate(((220, 620), (820, 620),
+                                        (1420, 620), (220, 1300))):
+                s.view_title(x, y, str(k + 1), n, f"DETAIL {k + 1}")
+            s.text(1820, 200, "KEYNOTES", 9, bold=True)
+            for k in range(6):
+                s.text(1820, 230 + 24 * k, str(k + 1), 7)
+                s.text(1840, 230 + 24 * k, f"PROVIDE ITEM {k + 1} AS NOTED",
+                       7)
+
+    refs = _checked(_set(ARCH, extra))
+    assert refs.views == {"A-501": ["1", "2", "3", "4"]}
+    assert _verdicts(refs) == [(1, "5/A-501", CANNOT_TELL),
+                               (1, "9/A-501", UNRESOLVED)]
+    why = {c.label: c.why for c in refs.callouts}
+    assert why["9/A-501"] == ("view marks recognised on A-501: 1 to 4; none "
+                              "for 9")
+    assert "a 5 with words beside it is on A-501" in why["5/A-501"]
 
 
 @pytest.mark.parametrize("titled", [True, False])
 def test_a_view_drawn_turned_is_read_in_its_own_direction(titled):
     """Detail 2 on A-501 is drawn on its side, its title mark reading up
     the sheet. With its title it is one of A-501's views; without one it
-    may be, so a missing view cannot be told."""
+    is a view mark with no text, which the code does not see."""
     def extra(s, n):
         if n == "A-101":
             for k, v in enumerate("125"):
@@ -312,16 +349,17 @@ def test_a_view_drawn_turned_is_read_in_its_own_direction(titled):
                                    (1, "5/A-501", UNRESOLVED)]
     else:
         assert refs.views == {"A-501": ["1"]}
-        assert refs.unread_marks == {"A-501": ["2"]}
+        assert refs.unread_marks == {}
         assert _verdicts(refs) == [(1, "1/A-501", RESOLVED),
-                                   (1, "2/A-501", CANNOT_TELL),
-                                   (1, "5/A-501", CANNOT_TELL)]
+                                   (1, "2/A-501", UNRESOLVED),
+                                   (1, "5/A-501", UNRESOLVED)]
 
 
-def test_a_sheet_of_a_discipline_the_document_lacks_cannot_be_told():
-    """An architectural document calling structural sheets: the
-    structural set may be issued as its own document. A missing sheet of
-    a discipline that IS here is missing."""
+def test_a_sheet_not_in_the_document_is_said_as_that_fact():
+    """Whether a file is the whole set, the code cannot know: a callout to
+    a sheet no page of it carries is not_in_document, never unresolved,
+    with what is known beside it (how many sheets, and that a discipline
+    is absent)."""
     def extra(s, n):
         if n == "A-101":
             s.bubble(900, 300, "3", "S-501")
@@ -331,29 +369,29 @@ def test_a_sheet_of_a_discipline_the_document_lacks_cannot_be_told():
             s.view_title(220, 620, "1", n, "HEAD DETAIL")
 
     refs = _checked(_set(ARCH, extra))
-    assert _verdicts(refs) == [(1, "1/A-302", UNRESOLVED),
-                               (1, "2/S-201", CANNOT_TELL),
-                               (1, "3/S-501", CANNOT_TELL)]
+    assert _verdicts(refs) == [(1, "1/A-302", NOT_IN_DOCUMENT),
+                               (1, "2/S-201", NOT_IN_DOCUMENT),
+                               (1, "3/S-501", NOT_IN_DOCUMENT)]
     why = {c.label: c.why for c in refs.callouts}
-    assert why["3/S-501"] == ("no S sheets in this document; the set may be "
-                              "issued in parts, so S-501 may be in another "
-                              "document")
-    assert why["1/A-302"] == "there is no sheet A-302 in this document"
+    assert why["3/S-501"] == ("no sheet S-501 was read in this document; the "
+                              "document holds 4 sheets and no S sheets")
+    assert why["1/A-302"] == ("no sheet A-302 was read in this document; the "
+                              "document holds 4 sheets")
+    assert refs.counts()[UNRESOLVED] == 0
     # numbers with no letter: the series before the dot
     gt = build_sheet_set("strip", "decimal")
     doc = pymupdf.open(stream=gt.pdf, filetype="pdf")
     page = doc[1]
     page.draw_circle((1700, 500), 15.0, width=0.7)
     page.insert_text((1695, 497), "2", fontsize=9, fontname="hebo")
-    page.insert_text((1687, 509), "30.01", fontsize=6)
+    page.insert_text((1687, 509), "40.01", fontsize=6)
     data = doc.tobytes()
     doc.close()
     with open_document(data) as opened:
         refs = opened.cross_references()
-    other = [c for c in refs.callouts if c.target_sheet == "30.01"]
-    assert [c.status for c in other] == [CANNOT_TELL]
-    assert other[0].why.startswith("no sheets numbered 30.x in this "
-                                   "document")
+    other = [c for c in refs.callouts if c.target_sheet == "40.01"]
+    assert [c.status for c in other] == [NOT_IN_DOCUMENT]
+    assert other[0].why.endswith("and no sheets numbered 40.x")
 
 
 def test_a_number_read_on_two_pages_keeps_a_missing_sheet_unsaid():
@@ -381,11 +419,9 @@ def test_a_number_read_on_two_pages_keeps_a_missing_sheet_unsaid():
                               "the callout names cannot be told")
 
 
-def test_an_unnumbered_sheet_hides_only_a_number_it_could_be():
-    """A cover with no number cannot be A-302: it prints no such number,
-    and its title block is the one the others print their numbers in. A
-    sheet that prints A-302 in its title block could be it. In a set whose
-    title blocks print no numbers at all, any unnumbered sheet could be."""
+def _with_cover(extra_on_cover):
+    """A-101 calls 2/A-302 and 7/A-501; the cover has no number and
+    ``extra_on_cover(sheet)`` draws whatever else it prints."""
     def extra(s, n):
         if n == "A-101":
             s.view_title(330, 1300, "1", n, "LEVEL 1 PLAN")
@@ -393,27 +429,48 @@ def test_an_unnumbered_sheet_hides_only_a_number_it_could_be():
             s.bubble(1140, 300, "7", "A-501")
         if n == "A-501":
             s.view_title(220, 620, "1", n, "HEAD DETAIL")
-
-    refs = _checked(_set([None] + ARCH[1:], extra))
-    assert _verdicts(refs) == [(1, "2/A-302", UNRESOLVED),
-                               (1, "7/A-501", UNRESOLVED)]
-
-    def printed(s, n):
-        extra(s, n)
         if n is None:
-            s.text(2200, 500, "A-302", 8)       # in its right-hand band
+            extra_on_cover(s)
+    return _checked(_set([None] + ARCH[1:], extra))
 
-    refs = _checked(_set([None] + ARCH[1:], printed))
+
+def test_an_unnumbered_sheet_could_be_a_sheet_only_if_it_prints_its_number():
+    """A cover with no number that prints A-302 nowhere is not A-302: the
+    missing sheet is not_in_document, and the reason says the sheet left
+    unindexed does not print it."""
+    refs = _with_cover(lambda s: s.text(800, 800, "GENERAL NOTES", 12))
+    assert _verdicts(refs) == [(1, "2/A-302", NOT_IN_DOCUMENT),
+                               (1, "7/A-501", UNRESOLVED)]
+    why = {c.label: c.why for c in refs.callouts}
+    assert why["2/A-302"] == ("no sheet A-302 was read in this document; the "
+                              "document holds 4 sheets; the 1 sheet(s) that "
+                              "could not be indexed do not print A-302")
+
+
+@pytest.mark.parametrize("printing", [
+    lambda s: s.text(2200, 500, "A-302", 8),            # in its band
+    lambda s: s.text(600, 900, "A-302 ENTRY DETAILS", 9),  # in an index
+    lambda s: [s.text(2150 + 22 * k, 1450, ch, 20, bold=True)  # tracked
+               for k, ch in enumerate("A-302")],
+    lambda s: (s.text(2150, 1450, "A-", 20), s.text(2185, 1450, "302", 20)),
+])
+def test_an_unnumbered_sheet_that_prints_the_number_could_be_it(printing):
+    """The whole page is searched, spaces aside, so a number lettered wide
+    or in two pieces is found: the verdict is cannot_tell and the reason
+    names the page to view."""
+    refs = _with_cover(printing)
     missing = [c for c in refs.callouts if c.label == "2/A-302"]
     assert [c.status for c in missing] == [CANNOT_TELL]
-    assert missing[0].why == ("no sheet A-302 among the sheets indexed, and "
-                              "1 sheet(s) that could not be indexed may be "
-                              "it (page(s) 0)")
-    # title blocks that print only a count: the schedule could be A-601
+    assert missing[0].why == ("no sheet A-302 was read in this document, but "
+                              "page 0 could not be indexed and prints A-302: "
+                              "view its title block")
+    assert [c.label for c in refs.with_status(UNRESOLVED)] == ["7/A-501"]
+
+
+def test_a_set_whose_title_blocks_print_no_number_has_no_callouts():
     refs = _refs(build_sheet_set("count_only"))
-    assert [c.status for c in refs.callouts
-            if c.target_sheet in ("A-301", "A-601")] == [CANNOT_TELL] * 2
-    assert [c.label for c in refs.with_status(UNRESOLVED)] == ["5/A-501"]
+    assert refs.callouts == []
+    assert refs.notes == ["no callouts were recognised in the text"]
 
 
 def test_the_sheets_of_a_second_title_block_are_checked_like_the_rest():
@@ -432,7 +489,7 @@ def test_the_sheets_of_a_second_title_block_are_checked_like_the_rest():
     numbers = ["G-001", "A-101", "A-102", "A-201", "A-301", "A-501",
                "S-001", "S-101", "S-201", "S-501"]
     refs = _checked(_set(numbers, extra, block=struct))
-    assert _verdicts(refs) == [(1, "1/A-302", UNRESOLVED),
+    assert _verdicts(refs) == [(1, "1/A-302", NOT_IN_DOCUMENT),
                                (1, "1/S-101", RESOLVED)]
     assert refs.views["S-101"] == ["1"]
 

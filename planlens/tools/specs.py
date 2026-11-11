@@ -839,18 +839,22 @@ SHEET_TOOL_SPECS = [
             "drawn as lines, a turned callout, an elevation marker's "
             "views other than its top one, and a bubble whose sheet half "
             "reads \"-\" or \"SIM\". A view mark is a bubble naming its "
-            "own sheet with a title beside it. status unresolved: there is "
-            "no such sheet in this document though sheets of its "
-            "discipline are here, or view marks were recognised on that "
-            "sheet but no mark for that view was recognised on it. "
-            "cannot_tell (the why says which): a sheet that could not be "
-            "indexed may be it; no sheet of its discipline is in this "
-            "document (the set may be issued in parts); a sheet number is "
-            "read on two pages; or the sheet has no text layer, no "
-            "recognised view marks, or a view mark not read as one. "
-            "Unresolved callouts come first, each with the box it is drawn "
-            "in: view it before you comment. Callouts on a sheet with no "
-            "text layer are not listed (n_sheets_without_text says how "
+            "own sheet with a title beside it. Each status is one fact (the "
+            "why gives the detail). resolved: the sheet is in this document "
+            "and a mark for that view was recognised on it. unresolved: the "
+            "sheet is in this document and view marks were recognised on "
+            "it, none for that view. not_in_document: no sheet with that "
+            "number was read in this document, and no sheet that could not "
+            "be indexed prints it. cannot_tell: the text cannot show which "
+            "(a sheet that could not be indexed may be it, a sheet number "
+            "is read on two pages, or the sheet has no text layer, no "
+            "recognised view mark, or a lone number with words beside it "
+            "that may be that view's title). not_in_document is a finding "
+            "only if this file is the whole set: compare the drawing index "
+            "on the cover sheet; in a file that is part of a set it is "
+            "expected. Flagged callouts come first, each with the box it is "
+            "drawn in: view it before you comment. Callouts on a sheet with "
+            "no text layer are not listed (n_sheets_without_text says how "
             "many sheets that is). Whether a detail suits the place it is "
             "called from is yours to judge. Filter by pages or by status. "
             "Continues via next_offset."),
@@ -860,8 +864,8 @@ SHEET_TOOL_SPECS = [
                 "handle": HANDLE_SCHEMA,
                 "pages": PAGES_SCHEMA,
                 "status": {"type": "string",
-                           "enum": ["unresolved", "cannot_tell",
-                                    "resolved"]},
+                           "enum": ["unresolved", "not_in_document",
+                                    "cannot_tell", "resolved"]},
                 "offset": {"type": "integer", "minimum": 0},
             },
             "required": ["handle"],

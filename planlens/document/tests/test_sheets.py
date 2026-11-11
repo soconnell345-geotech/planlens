@@ -14,7 +14,7 @@ pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document  # noqa: E402
 from planlens.document.sheets import (  # noqa: E402
-    HOW_LABEL, HOW_SIZE, HOW_SLOT, HOW_VIEW_TITLES, NUMBER_LABEL,
+    HOW_FURTHER_SLOT, HOW_SIZE, HOW_SLOT, NUMBER_LABEL,
     SHEET_COUNT, SHEET_NUMBER, discipline, normalize_number, number_shape,
     sheet_index,
 )
@@ -90,25 +90,18 @@ def test_a_sheet_count_is_never_a_sheet_number(style, numbers):
             assert not re.fullmatch(r"\d+", row.number)
 
 
-def test_sheets_that_print_only_a_count_are_numbered_by_their_view_titles():
-    """No title block prints a number: a sheet whose view titles name it
-    (the plans, the details) takes that number and says so; the cover and
-    the schedule, with none, are listed without one."""
+def test_sheets_that_print_only_a_count_are_listed_without_a_number():
+    """No title block prints a number. The plans and details name
+    themselves in their view titles, and that does not number them."""
     index = _index(_built("count_only"))
-    assert [r.number for r in index.rows] == [None, "A-101", "A-102",
-                                              "A-501", None]
+    assert [r.number for r in index.rows] == [None] * 5
     assert [r.count for r in index.rows] == [f"{n} of 5" for n in range(1, 6)]
-    for row in index.rows[1:4]:
-        assert row.how == HOW_VIEW_TITLES and row.confidence < 0.6
-        assert row.reason is None and row.bbox is None
-    for row in (index.rows[0], index.rows[4]):
+    for row in index.rows:
         assert row.reason == ("no sheet number found in the title block's "
                               "text (it prints a sheet count)")
         assert row.title is None and row.how is None
-    assert index.notes == [
-        "2 of 5 sheets could not be indexed from their text",
-        "3 of 5 sheets are numbered from their own view titles (each names "
-        "the sheet it is on), not read from their title blocks"]
+    assert index.notes == ["5 of 5 sheets could not be indexed from their "
+                           "text"]
     # the same on the sheets of planlens' made-up submittal: "SHEET 1 OF 2"
     with open_document(build_synthetic_submittal().pdf) as doc:
         rows = doc.sheet_index().rows
@@ -148,9 +141,9 @@ def test_one_sheet_that_prints_only_a_count_is_not_indexed():
     row = index.rows[0]
     assert row.number is None and row.count == "5 of 5"
     assert row.reason.endswith("(it prints a sheet count)")
-    # a plan names itself in its view title
+    # a plan names itself in its view title, which does not number it
     plan = _index(_built("count_only", only=1)).rows[0]
-    assert (plan.number, plan.how) == ("A-101", HOW_VIEW_TITLES)
+    assert (plan.number, plan.how) == (None, None)
 
 
 def test_the_order_of_the_text_does_not_matter():
@@ -338,56 +331,58 @@ def test_a_label_is_a_short_line_or_the_head_of_one(text, is_label):
     assert NUMBER_LABEL.search(text)                # each holds the words
 
 
-@pytest.mark.parametrize("size, how", [(14.0, HOW_VIEW_TITLES),
-                                       (28.0, HOW_SIZE)])
-def test_a_sheet_number_named_in_a_note_is_not_the_sheet_number(size, how):
+@pytest.mark.parametrize("size, read", [(14.0, False), (28.0, True)])
+def test_a_sheet_number_named_in_a_note_is_not_the_sheet_number(size, read):
     """Two consultant sheets beside four in the strip block; one has a
     general note naming another drawing ("REFER TO DWG NO. S-201"). Its
-    own number is read (from its large lettering, or failing that from
-    its view titles), never the note's."""
+    own number is read from its large lettering, or not at all; never the
+    note's."""
     draw = _strip_set(["G-001", "A-101", "A-102", "A-501"], of=6) + [
         _consultant("S-201", "FOUNDATION PLAN", size),
         _consultant("S-202", "FRAMING PLAN", size,
                     note="1. REFER TO DWG NO. S-201 FOR TYPICAL DETAILS")]
     index = _sketched(draw)
     assert [r.number for r in index.rows] == [
-        "G-001", "A-101", "A-102", "A-501", "S-201", "S-202"]
-    assert [r.how for r in index.rows][4:] == [how, how]
-    assert [r.title for r in index.rows][4:] == ["FOUNDATION PLAN",
-                                                 "FRAMING PLAN"]
+        "G-001", "A-101", "A-102", "A-501"] + (
+        ["S-201", "S-202"] if read else [None, None])
+    if read:
+        assert [r.how for r in index.rows][4:] == [HOW_SIZE, HOW_SIZE]
+        assert [r.title for r in index.rows][4:] == ["FOUNDATION PLAN",
+                                                     "FRAMING PLAN"]
     assert index.duplicates() == {}
     assert not any("read on pages" in note for note in index.notes)
 
 
-def test_a_reading_its_own_view_titles_contradict_gives_way_to_them():
-    """The corner lettering of a consultant's sheet reads one number and
-    every view title on it names another, which no other page holds: the
-    sheet is taken as the view titles' and the note says so."""
+def test_view_titles_never_give_or_change_a_sheet_number():
+    """A view title mark names a sheet, and so does a callout with a word
+    beside it ("TYP.", "SIM."): neither is the sheet's number. A one-sheet
+    file read as A-101 stays A-101 though its marks all name A-501; a
+    consultant's sheet read as S-205 stays S-205 though its view titles
+    name S-202; a sheet with no number read gets none from them."""
+    def one(s, _i):
+        s.page.draw_rect((36, 36, 2412, 1548), width=1.5)
+        s.text(2150, 1450, "A-101", 40, bold=True)
+        s.text(400, 1450, "PROJECT P-100", 8)
+        s.view_title(600, 600, "3", "A-501", "TYP.")
+        s.view_title(1200, 600, "4", "A-501", "SIM.")
+
+    row = _sketched([one]).rows[0]
+    assert (row.number, row.how) == ("A-101", HOW_SIZE)
+
     def odd(s, _i):
         s.bottom_block("S-205", "FRAMING PLAN", number_size=28.0)
         s.view_title(330, 1300, "1", "S-202", "FRAMING PLAN")
         s.view_title(1030, 1300, "2", "S-202", "BRACING ELEVATION")
 
-    index = _sketched(_strip_set(["G-001", "A-101", "A-102", "A-501"],
-                                 of=5) + [odd])
-    row = index.rows[4]
-    assert (row.number, row.how, row.reason) == ("S-202", HOW_VIEW_TITLES,
-                                                 None)
-    assert row.title == "FRAMING PLAN" and row.confidence < 0.6
-    assert index.notes[-1] == (
-        "1 sheet(s) whose title-block reading disagreed with their own view "
-        "titles are numbered from the view titles (page 4: S-205 (largest "
-        "lettering in the title-block corner) against S-202)")
-
-    # where another page is that sheet, the bubbles are callouts: the
-    # reading stays
-    def holder(s, _i):
-        s.strip_block("S-202", "FRAMING PLAN", 6, 6)
+    def unread(s, _i):
+        s.bottom_block("S-206", "ROOF PLAN", number_size=14.0)
+        s.view_title(330, 1300, "1", "S-203", "ROOF PLAN")
 
     index = _sketched(_strip_set(["G-001", "A-101", "A-102", "A-501"],
-                                 of=6) + [odd, holder])
+                                 of=6) + [odd, unread])
     assert [(r.number, r.how) for r in index.rows][4:] == [
-        ("S-205", HOW_SIZE), ("S-202", HOW_SLOT)]
+        ("S-205", HOW_SIZE), (None, None)]
+    assert not any("view title" in note for note in index.notes)
 
 
 def test_a_second_title_block_layout_is_read_by_its_own_slot():
@@ -400,10 +395,42 @@ def test_a_second_title_block_layout_is_read_by_its_own_slot():
         for n in ("S-001", "S-101", "S-201", "S-501")]
     index = _sketched(draw)
     assert index.numbers() == arch + ["S-001", "S-101", "S-201", "S-501"]
-    assert {r.how for r in index.rows} == {HOW_SLOT}
+    assert [r.how for r in index.rows] == [HOW_SLOT] * 6 + [
+        HOW_FURTHER_SLOT] * 4
+    first = {r.confidence for r in index.rows[:6]}
+    assert max(r.confidence for r in index.rows[6:]) < min(first)
     assert [r.title for r in index.rows][6:] == [
         "FRAMING 001", "FRAMING 101", "FRAMING 201", "FRAMING 501"]
     assert index.notes == []
+
+
+def _key_plan_sheet(number, k):
+    """A consultant's sheet whose number is lettered wide, one letter at a
+    time (not read), and whose key plan prints the area it shows, "C1",
+    alone at the same place on each."""
+    def draw(s, _i):
+        s.page.draw_rect((36, 36, 2412, 1548), width=1.5)
+        s.text(900, 1470, "DRAWING TITLE", 6)
+        s.text(900, 1490, f"FRAMING PLAN AREA C{k}", 11, bold=True)
+        s.text(1700, 1460, "KEY PLAN", 6)
+        s.text(1740, 1505, f"C{k}", 8)
+        for j, ch in enumerate(number):
+            s.text(2200 + 34 * j, 1500, ch, 28, bold=True)
+    return draw
+
+
+def test_a_further_slot_must_have_the_shape_of_the_sets_numbers():
+    """Key-plan labels "C1", "C2", "C3" at one place on three sheets differ
+    on each, as a sheet number would; beside a set numbered "A-101" they
+    are not one, and the three sheets are left unindexed."""
+    arch = ["G-001", "A-101", "A-102", "A-201", "A-301", "A-501"]
+    draw = _strip_set(arch, of=9) + [
+        _key_plan_sheet(n, k + 1)
+        for k, n in enumerate(("S-101", "S-102", "S-103"))]
+    index = _sketched(draw)
+    assert [r.number for r in index.rows] == arch + [None] * 3
+    assert index.notes == ["3 of 9 sheets could not be indexed from their "
+                           "text"]
 
 
 def _report(footer, pages=6, size=(1224.0, 792.0)):
@@ -471,18 +498,6 @@ def test_numbers_read_on_two_pages_are_noted_once():
     some.close()
     assert notes == ["2 sheet numbers are each read on more than one page: "
                      "A-101 (pages 1, 5), A-102 (pages 2, 6)"]
-
-
-def test_an_unnumbered_readable_sheet_keeps_the_numbers_it_prints():
-    def noted(s, number):
-        if number is None:
-            s.text(2200, 500, "SEE A-302", 8)     # in the right-hand band
-
-    index = _sketched(_strip_set([None, "A-101", "A-102", "A-501"], noted))
-    cover = index.rows[0]
-    assert cover.number is None and cover.readable
-    assert cover.tokens == frozenset({"A-302"})
-    assert index.rows[1].tokens == frozenset()  # kept only where unnumbered
 
 
 @pytest.mark.parametrize("number, part", [

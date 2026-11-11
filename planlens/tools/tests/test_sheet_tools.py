@@ -169,15 +169,20 @@ def test_sheet_index_lists_scanned_sheets_without_a_number():
 
 # -- check_cross_references --------------------------------------------------
 
-def test_check_cross_references_puts_the_unresolved_first(gt):
+def test_check_cross_references_puts_the_flagged_first(gt):
     kit = _kit(gt.pdf)
     handle = _open(kit)
     out = call(kit, "check_cross_references", handle=handle)
-    assert out["counts"] == {"callouts": 9, "unresolved": 2,
-                             "cannot_tell": 1, "resolved": 6}
+    assert out["counts"] == {"callouts": 9, "unresolved": 1,
+                             "not_in_document": 1, "cannot_tell": 1,
+                             "resolved": 6}
+    assert list(out["counts"]) == ["callouts", "unresolved",
+                                   "not_in_document", "cannot_tell",
+                                   "resolved"]
     rows = out["callouts"]
     assert [r["status"] for r in rows] == (
-        ["unresolved"] * 2 + ["cannot_tell"] + ["resolved"] * 6)
+        ["unresolved", "not_in_document", "cannot_tell"]
+        + ["resolved"] * 6)
     assert rows[0] == {
         "page": 1, "sheet": "A-101", "callout": "5/A-501",
         "status": "unresolved",
@@ -186,11 +191,18 @@ def test_check_cross_references_puts_the_unresolved_first(gt):
         "bbox": rows[0]["bbox"]}
     assert all(isinstance(v, int) for v in rows[0]["bbox"])
     assert rows[1]["callout"] == "1/A-301" and "target" not in rows[1]
-    assert rows[1]["why"] == "there is no sheet A-301 in this document"
+    assert rows[1]["why"] == ("no sheet A-301 was read in this document; "
+                              "the document holds 5 sheets")
     assert rows[2]["callout"] == "1/A-601"
     assert [r["callout"] for r in rows if r.get("form") == "text"] == [
         "4/A-501", "2/A-501"]
-    assert "before you comment" in out["look"]
+    assert out["note"].endswith(
+        "; not_in_document is a finding only if this file is the whole set "
+        "(compare the drawing index on the cover sheet); in a file that is "
+        "part of a set it is expected")
+    assert out["look"].startswith(
+        "view a flagged callout at its bbox, and the sheet it names, before "
+        "you comment on it")
     assert out["look"].endswith(VIEW_HINT)
     assert "n_sheets_without_text" not in out and "next_offset" not in out
     kit.close()
@@ -201,11 +213,21 @@ def test_check_cross_references_filters_by_status_and_pages(gt):
     handle = _open(kit)
     only = call(kit, "check_cross_references", handle=handle,
                 status="unresolved")
-    assert [r["callout"] for r in only["callouts"]] == ["5/A-501", "1/A-301"]
+    assert [r["callout"] for r in only["callouts"]] == ["5/A-501"]
     assert only["counts"]["callouts"] == 9        # the counts stay whole
+    assert "not_in_document" not in only["note"]  # said where one is shown
+    absent = call(kit, "check_cross_references", handle=handle,
+                  status="not_in_document")
+    assert [r["callout"] for r in absent["callouts"]] == ["1/A-301"]
+    assert "whole set" in absent["note"] and "look" in absent
+    # the hint to view comes with flagged rows only
+    fine = call(kit, "check_cross_references", handle=handle,
+                status="resolved")
+    assert len(fine["callouts"]) == 6 and "look" not in fine
     page = call(kit, "check_cross_references", handle=handle, pages="2")
-    assert page["counts"] == {"callouts": 4, "unresolved": 1,
-                              "cannot_tell": 0, "resolved": 3}
+    assert page["counts"] == {"callouts": 4, "unresolved": 0,
+                              "not_in_document": 1, "cannot_tell": 0,
+                              "resolved": 3}
     assert {r["page"] for r in page["callouts"]} == {2}
     both = call(kit, "check_cross_references", handle=handle, pages=[1, 2],
                 status="resolved")
@@ -234,8 +256,9 @@ def test_check_cross_references_continues_where_it_was_cut(long_set):
     kit = _kit(long_set)
     handle = _open(kit)
     whole = call(kit, "check_cross_references", handle=handle)
-    assert whole["counts"] == {"callouts": 36, "unresolved": 8,
-                               "cannot_tell": 4, "resolved": 24}
+    assert whole["counts"] == {"callouts": 36, "unresolved": 4,
+                               "not_in_document": 4, "cannot_tell": 4,
+                               "resolved": 24}
     got, offset, calls = [], 0, 0
     while offset is not None:
         part = call(kit, "check_cross_references", max_chars=1500,
@@ -246,7 +269,8 @@ def test_check_cross_references_continues_where_it_was_cut(long_set):
         calls += 1
     assert calls > 3 and len(got) == 36
     assert [r["status"] for r in got] == (
-        ["unresolved"] * 8 + ["cannot_tell"] * 4 + ["resolved"] * 24)
+        ["unresolved"] * 4 + ["not_in_document"] * 4 + ["cannot_tell"] * 4
+        + ["resolved"] * 24)
     kit.close()
 
 
@@ -255,7 +279,8 @@ def test_check_cross_references_says_how_many_sheets_it_could_not_read():
     out = call(kit, "check_cross_references", handle=_open(kit))
     assert out["n_sheets_without_text"] == 1
     assert out["counts"] == {"callouts": 8, "unresolved": 0,
-                             "cannot_tell": 7, "resolved": 1}
+                             "not_in_document": 0, "cannot_tell": 7,
+                             "resolved": 1}
     assert out["notes"] == ["1 sheet(s) have no usable text: their callouts "
                             "are not in this list"]
     kit.close()
@@ -281,8 +306,9 @@ def test_a_sheet_named_by_its_page_label_is_marked_so():
     assert "page labels" in out["notes"][0]
     refs = call(kit, "check_cross_references", handle=handle)
     assert refs["n_sheets_without_text"] == 1
-    assert refs["counts"] == {"callouts": 8, "unresolved": 1,
-                              "cannot_tell": 6, "resolved": 1}
+    assert refs["counts"] == {"callouts": 8, "unresolved": 0,
+                              "not_in_document": 1, "cannot_tell": 6,
+                              "resolved": 1}
     kit.close()
 
 
@@ -365,15 +391,11 @@ def test_a_set_bound_in_twice_is_said_plainly_and_fits(gt):
 
 def test_each_row_says_how_its_number_was_found(gt):
     """Four sheets read from the place their title blocks share carry no
-    mark; one read from its large corner lettering, one from its own view
-    titles and one from its label say so; a number on two pages is marked
-    on both; the note explains the marks that occur."""
+    mark; one read from its large corner lettering and one from its label
+    say so; a number on two pages is marked on both; the note explains the
+    marks that occur. A second title-block layout's sheets say so too."""
     def big(s, _i):
         s.bottom_block("S-201", "FOUNDATION PLAN", number_size=28.0)
-
-    def titled(s, _i):
-        s.bottom_block("S-202", "FRAMING PLAN", number_size=14.0)
-        s.view_title(330, 1300, "1", "S-202", "FRAMING PLAN")
 
     def labelled(s, _i):
         s.page.draw_rect((36, 36, 2412, 1548), width=1.5)
@@ -382,7 +404,7 @@ def test_each_row_says_how_its_number_was_found(gt):
 
     draw = [_strip(n, i + 1, 8) for i, n in
             enumerate(["G-001", "A-101", "A-102", "A-501"])]
-    draw += [big, titled, labelled, _strip("A-102", 8, 8)]
+    draw += [big, labelled, _strip("A-102", 8, 8)]
     kit = _kit(sketch_pdf(draw))
     out = call(kit, "sheet_index", handle=_open(kit))
     marks = [(r["sheet"], r.get("from"), r.get("duplicate"))
@@ -390,15 +412,29 @@ def test_each_row_says_how_its_number_was_found(gt):
     assert marks == [
         ("G-001", None, None), ("A-101", None, None), ("A-102", None, True),
         ("A-501", None, None), ("S-201", "large lettering", None),
-        ("S-202", "view titles", None), ("M-101", "label", None),
-        ("A-102", None, True)]
+        ("M-101", "label", None), ("A-102", None, True)]
     note = out["note"]
     for words in ("large lettering: the largest number in the title "
-                  "block's corner", "view titles: named by the sheet's own "
-                  "view titles", "label: beside a SHEET NO. label",
+                  "block's corner", "label: beside a SHEET NO. label",
                   "duplicate: the number is read on another page too"):
         assert words in note
-    assert "page label" not in note
+    assert "page label" not in note and "second title" not in note
+    kit.close()
+    arch = ["G-001", "A-101", "A-102", "A-201", "A-301", "A-501"]
+
+    def consultant(number):
+        def draw(s, _i):
+            s.bottom_block(number, f"FRAMING {number[2:]}")
+        return draw
+
+    draw = [_strip(n, i + 1, 10) for i, n in enumerate(arch)] + [
+        consultant(n) for n in ("S-001", "S-101", "S-201", "S-501")]
+    kit = _kit(sketch_pdf(draw))
+    out = call(kit, "sheet_index", handle=_open(kit))
+    assert [r.get("from") for r in out["sheets"]] == [None] * 6 + [
+        "second title block"] * 4
+    assert ("second title block: where a second title-block layout in the "
+            "set prints its number") in out["note"]
     kit.close()
     # a set read wholly from its slot: no marks, and the note does not
     # explain any
@@ -419,10 +455,18 @@ def test_the_tool_text_says_what_the_code_reads():
     check = specs["check_cross_references"]
     assert not check.startswith("Every")
     for words in ("upright text", "turned callout", "elevation marker",
-                  "SIM", "no mark for that view was recognised",
-                  "could not be indexed", "discipline", "two pages",
-                  "not read as one", "no text layer"):
+                  "SIM", "resolved: ", "unresolved: ", "not_in_document: ",
+                  "cannot_tell: ", "none for that view",
+                  "could not be indexed", "two pages", "no text layer",
+                  "a lone number with words beside it",
+                  "not_in_document is a finding only if this file is the "
+                  "whole set: compare the drawing index on the cover sheet; "
+                  "in a file that is part of a set it is expected"):
         assert words in check, words
+    statuses = [s for s in SHEET_TOOL_SPECS
+                if s["name"] == "check_cross_references"][0]
+    assert statuses["parameters"]["properties"]["status"]["enum"] == [
+        "unresolved", "not_in_document", "cannot_tell", "resolved"]
     index = specs["sheet_index"]
     assert "view marks recognised" in index and "page label" in index
 

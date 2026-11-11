@@ -1243,8 +1243,8 @@ class ReviewToolkit:
         ("label", "label", "beside a SHEET NO. label"),
         ("largest lettering", "large lettering",
          "the largest number in the title block's corner"),
-        ("the sheet's own view titles", "view titles",
-         "named by the sheet's own view titles"))
+        ("slot of a second", "second title block",
+         "where a second title-block layout in the set prints its number"))
 
     def _tool_sheet_index(self, handle: str,
                           offset: int = 0) -> Dict[str, Any]:
@@ -1370,6 +1370,8 @@ class ReviewToolkit:
     def _tool_check_cross_references(self, handle: str, pages: Any = None,
                                      status: Optional[str] = None,
                                      offset: int = 0) -> Dict[str, Any]:
+        from planlens.document.crossrefs import (
+            NOT_IN_DOCUMENT, RESOLVED, STATUSES)
         entry = self._entry(handle)
         with entry.lock:
             index = entry.doc.sheet_index()
@@ -1378,10 +1380,10 @@ class ReviewToolkit:
         wanted = (None if pages in (None, "", [], ())
                   else set(parse_pages(pages, n_pages)))
         status = (status or "").strip().lower() or None
-        order = {"unresolved": 0, "cannot_tell": 1, "resolved": 2}
+        order = {s: i for i, s in enumerate(STATUSES)}
         if status is not None and status not in order:
             raise ToolError(
-                f"status must be one of {sorted(order)}, not {status!r}")
+                f"status must be one of {list(STATUSES)}, not {status!r}")
         on_pages = [c for c in refs.callouts
                     if wanted is None or c.page in wanted]
         rows = sorted((c for c in on_pages
@@ -1390,8 +1392,8 @@ class ReviewToolkit:
                                      c.bbox[0]))
         if offset < 0 or (rows and offset >= len(rows)):
             raise ToolError(f"offset {offset} is outside 0-{len(rows) - 1}")
-        counts = {"callouts": len(on_pages), "unresolved": 0,
-                  "cannot_tell": 0, "resolved": 0}
+        counts = {"callouts": len(on_pages)}
+        counts.update((s, 0) for s in STATUSES)
         for c in on_pages:
             counts[c.status] += 1
         out: Dict[str, Any] = {"handle": handle, "counts": counts}
@@ -1405,10 +1407,15 @@ class ReviewToolkit:
             "drawn on and bbox its place there (PDF points, top-left "
             "origin); target is the sheet it names, where that is in this "
             "document; why says what was and was not found")
-        if counts["unresolved"] or counts["cannot_tell"]:
+        if any(c.status == NOT_IN_DOCUMENT for c in rows):
+            out["note"] += (
+                "; not_in_document is a finding only if this file is the "
+                "whole set (compare the drawing index on the cover sheet); "
+                "in a file that is part of a set it is expected")
+        if any(c.status != RESOLVED for c in rows):
             out["look"] = self._look([
-                "view an unresolved callout at its bbox, and the sheet it "
-                "names, before you comment on it"])[0]
+                "view a flagged callout at its bbox, and the sheet it names, "
+                "before you comment on it"])[0]
         shown, nxt = fit_items(rows, self._budget(300) - json_len(out),
                                to_payload=lambda c: c.to_dict(),
                                start=offset)
