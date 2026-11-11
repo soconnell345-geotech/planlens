@@ -1690,7 +1690,11 @@ still found. The `why` names the pages to view. Otherwise
 `not_in_document`: no sheet with that number was read in this file, with
 how many sheets it holds and, where true, that it holds none of that
 discipline (letters before the first digit, or the series before the dot).
-The code cannot know whether a file is the whole set, so this is a finding
+Where sheets could not be indexed, the reason says only that their TEXT
+does not hold the number, names their pages (ranges, the first few, "and N
+more") and says to view their title blocks if a number is drawn as lines:
+such a sheet is in the file, and the code cannot see its number. The code
+cannot know whether a file is the whole set, so this is a finding
 only if it is; in a file that is part of a set it is expected, and the
 result's note says so.
 
@@ -1747,9 +1751,14 @@ and the rows page on.
   told from a view title, and the `why` says what was seen.
 - A readable sheet that could not be indexed and prints the called number
   anywhere (a cover's drawing index, a note, a callout drawn on it) makes
-  a callout to that number `cannot_tell`. One whose number is drawn as
-  lines and printed nowhere in its text cannot be told from no sheet: a
-  callout to it is `not_in_document`.
+  a callout to that number `cannot_tell`.
+- A sheet in the file whose number is not in its text (drawn as lines), or
+  that its label, corner lettering or PDF page label numbers wrongly,
+  makes callouts to its real number `not_in_document`. For one that could
+  not be indexed the reason names its page.
+- A callout drawn on its own sheet with a word of three letters or more
+  beside it ("TYP.", "SIM") is read as that sheet's view mark, so a broken
+  callout to that view number on that sheet comes out `resolved`.
 - Turned callouts (lettering reading up or down the sheet) are not read;
   turned view marks with a title are.
 - A sheet whose title block prints no number is not numbered from anything

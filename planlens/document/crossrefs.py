@@ -36,9 +36,10 @@ WHAT IS SAID of each callout. Facts only; the agent reading them judges:
   recognised on it, none for that view, and no view number standing alone
   there reads as that view;
 * ``not_in_document``: no sheet with that number was read in this
-  document, and no sheet that could not be indexed could be it. A finding
-  only if the file is the whole set; in a file that is part of one it is
-  expected;
+  document, and the text of no sheet that could not be indexed holds the
+  number (one whose number is drawn as lines may still be it; the reason
+  names those pages). A finding only if the file is the whole set; in a
+  file that is part of one it is expected;
 * ``cannot_tell``, with the reason: a sheet that could not be indexed could
   be it (one with no usable text always could; a readable one could when
   its page prints the number anywhere, spaces aside: a sheet prints its own
@@ -343,6 +344,20 @@ def _pages(pages: Sequence[int], most: int = 4) -> str:
                     if len(pages) > most else "")
 
 
+def _page_runs(pages: Sequence[int], most: int = 4) -> str:
+    """Pages as ranges ("4-6, 9"), the first ``most`` ranges and how many
+    pages more."""
+    runs: List[List[int]] = []
+    for p in sorted(set(pages)):
+        if runs and p == runs[-1][1] + 1:
+            runs[-1][1] = p
+        else:
+            runs.append([p, p])
+    shown = ", ".join(f"{a}-{b}" if b > a else f"{a}" for a, b in runs[:most])
+    left = sum(b - a + 1 for a, b in runs[most:])
+    return shown + (f" and {left} more" if left else "")
+
+
 def _plural(items: Sequence[Any], one: str, many: str) -> str:
     return one if len(items) == 1 else many
 
@@ -486,10 +501,20 @@ def _judge(c: Callout, index: SheetIndex, refs: CrossReferences,
                      f"{'sheet' if n == 1 else 'sheets'}")
             if discipline(target) not in disciplines:
                 c.why += f" and no {_discipline_text(target)}"
-            unindexed = [r for r in index.not_indexed if r.readable]
+            unindexed = [r.page for r in index.not_indexed if r.readable]
             if unindexed:
-                c.why += (f"; the {len(unindexed)} sheet(s) that could not "
-                          f"be indexed do not print {c.target_sheet}")
+                # their text does not hold it; a number drawn as lines is
+                # not in any text, so the sheet may still be one of them
+                one = len(unindexed) == 1
+                c.why += (
+                    f"; the text of the {len(unindexed)} "
+                    f"{'sheet' if one else 'sheets'} that could not be "
+                    f"indexed ({'page' if one else 'pages'} "
+                    f"{_page_runs(unindexed)}) does not hold "
+                    f"{c.target_sheet}: view "
+                    f"{'its title block' if one else 'their title blocks'} "
+                    f"if {'its number is' if one else 'their numbers are'} "
+                    f"drawn as lines")
         return
     c.target_page = known[target]
     number = index.number_of(c.target_page) or c.target_sheet

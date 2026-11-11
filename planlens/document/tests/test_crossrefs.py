@@ -435,16 +435,29 @@ def _with_cover(extra_on_cover):
 
 
 def test_an_unnumbered_sheet_could_be_a_sheet_only_if_it_prints_its_number():
-    """A cover with no number that prints A-302 nowhere is not A-302: the
-    missing sheet is not_in_document, and the reason says the sheet left
-    unindexed does not print it."""
+    """A cover with no number whose text holds A-302 nowhere is taken as
+    not A-302: the missing sheet is not_in_document. The reason says only
+    what is known, that the text of the sheet left unindexed does not hold
+    it, and names its page: a number drawn as lines is in no text."""
     refs = _with_cover(lambda s: s.text(800, 800, "GENERAL NOTES", 12))
     assert _verdicts(refs) == [(1, "2/A-302", NOT_IN_DOCUMENT),
                                (1, "7/A-501", UNRESOLVED)]
     why = {c.label: c.why for c in refs.callouts}
     assert why["2/A-302"] == ("no sheet A-302 was read in this document; the "
-                              "document holds 4 sheets; the 1 sheet(s) that "
-                              "could not be indexed do not print A-302")
+                              "document holds 4 sheets; the text of the 1 "
+                              "sheet that could not be indexed (page 0) does "
+                              "not hold A-302: view its title block if its "
+                              "number is drawn as lines")
+
+
+@pytest.mark.parametrize("pages, shown", [
+    ([4], "4"), ([4, 5, 6, 9], "4-6, 9"),
+    ([1, 3, 5, 7, 9, 11, 12], "1, 3, 5, 7 and 3 more"),
+    (list(range(0, 400, 2)), "0, 2, 4, 6 and 196 more"),
+])
+def test_the_pages_a_reason_names_are_kept_short(pages, shown):
+    from planlens.document.crossrefs import _page_runs
+    assert _page_runs(pages) == shown
 
 
 @pytest.mark.parametrize("printing", [

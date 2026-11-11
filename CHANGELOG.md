@@ -51,9 +51,11 @@
   fact, for the agent reading it to judge. `unresolved`: the sheet is in
   this document, view marks were recognised on it, and none for that view
   ("view marks recognised on A-501: 1 to 6; none for 7"). `not_in_document`:
-  no sheet with that number was read in this document and no sheet that
-  could not be indexed could be it, with how many sheets the document
-  holds and, where true, that it holds none of that discipline; a finding
+  no sheet with that number was read in this document and the text of no
+  sheet that could not be indexed holds it, with how many sheets the
+  document holds and, where true, that it holds none of that discipline
+  (where sheets could not be indexed, it names their pages to view, as
+  one whose number is drawn as lines may still be the sheet); a finding
   only if the file is the whole set (compare the cover's drawing index),
   expected in a file that is part of one. `cannot_tell`, with the reason
   and the pages to view: a sheet that could not be indexed could be it
@@ -96,7 +98,13 @@
   `cannot_tell` for every callout to it; a view mark with no text beside
   it is not seen, so a callout to it is `unresolved` where the sheet's
   other views were recognised; tags shaped like the sheet numbers of a
-  discipline in the file can still pair as callouts. The rest are in
+  discipline in the file can still pair as callouts; a sheet in the file
+  whose number is not in its text (drawn as lines), or that its label,
+  corner lettering or page label numbers wrongly, makes callouts to its
+  real number `not_in_document`; a callout drawn on its own sheet with a
+  word of three letters or more beside it ("TYP.", "SIM") is read as a
+  view mark, so a broken callout to that view number on that sheet comes
+  out `resolved`. The rest are in
   `planlens/document/DESIGN.md`, "Sheet index and cross-references".
 
 ## 0.15.1 — 2026-11-10
