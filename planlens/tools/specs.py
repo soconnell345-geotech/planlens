@@ -795,3 +795,82 @@ TOOL_SPECS = [
         },
     },
 ]
+
+#: The sheet tools: a toolkit offers them only when it is built with
+#: ``sheet_tools=True``, so the tools above are what every host has had and
+#: these are a host's choice. Kept out of :data:`TOOL_SPECS` for that
+#: reason: a host that reads the list gets no new tool it did not ask for.
+SHEET_TOOL_SPECS = [
+    {
+        "name": "sheet_index",
+        "description": (
+            "The drawing set's sheets, read from their title blocks: for "
+            "each sheet its page, its sheet number, its title and latest "
+            "revision as the title block prints them, and the view marks "
+            "recognised on it. Use it to turn a sheet number into a page "
+            "(\"the callouts on S-201\") and to check the document against "
+            "the index printed on its cover sheet. A row with from was not "
+            "read from the place the set's title blocks print the number "
+            "(from says how it was found); a row marked duplicate shares "
+            "its number with another page. A sheet whose number could not "
+            "be read (no text layer, or none found in its text) is listed "
+            "under not_indexed with the reason, unless the PDF's page label "
+            "names it (from: page label): read its title block by viewing "
+            "it. Continues via next_offset."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "offset": {"type": "integer", "minimum": 0},
+            },
+            "required": ["handle"],
+        },
+    },
+    {
+        "name": "check_cross_references",
+        "description": (
+            "The callouts it can read in the text layer of the drawing "
+            "set, checked against the sheet index and against the view "
+            "marks recognised on the sheet each names. It reads a bubble "
+            "whose view number and sheet number are separate pieces of "
+            "upright text, the view number centred over a sheet number "
+            "shaped like the document's own, and \"view/sheet\" written in "
+            "a note. It misses a bubble lettered as one piece of text or "
+            "drawn as lines, a turned callout, an elevation marker's "
+            "views other than its top one, and a bubble whose sheet half "
+            "reads \"-\" or \"SIM\". A view mark is a bubble naming its "
+            "own sheet with a title beside it. Each status is one fact (the "
+            "why gives the detail). resolved: the sheet is in this document "
+            "and a mark for that view was recognised on it. unresolved: the "
+            "sheet is in this document and view marks were recognised on "
+            "it, none for that view. not_in_document: no sheet with that "
+            "number was read in this document, and the text of no sheet "
+            "that could not be indexed holds that number (one whose number "
+            "is drawn as lines may still be it: the why names those pages). "
+            "cannot_tell: the text cannot show which "
+            "(a sheet that could not be indexed may be it, a sheet number "
+            "is read on two pages, or the sheet has no text layer, no "
+            "recognised view mark, or a lone number with words beside it "
+            "that may be that view's title). not_in_document is a finding "
+            "only if this file is the whole set: compare the drawing index "
+            "on the cover sheet; in a file that is part of a set it is "
+            "expected. Flagged callouts come first, each with the box it is "
+            "drawn in: view it before you comment. Callouts on a sheet with "
+            "no text layer are not listed (n_sheets_without_text says how "
+            "many sheets that is). Whether a detail suits the place it is "
+            "called from is yours to judge. Filter by pages or by status. "
+            "Continues via next_offset."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "pages": PAGES_SCHEMA,
+                "status": {"type": "string",
+                           "enum": ["unresolved", "not_in_document",
+                                    "cannot_tell", "resolved"]},
+                "offset": {"type": "integer", "minimum": 0},
+            },
+            "required": ["handle"],
+        },
+    },
+]

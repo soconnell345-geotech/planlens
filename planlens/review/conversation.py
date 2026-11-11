@@ -108,10 +108,50 @@ def _space_key() -> tuple:
     return os.path.normcase(os.path.realpath(folder)), folder
 
 
+def _asked_for_sheet_tools(host) -> bool:
+    """Whether ``host`` asked for the sheet tools
+    (``toolkit_options={"sheet_tools": True}``)."""
+    return bool((getattr(host, "toolkit_options", None) or {})
+                .get("sheet_tools"))
+
+
+#: The toolkit tools a host is served only when it asked for them
+#: (:data:`planlens.review.specs.SHEET_TOOLS`).
+_OPT_IN_TOOLS = ("sheet_index", "check_cross_references")
+
+
+def _unknown_tool(name: str) -> str:
+    """"unknown tool" for the calling host, naming the tools THAT host is
+    offered: the conversation's toolkit serves more than some hosts are
+    offered (the sheet tools), so its own list is never shown."""
+    from planlens.review import specs as _specs
+    host = _host()
+    offered = list(_specs.host_tool_names(
+        look=host.look is not None,
+        sheet_tools=_asked_for_sheet_tools(host)))
+    return json.dumps({"error": f"unknown tool '{name}'",
+                       "hint": f"available tools: {offered}"})
+
+
+def _refused_opt_in(name: str) -> Optional[str]:
+    """The refusal of an opt-in tool the calling host did not ask for, or
+    ``None``. A conversation's toolkit is shared by every host that calls
+    into it, so it can serve the sheet tools; whether they are served is
+    the CALLING host's choice, made on each call, so a host is served
+    exactly what it is offered."""
+    if name not in _OPT_IN_TOOLS or _asked_for_sheet_tools(_host()):
+        return None
+    return _unknown_tool(name)
+
+
 def _new_toolkit(folder: Optional[str]):
     from planlens.tools import ReviewToolkit
     host = _host()
     kw: Dict[str, Any] = dict(host.toolkit_options)
+    # shared by every host of the conversation: it can serve the sheet
+    # tools, and each call decides whether they are served
+    # (:func:`_refused_opt_in`)
+    kw["sheet_tools"] = True
     kw.update(resolve_source=_resolve, look=host.look)
     if host.vision_hint is not None:
         kw["vision_hint"] = host.vision_hint
@@ -348,6 +388,9 @@ def dispatch_document_tool(name: str, arguments: Dict[str, Any],
             "error": "document tools need planlens with planlens.tools "
                      "(0.3 or later)",
             "hint": "pip install -U planlens"})
+    refused = _refused_opt_in(name)
+    if refused is not None:
+        return refused
     # A shallow snapshot: the host mutates its attachments dict between turns.
     token = _ATTACHMENTS.set(dict(attachments or {}))
     space = None
@@ -355,6 +398,8 @@ def dispatch_document_tool(name: str, arguments: Dict[str, Any],
     one_based = False
     try:
         space = _space(hold=True)
+        if name not in space.kit.tool_names:
+            return _unknown_tool(name)
         arguments = dict(arguments or {})
         one_based, refused = _one_based_pages(arguments)
         if refused is not None:

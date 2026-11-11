@@ -92,7 +92,15 @@ located, attributed data:
   plan's exploration symbols by drawn type and size, each centre exact from
   the PDF's paths with the label beside it, and `plan_grid` turns page points
   into a right-handed local grid from control points or a north arrow and a
-  scale, refusing a mirrored control set and reporting its residuals. And `annotate_document` sends the review BACK: notes,
+  scale, refusing a mirrored control set and reporting its residuals. Two
+  more tools are a host's choice (`ReviewToolkit(sheet_tools=True)`; not
+  yet measured on real sets): `sheet_index` lists a drawing set's sheets
+  from their title blocks (page, sheet number, title, latest revision, the
+  view marks recognised on each), and `check_cross_references` reads the
+  section and detail callouts in the text layer and says which lead to a
+  view recognised in the document, which name a view the sheet does not
+  show, which name a sheet the file does not hold, and which it cannot
+  tell, with the reason. And `annotate_document` sends the review BACK: notes,
   highlights over the words quoted, boxes, callouts and replies written onto a
   NEW copy of the PDF as ordinary annotations, anchored to text that is
   searched for rather than to coordinates guessed at, with anything it could
@@ -726,6 +734,11 @@ from planlens.testing import (
                                        # running header and "Page N", appendix
                                        # divider, ruled logs, a duplicated page,
                                        # two D-size sheets, attachment divider
+    build_sheet_set,                   # a five-sheet drawing set in four
+                                       # title blocks and five ways of
+                                       # numbering, with its sheet index and
+                                       # nine callouts stated, any sheets as
+                                       # scans
     build_synthetic_report,            # a 22-page report over eleven of the
                                        # roles: cover, contents, narrative,
                                        # tabs, boring and test pit logs,

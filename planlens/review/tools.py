@@ -49,16 +49,29 @@ def _host():
     return current()
 
 
+def _sheet_tools(host) -> bool:
+    """Whether ``host`` asked for the sheet tools
+    (``toolkit_options={"sheet_tools": True}``): they are then listed for
+    it, and served on its calls, whichever host's call built the
+    conversation's toolkit."""
+    return _conv._asked_for_sheet_tools(host)
+
+
 def tool_names(host=None) -> tuple:
     """The host tools offered with ``host`` (default: the current one;
-    ``find_like`` only with a look)."""
-    return _specs.host_tool_names(look=(host or _host()).look is not None)
+    ``find_like`` only with a look, the sheet tools only where the host
+    asked for them)."""
+    host = host or _host()
+    return _specs.host_tool_names(look=host.look is not None,
+                                  sheet_tools=_sheet_tools(host))
 
 
 def specs(style: str = "plain", host=None):
     """The specs of :func:`tool_names` (:func:`planlens.review.specs.
     host_specs`)."""
-    return _specs.host_specs(style, look=(host or _host()).look is not None)
+    host = host or _host()
+    return _specs.host_specs(style, look=host.look is not None,
+                             sheet_tools=_sheet_tools(host))
 
 
 def _json_with(raw: str, **keys: Any) -> str:
@@ -122,6 +135,12 @@ def _document_args(name: str, a: Dict[str, Any]) -> Dict[str, Any]:
         args["offset"] = a.get("offset", 0)
         if a.get("author"):
             args["author"] = a["author"]
+    elif name == "sheet_index":
+        return {"handle": a.get("handle"), "offset": a.get("offset", 0)}
+    elif name == "check_cross_references":
+        args["offset"] = a.get("offset", 0)
+        if a.get("status"):
+            args["status"] = a["status"]
     if given("pages"):
         args["pages"] = a["pages"]
     return _with_pdf_pages(args, a.get("pdf_pages"))

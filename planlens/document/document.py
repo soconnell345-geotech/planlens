@@ -295,6 +295,8 @@ class Document:
         self._loose: Dict[int, Optional[str]] = {}
         self._fine: Dict[int, Any] = {}
         self._segments: Optional[List[Dict[str, Any]]] = None
+        self._sheet_index = None
+        self._cross_references = None
 
     # -- lifecycle ---------------------------------------------------------
     def close(self) -> None:
@@ -595,6 +597,27 @@ class Document:
             summaries = [self.summary(i) for i in range(self.n_pages)]
             self._segments = segments(summaries)
         return self._segments
+
+    def sheet_index(self):
+        """The drawing sheets of this document, from their title blocks:
+        page, sheet number, title, latest revision
+        (:func:`planlens.document.sheets.sheet_index`). Reads every page;
+        kept once read."""
+        if self._sheet_index is None:
+            from planlens.document.sheets import sheet_index
+            self._sheet_index = sheet_index(self)
+        return self._sheet_index
+
+    def cross_references(self):
+        """This document's callouts, each checked against the sheet index
+        and the views on the sheet it names
+        (:func:`planlens.document.crossrefs.cross_references`). Kept once
+        read."""
+        if self._cross_references is None:
+            from planlens.document.crossrefs import cross_references
+            self._cross_references = cross_references(
+                self, self.sheet_index())
+        return self._cross_references
 
     def render_thumbnails(self, pages: PageSpec = None, columns: int = 6,
                           thumb_px: int = 140, per_sheet: int = 48

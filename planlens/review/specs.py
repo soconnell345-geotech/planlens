@@ -70,6 +70,7 @@ DOCUMENT_TOOL_NOTES = {
         " For a Word, Excel or DXF file, handle is its file name; hits are "
         "its lines." + PDF_PAGES_NOTE),
     "document_page_map": PDF_PAGES_NOTE,
+    "check_cross_references": PDF_PAGES_NOTE,
     "document_markups": PDF_PAGES_NOTE,
     "find_quantities": PDF_PAGES_NOTE,
     "render_page_thumbnails": PDF_PAGES_NOTE,
@@ -139,6 +140,12 @@ LOOK_TOOLS = ("find_like",)
 #: Every tool this layer specifies.
 HOST_TOOLS = DOCUMENT_TOOLS + OPTIONAL_DOCUMENT_TOOLS + LOOK_TOOLS
 
+#: The sheet tools (a drawing set's sheets from their title blocks, and its
+#: callouts checked against them): offered only to a host that asks, with
+#: ``ReviewHost(toolkit_options={"sheet_tools": True})``. Not in
+#: :data:`HOST_TOOLS`: that list is what every host has had.
+SHEET_TOOLS = ("sheet_index", "check_cross_references")
+
 # -- the arguments, as the app's tool functions declare them -----------------
 # (name, form, default); a name with no default is required. Forms:
 # "str", "int", "bool", "any" (no type), and "opt_int" / "opt_str" /
@@ -183,6 +190,12 @@ _ARGS: Dict[str, List[Tuple[str, str, Any]]] = {
                           ("output_path", "str", ""),
                           ("append", "bool", True), ("check", "bool", True),
                           ("remove", "opt_list", None)],
+    "sheet_index": [("handle", "str", _REQUIRED), ("offset", "int", 0)],
+    "check_cross_references": [("handle", "str", _REQUIRED),
+                               ("pages", "any", None),
+                               ("status", "opt_str", None),
+                               ("offset", "int", 0),
+                               ("pdf_pages", "any", None)],
     "find_like": [("attachment_key", "str", _REQUIRED),
                   ("page", "opt_int", None), ("bbox", "opt_list", None),
                   ("text", "str", ""), ("pages", "opt_str", None),
@@ -229,8 +242,9 @@ DESCRIBED_MARKUP_FIELDS = ("kind", "bbox", "points_at", "min_score",
 
 def _toolkit_spec(name: str) -> Optional[Dict[str, Any]]:
     """The installed toolkit's spec for ``name``, or ``None``."""
-    from planlens.tools.specs import TOOL_SPECS
-    for spec in TOOL_SPECS:
+    from planlens.tools import specs as toolkit_specs
+    for spec in list(toolkit_specs.TOOL_SPECS) + list(
+            getattr(toolkit_specs, "SHEET_TOOL_SPECS", ())):
         if spec.get("name") == name:
             return spec
     return None
@@ -275,7 +289,8 @@ def _shown(name: str) -> Dict[str, Dict[str, Any]]:
     """Arguments shown to the model with a schema of their own rather than
     the one their declared type gives: ``annotate_document``'s ``markups``
     with the toolkit's markup fields and ``remove`` as strings;
-    ``search_document``'s ``min_score`` with the toolkit's default, 80."""
+    ``search_document``'s ``min_score`` with the toolkit's default, 80;
+    ``check_cross_references``' ``status`` with the toolkit's words."""
     if name == "annotate_document":
         shown = {"remove": {"type": "array", "items": {"type": "string"}}}
         item = annotate_markups_schema()
@@ -284,6 +299,15 @@ def _shown(name: str) -> Dict[str, Dict[str, Any]]:
         return shown
     if name == "search_document":
         return {"min_score": {"type": "integer", "default": 80}}
+    if name == "check_cross_references":
+        # the toolkit's words for a callout's status, read off its spec
+        spec = _toolkit_spec(name) or {}
+        status = ((spec.get("parameters") or {}).get("properties")
+                  or {}).get("status") or {}
+        if status.get("enum"):
+            return {"status": {"anyOf": [
+                {"type": "string", "enum": list(status["enum"])},
+                {"type": "null"}]}}
     return {}
 
 
@@ -319,21 +343,24 @@ def tool_description(name: str) -> str:
     return spec["description"] + DOCUMENT_TOOL_NOTES.get(name, "")
 
 
-def host_tool_names(look: bool = True) -> Tuple[str, ...]:
+def host_tool_names(look: bool = True,
+                    sheet_tools: bool = False) -> Tuple[str, ...]:
     """The host tools to offer: the document tools the installed toolkit
-    publishes, and the look tools only when the host gave a look."""
+    publishes, the look tools only when the host gave a look, and the
+    sheet tools (:data:`SHEET_TOOLS`) only when the host asked for them."""
     names = DOCUMENT_TOOLS + tuple(n for n in OPTIONAL_DOCUMENT_TOOLS
                                    if _toolkit_spec(n) is not None)
-    return names + (LOOK_TOOLS if look else ())
+    return (names + (LOOK_TOOLS if look else ())
+            + (SHEET_TOOLS if sheet_tools else ()))
 
 
-def host_specs(style: str = "plain", look: bool = True
-               ) -> List[Dict[str, Any]]:
+def host_specs(style: str = "plain", look: bool = True,
+               sheet_tools: bool = False) -> List[Dict[str, Any]]:
     """The host tools' specs: ``plain`` (name / description /
     input_schema), ``anthropic`` (the same) or ``openai``
     (``type=function``)."""
     out = []
-    for name in host_tool_names(look):
+    for name in host_tool_names(look, sheet_tools):
         desc = tool_description(name)
         schema = input_schema(name, desc)
         if style in ("plain", "anthropic"):
@@ -350,7 +377,8 @@ def host_specs(style: str = "plain", look: bool = True
 __all__ = ["DOCUMENT_TOOL_NOTES", "PDF_PAGES_NOTE", "PDF_PAGE_NOTE",
            "IMAGE_FIND_NOTE", "IMAGE_MARKUP_NOTE", "FIND_LIKE_DESCRIPTION",
            "DOCUMENT_TOOLS", "OPTIONAL_DOCUMENT_TOOLS", "LOOK_TOOLS",
-           "HOST_TOOLS", "APP_MARKUP_FIELDS", "WITHHELD_MARKUP_FIELDS",
+           "HOST_TOOLS", "SHEET_TOOLS", "APP_MARKUP_FIELDS",
+           "WITHHELD_MARKUP_FIELDS",
            "DESCRIBED_MARKUP_FIELDS", "annotate_markups_schema",
            "input_schema", "tool_description", "host_tool_names",
            "host_specs"]

@@ -19,12 +19,13 @@ conversation, the markup check, ``find_like`` with every candidate read) is
 :mod:`planlens.review`.
 """
 
-from planlens.tools.specs import TOOL_SPECS
+from planlens.tools.specs import SHEET_TOOL_SPECS, TOOL_SPECS
 from planlens.tools.toolkit import (
     DEFAULT_IMAGE_VIEW_HINT, DEFAULT_MAX_CHARS, DEFAULT_VISION_HINT, Look,
     ReviewToolkit, ToolError,
 )
 
 __all__ = ["ReviewToolkit", "ToolError", "Look", "TOOL_SPECS",
+           "SHEET_TOOL_SPECS",
            "DEFAULT_MAX_CHARS",
            "DEFAULT_VISION_HINT", "DEFAULT_IMAGE_VIEW_HINT"]

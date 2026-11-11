@@ -22,6 +22,10 @@ PDF into data an LLM can navigate and cite:
 - **stated quantities** — every number the document gives a unit, with its
   raw wording and any "approximately" on it (:meth:`Document.quantities`),
   so what the text CLAIMS can be compared with what the drawing MEASURES;
+- a drawing set's **sheet index** — each sheet's number, title and latest
+  revision, read from its title block (:meth:`Document.sheet_index`) — and
+  its **callouts** checked against it: which section and detail references
+  lead to a view that is in the set (:meth:`Document.cross_references`);
 - an optional **Azure Document Intelligence** text source for scanned pages,
   paragraph roles and header-marked tables — the caller runs the paid
   analysis, planlens only reads the result (:class:`AzureLayout`).
@@ -58,6 +62,11 @@ from planlens.document.budget import (
     image_box_to_page,
     legible_window,
 )
+from planlens.document.crossrefs import (
+    Callout,
+    CrossReferences,
+    cross_references,
+)
 from planlens.document.document import (
     DEFAULT_FUZZY_MIN_SCORE,
     Document,
@@ -93,6 +102,7 @@ from planlens.document.quantities import (
     QuantityMention,
     scan_text,
 )
+from planlens.document.sheets import SheetIndex, SheetRow, sheet_index
 from planlens.document.scale import (
     SOURCE_MEASUREMENT_MARKUP,
     SOURCE_VIEWPORT,
@@ -133,6 +143,12 @@ __all__ = [
     "QuantityMention",
     "QUANTITY_KINDS",
     "scan_text",
+    "SheetIndex",
+    "SheetRow",
+    "sheet_index",
+    "Callout",
+    "CrossReferences",
+    "cross_references",
     "PageContent",
     "PageSummary",
     "TextLine",
