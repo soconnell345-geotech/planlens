@@ -92,7 +92,8 @@ review/
   host.py          ReviewHost, configure(), using(), the small helpers
   conversation.py  one toolkit per conversation; handles and sources
                    interchangeable; pdf_pages/pdf_page and viewer page
-                   numbers; Word/Excel/DXF read as text; lock-wait timing
+                   numbers (and a note where they did not fit, PL-38);
+                   Word/Excel/DXF read as text; lock-wait timing
   marked_copy.py   annotate's copy: temp file + swap, remove by id or words,
                    marks on an image in its pixels, off-the-page refusal;
                    one lock per copy, so two calls on it keep both (PL-38)

@@ -691,6 +691,16 @@ def _viewer_pages(obj: Any) -> Any:
     return obj
 
 
+#: The key and words said in a result too near its size limit to carry the
+#: viewer's page numbers (PL-38): every row lost its ``pdf_page`` with no
+#: word, and a reader citing one cited the page before.
+VIEWER_PAGES_KEY = "viewer_pages"
+VIEWER_PAGES_LEFT_OUT = (
+    "the pages in this result count from 0, as the tools take them: it was "
+    "too near its size limit to add pdf_page beside each, so a PDF viewer "
+    "shows page n as page n + 1")
+
+
 def with_viewer_pages(result: str, limit: Optional[int] = None) -> str:
     """``result`` with the page a PDF VIEWER shows beside every page index.
 
@@ -704,8 +714,10 @@ def with_viewer_pages(result: str, limit: Optional[int] = None) -> str:
     ``pages_to_view``, ``pages_with_hits`` ...) gains a ``pdf_`` twin in the
     viewer's numbers (``"pdf_pages": "1-13"``; live smoke wave 2b, C9). The
     tools still TAKE 0-based pages, as their descriptions say.
-    Unparseable results, and results the additions would push past
-    ``limit``, are returned unchanged.
+    Unparseable results are returned unchanged. A result the additions
+    would push past ``limit`` goes out without them, saying so in
+    :data:`VIEWER_PAGES_KEY` (:data:`VIEWER_PAGES_LEFT_OUT`) where that
+    still fits (PL-38); one with no page to add to goes out unchanged.
     """
     try:
         data = json.loads(result)
@@ -713,10 +725,13 @@ def with_viewer_pages(result: str, limit: Optional[int] = None) -> str:
         return result
     # Serialized the way planlens serializes, so the length compares like for
     # like with the budget it was given.
-    out = json.dumps(_viewer_pages(data), ensure_ascii=False,
-                     separators=(",", ":"))
+    shown = _viewer_pages(data)
+    out = json.dumps(shown, ensure_ascii=False, separators=(",", ":"))
     if limit is not None and len(out) > limit:
-        return result
+        if shown == data:          # no page number was left out
+            return result
+        return _with_note(result, VIEWER_PAGES_KEY, VIEWER_PAGES_LEFT_OUT,
+                          limit)
     return out
 
 
@@ -1406,7 +1421,8 @@ def resolve_document_source(source: str,
 __all__ = ["UNCAPPED_BUDGET", "MAX_SPACES", "MAX_REMEMBERED_HANDLES",
            "looks_like_handle", "handle_source", "available",
            "budget_for_cap", "dispatch_document_tool", "IMAGE_COORDINATES",
-           "with_viewer_pages", "OFFICE_DOCUMENT_EXTENSIONS",
+           "with_viewer_pages", "VIEWER_PAGES_KEY", "VIEWER_PAGES_LEFT_OUT",
+           "OFFICE_DOCUMENT_EXTENSIONS",
            "CAD_DOCUMENT_EXTENSIONS", "SIDE_READ_TOOLS", "side_kind",
            "CAD_GEOMETRY_MAX", "CAD_VERTICES_SHOWN", "forget_path",
            "open_document_entry", "document_entry",

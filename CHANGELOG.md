@@ -166,6 +166,13 @@
   on a made-up 150 MB scanned set: the call's peak memory over the open
   document went from 306 MB to 174 MB and its time from 1.1 s to 0.35 s.
   A repair.
+- **A result too near its size limit for the viewer's page numbers says so
+  (PL-38).** `planlens.review`'s document tools add `pdf_page` beside every
+  page; where that would push a result past its limit, the result went out
+  without them and without a word, and a reader citing its pages cited the
+  page before. It now carries `viewer_pages`, saying its pages count from 0
+  and a viewer shows page n as page n + 1 (where that note fits). A result
+  under the limit is unchanged. A repair.
 
 ## 0.15.1 — 2026-11-10
 
