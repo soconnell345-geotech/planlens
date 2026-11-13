@@ -204,6 +204,21 @@ MIN_TEXT_CHARS_FOR_SIZE = 40
 DEFAULT_FUZZY_MIN_SCORE = 80
 
 
+def thumbnail_label(index: int, kind: str,
+                    page_label: Optional[str] = None) -> str:
+    """A contact-sheet thumbnail's label: both page counts, each named.
+
+    The tools take ``page`` counted from 0 and ``pdf_page`` counted from 1,
+    and a bare number beneath a thumbnail was read as the PDF page: a model
+    looked at the sheet before the one it meant and reported five false
+    alarms (brief 7, F-7; PL-39). ``page_label`` is the PDF's own label for
+    the page, added in brackets (cut to 12 characters)."""
+    text = f"pg {index} | PDF {index + 1} {kind}"
+    if page_label:
+        text += f" ({page_label[:12]})"
+    return text
+
+
 def _load_rapidfuzz():
     """The ``rapidfuzz`` package, or a clear instruction.
 
@@ -655,19 +670,31 @@ class Document:
                 color = (0.85, 0.1, 0.1) if summary.n_markups else (0.6, 0.6, 0.6)
                 canvas.draw_rect(rect, color=color,
                                  width=1.5 if summary.n_markups else 0.5)
-                label = f"{index} {summary.kind}"
+                room = cell_w - 4
+                label = thumbnail_label(index, summary.kind)
                 if summary.label and summary.label != str(index + 1):
-                    label += f" ({summary.label[:12]})"
+                    named = thumbnail_label(index, summary.kind, summary.label)
+                    if pymupdf.get_text_length(named, fontsize=7) <= room:
+                        label = named
+                # The two numbers are what the label is for: never cut, the
+                # lettering shrinks instead (to no less than 5 pt).
+                width = pymupdf.get_text_length(label, fontsize=7)
+                size = 7.0 if width <= room else max(5.0, 7.0 * room / width)
                 canvas.insert_text((x0, y0 + thumb + label_h - 3), label,
-                                   fontsize=7, color=(0, 0, 0))
+                                   fontsize=size, color=(0, 0, 0))
             png = canvas.get_pixmap(dpi=72).tobytes("png")
             sheet.close()
             out.append((png, {
                 "pages": chunk, "columns": columns, "thumb_px": thumb,
                 "width_px": int(columns * cell_w + gap),
                 "height_px": int(rows * cell_h + gap),
-                "legend": ("each thumbnail is labelled '<page> <kind>'; a red "
-                           "frame means the page carries review markups")}))
+                "legend": ("each thumbnail is labelled 'pg <page> | PDF "
+                           "<pdf_page> <kind>': pg is the page counted from "
+                           "0 (the tools' page), PDF is the page counted "
+                           "from 1 as a PDF viewer shows it (the tools' "
+                           "pdf_page); a name in brackets after it is the "
+                           "PDF's own page label; a red frame means the page "
+                           "carries review markups")}))
         return out
 
     # -- full page content ------------------------------------------------
