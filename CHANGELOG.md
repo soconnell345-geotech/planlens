@@ -149,6 +149,23 @@
   page in the header and footer bands as before; a count goes in a row's new
   `sheet_count` ("3 of 24"). A repair, for every host; tool names,
   descriptions and arguments are unchanged.
+- **Two `annotate_document` calls on one marked copy keep both calls'
+  marks (PL-38).** Each call copied the marked copy, added its marks and
+  swapped its copy in, so two at once (parallel tool calls) dropped the
+  first call's marks without a word. A call now holds a lock on its copy
+  (`planlens.review.marked_copy.copy_lock`, per file, in this process) from
+  naming the marks to remove to counting what the copy holds; the look's
+  check runs outside it. A repair.
+- **A marked copy of a document opened from bytes no longer holds another
+  whole copy of the file (PL-38).** `annotate_document` wrote from
+  `Document.tobytes()`, a fresh serialisation of the whole file, even when
+  adding to an existing copy, which does not read the document at all. It
+  now writes from the bytes the document was opened from
+  (`Document.pdf_bytes()`, no copy), and from nothing of the document's
+  when adding to a copy; drawing marks on a render does the same. Measured
+  on a made-up 150 MB scanned set: the call's peak memory over the open
+  document went from 306 MB to 174 MB and its time from 1.1 s to 0.35 s.
+  A repair.
 
 ## 0.15.1 — 2026-11-10
 

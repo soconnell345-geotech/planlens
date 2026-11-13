@@ -1267,9 +1267,15 @@ class ReviewToolkit:
                 # The bytes come off the OPEN document rather than from
                 # resolving its source again: one document can be reached by
                 # several names, and the one it was first opened under may not
-                # even resolve for this caller.
+                # even resolve for this caller. They are the bytes it was
+                # opened from where it was opened from bytes, not another
+                # copy (PL-38); and when the marks go onto an existing copy
+                # (append) the document is not read at all, so its file
+                # stands in for it.
+                adding = bool(append) and os.path.isfile(out_path)
                 report = write_markups(
-                    entry.doc.tobytes(), out_path, markups,
+                    entry.path if adding and entry.path
+                    else entry.doc.pdf_bytes(), out_path, markups,
                     author=author or self.author or DEFAULT_AUTHOR,
                     append=bool(append))
         except ValueError as exc:

@@ -350,6 +350,18 @@ class Document:
         """
         return self._doc.tobytes()
 
+    def pdf_bytes(self) -> bytes:
+        """The document as PDF bytes, without a copy where there is one
+        already (PL-38): the bytes it was opened from -- for an image, the
+        one-page PDF it became on open -- which the open document reads
+        from and never changes; else :meth:`tobytes`. On a 150 MB scanned
+        set, :meth:`tobytes` held another 150 MB for as long as a marked
+        copy took to write."""
+        stream = getattr(self._doc, "stream", None)
+        if isinstance(stream, (bytes, memoryview)) and len(stream):
+            return stream if isinstance(stream, bytes) else bytes(stream)
+        return self.tobytes()
+
     def toc(self) -> List[Dict[str, Any]]:
         """The PDF outline (bookmarks): level, title, 0-based page."""
         return [{"level": lvl, "title": title, "page": page - 1}
@@ -1210,7 +1222,7 @@ class Document:
         if marks:
             # Drawing marks writes into the page; render from a fresh copy so
             # the cached document (and its text extraction) stays untouched.
-            src = pymupdf.open(stream=self._doc.tobytes(), filetype="pdf")
+            src = pymupdf.open(stream=self.pdf_bytes(), filetype="pdf")
             target = src[index]
             _draw_marks(target, [tuple(m) for m in marks], DEFAULT_MARK_RADIUS,
                         (1.0, 0.0, 0.0), fill_color=None,
