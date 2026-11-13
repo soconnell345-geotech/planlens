@@ -114,9 +114,10 @@ DEFAULT_VISION_HINT = ("to view it: render_page(handle, page) for a page, "
 #: Page kinds whose content is mostly not in the text.
 VIEW_KINDS = ("scanned", "figure", "drawing_sheet", "form")
 
-#: Fewer text characters than this (and no hidden CAD text) on a page with
-#: content is no usable text layer: a scan, or lettering drawn as strokes. The
-#: page classifier's own line for "no text layer" (``classify.classify_page``).
+#: Fewer text characters than this on a page with content is no usable text
+#: layer: a scan, lettering drawn as strokes, or a drawing whose text layer is
+#: a handful of labels (a few hidden CAD strings do not change that). The page
+#: classifier's own line for "no text layer" (``classify.classify_page``).
 NO_TEXT_LAYER_CHARS = 50
 
 
@@ -147,8 +148,7 @@ def no_text_layer(summary: Any) -> bool:
         return False
     if summary.evidence.get("needs_ocr") or not summary.text_reliable:
         return True
-    return (summary.n_text_chars < NO_TEXT_LAYER_CHARS
-            and not summary.n_cad_text)
+    return summary.n_text_chars < NO_TEXT_LAYER_CHARS
 
 #: How the model views a PNG this toolkit wrote, when the host has no other
 #: way to say it.

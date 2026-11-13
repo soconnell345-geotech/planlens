@@ -898,8 +898,8 @@ sheet index's work), so a tabloid page of prose is listed too.
 `pages_not_searchable_as_text` had listed every page of the view kinds,
 including drawing sheets with a full text layer and pages the same search had
 just found hits on. It now lists only pages without a usable text layer
-(`toolkit.no_text_layer`: sent to OCR, or under 50 characters with no hidden
-CAD text, the classifier's own line), and never a page with a hit. A literal
+(`toolkit.no_text_layer`: sent to OCR, or under 50 text characters, the
+classifier's own line), and never a page with a hit. A literal
 pattern holding "|" is matched as that character; the result now says that
 `regex=true` reads it as "or", ahead of the fuzzy tip. `find_quantities`
 keeps its own list by kind (noted in PL-39's CHECK).
