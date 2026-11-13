@@ -913,6 +913,13 @@ class ReviewToolkit:
             d = s.to_dict(detail=with_evidence)
             if not with_evidence and s.evidence.get("needs_ocr"):
                 d["needs_ocr"] = True
+            # The sheet's place in the set ("3 of 24"), kept apart from its
+            # number ("sheet"): a count is never a sheet number (PL-37).
+            count = s.evidence.get("sheet_count")
+            if count:
+                d["sheet_count"] = count
+                if with_evidence:
+                    d["evidence"].pop("sheet_count", None)
             if to_view(s):
                 d["look"] = True
             return d

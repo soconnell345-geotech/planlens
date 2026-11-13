@@ -60,7 +60,8 @@ def test_page_map_rows_carry_printed_numbers_and_segments(kit, gt):
     by_page = {r["page"]: r for r in rows}
     assert by_page[gt.report_pages[1]]["printed_page"] == 2
     assert by_page[gt.report_pages[1]]["segment"] == 1
-    assert by_page[gt.sheet_pages[0]]["sheet"] == "1 of 2"
+    assert "sheet" not in by_page[gt.sheet_pages[0]]   # PL-37
+    assert by_page[gt.sheet_pages[0]]["sheet_count"] == "1 of 2"
     assert by_page[gt.sheet_pages[0]]["scales"] == [f"SCALE: {gt.sheet_scale}"]
     assert by_page[gt.duplicate_page]["duplicate_of"] == gt.duplicate_of
     assert by_page[gt.form_pages[0]]["look"] is True

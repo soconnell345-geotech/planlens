@@ -533,7 +533,10 @@ the map could say): `n_words` and `text_density` (words per square inch —
 prose 1.5-6, dividers and drawings 0.1-0.7), `n_images`, `ruling_h/v`,
 `rotated_text_fraction`, the `header` and `footer` band text (top and bottom
 8 %), the page number PRINTED on the page (`printed_page`, `printed_of`), a
-`sheet` reference ("1 of 7", "S-101"), `scales` on drawing sheets, a
+`sheet` number ("S-101"; since PL-37 read in the title-block bands by the
+sheet index's rules for one sheet, below) and, apart from it, the sheet
+count ("1 of 7"; `evidence["sheet_count"]`, a page-map row's
+`sheet_count`), `scales` on drawing sheets, a
 `divider_title` (APPENDIX / ATTACHMENT / ITEM / cover ... on a page under 60
 words), `duplicate_of` (same kind, words and path count as an earlier page —
 or, where the words are too few to decide, the same picture — and in both
@@ -1638,10 +1641,17 @@ its symbol; an affine fit for a distorted scan.
 ## Sheet index and cross-references (unreleased; app BACKLOG PL-37, DR-07)
 
 A reviewer names a sheet by its number; a PDF knows page indexes, and most
-sets carry no page labels. `structure.py`'s `printed_numbers` reads only the
-top and bottom 8 % of a page, so it misses a number in a title block down
-the right edge and returns "3 of 24" as the sheet where a footer prints the
-count. `sheets.py` reads the title block instead, for the whole set at once.
+sets carry no page labels. `sheets.py` reads the title block, for the whole
+set at once. `structure.py`'s `printed_numbers` (a page's `sheet` on the
+page map) read only the top and bottom 8 % of a page, so it missed a number
+in a title block down the right edge and returned "3 of 24" as the sheet
+where a footer printed the count. Since the PL-37 repair it reads one page
+by this index's own rules for a sheet no slot covers
+(`sheets.page_sheet_number`: the label, then on a sheet the size; the slot
+needs the set), on a sheet in the title-block bands and the header band
+(elsewhere in the header and footer bands, as before), and keeps a
+count apart (`sheet_count`). The index stays the better reading of a set:
+its slot finds numbers that carry no label.
 
 **The number.** Nothing knows a layout. `sheet_index(doc)` collects every
 piece of text shaped like a sheet number (`A-101`, `S-201A`, `A5.01`,

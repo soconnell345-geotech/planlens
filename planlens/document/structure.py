@@ -8,8 +8,10 @@ and those change exactly where one document ends and the next begins. This
 module reads them:
 
 - the **header** and **footer** bands of each page (top and bottom 8%);
-- the **printed page number** ("Page 15 of 300", "Page 7") and **sheet
-  reference** ("SHEET 1 OF 7") found there;
+- the **printed page number** ("Page 15 of 300", "Page 7") found there,
+  the **sheet number** ("SHEET NO. S-201A") read in the title-block bands
+  by the sheet index's rules for one sheet, and the **sheet count**
+  ("SHEET 1 OF 7"), which is never the sheet number;
 - **divider pages** — a cover or tab whose heading says APPENDIX, ATTACHMENT,
   ITEM, SECTION, CONTENTS, ...;
 - **duplicates** — a page whose words repeat an earlier page's and whose
@@ -42,9 +44,10 @@ BAND_MAX_CHARS = 120
 
 _PAGE_OF = re.compile(r"\bpage\s+(\d{1,4})(?:\s+of\s+(\d{1,4}))?\b", re.I)
 _SHEET_OF = re.compile(r"\bsheet\s+(\d{1,3})\s+of\s+(\d{1,3})\b", re.I)
-_SHEET_ID = re.compile(
-    r"\b(?:sheet|sht|dwg)\.?\s*(?:no\.?\s*)?([A-Z]{1,2}-?\d{1,3}(?:\.\d{1,2})?)\b",
-    re.I)
+#: A sheet number straight after a bare SHEET / SHT / DWG at the start of a
+#: line ("SHEET A-101"): the one form the old reading took that the sheet
+#: index's labels (which want NO., # or NUMBER) do not.
+_SHEET_WORD_NUMBER = re.compile(r"^\s*(?:SHEET|SHT|DWG)\.?\s+(\S+)", re.I)
 _DIVIDER = re.compile(
     r"^(appendix|attachment|addendum|annex|exhibit|item|section|part|tab|"
     r"chapter|volume|schedule|enclosure|cover|contents|index|transmittal|"
@@ -124,8 +127,78 @@ def body_word_count(lines: Sequence[TextLine], height: float) -> int:
     return n
 
 
-def printed_numbers(texts: Sequence[str]) -> Dict[str, Any]:
-    """Printed page / sheet numbers in header+footer text."""
+def _band_line(width: float, height: float, is_sheet: bool):
+    """Where a page prints its sheet number: on a sheet, the title-block
+    bands the sheet index reads (right and bottom) and the header band;
+    on any other page, the header and footer bands."""
+    from planlens.document.sheets import _in_band
+
+    def inside(bbox) -> bool:
+        if bbox[3] <= BAND_FRACTION * height:
+            return True
+        if is_sheet:
+            return _in_band(bbox, width, height)
+        return bbox[1] >= (1.0 - BAND_FRACTION) * height
+    return inside
+
+
+def _sheet_word_number(texts: Sequence[str]) -> Optional[str]:
+    """``"SHEET A-101"``: a whole sheet number after a bare SHEET, SHT or
+    DWG that starts a line (not a count, not a page's number)."""
+    from planlens.document.sheets import WHOLE_SHEET_NUMBER
+    for text in texts:
+        m = _SHEET_WORD_NUMBER.match(text or "")
+        if m and WHOLE_SHEET_NUMBER.match(m.group(1).rstrip(".,;:")):
+            return m.group(1).rstrip(".,;:")
+    return None
+
+
+def _labelled_in_texts(texts: Sequence[str]) -> Optional[str]:
+    """A sheet number in text with no positions: the value of a number
+    label on the label's own line, or the whole of the text after a label
+    that stands alone (the next cell, read next)."""
+    from planlens.document.sheets import (NOT_A_SHEET_BEFORE, SHEET_COUNT,
+                                          SHEET_NUMBER, WHOLE_SHEET_NUMBER,
+                                          _after_label, _label_in)
+    texts = [str(t or "") for t in texts]
+    for i, text in enumerate(texts):
+        label = _label_in(text)
+        if label is None:
+            continue
+        masked = SHEET_COUNT.sub(lambda m: " " * len(m.group(0)), text)
+        for m in SHEET_NUMBER.finditer(masked, label.end()):
+            if (_after_label(masked[label.end():m.start()])
+                    and not NOT_A_SHEET_BEFORE.search(masked[:m.start()])):
+                return m.group(0)
+        if _after_label(text[label.end():]) and i + 1 < len(texts):
+            nxt = texts[i + 1].strip()
+            if WHOLE_SHEET_NUMBER.match(nxt):
+                return nxt
+    return None
+
+
+def printed_numbers(texts: Sequence[str], lines: Optional[Sequence[TextLine]]
+                    = None, width: float = 0.0, height: float = 0.0,
+                    is_sheet: bool = False) -> Dict[str, Any]:
+    """Printed page and sheet numbers.
+
+    ``texts``: the header and footer bands' text, where the page number
+    ("Page 15 of 300", "Page 7") is read. The sheet number is read by the
+    sheet index's rules for one sheet (:func:`planlens.document.sheets.
+    page_sheet_number`): the value of a number label ("SHEET NO. S-201A",
+    "DWG. NO.: A-101", "DRAWING NUMBER" with its value alone in the cell
+    beside or under it), else, on a sheet (``is_sheet``), a number alone in
+    the title block's corner in lettering well above the rest. With the
+    page's ``lines`` (and its ``width`` and ``height``) it is read, on a
+    sheet, in the title-block bands (right and bottom) and the header band,
+    and on any other page in the header and footer bands; without them, in
+    ``texts``. A label inside a sentence ("REFER TO DWG NO. S-201") names
+    another sheet and is not read.
+
+    ``sheet_count`` is the sheet's place in the set ("SHEET 3 OF 24", or
+    "3 of 24" in a band that says SHEET): never the sheet number, and never
+    a page's "Page 3 of 24".
+    """
     joined = " ".join(texts)
     out: Dict[str, Any] = {}
     best = None
@@ -138,15 +211,31 @@ def printed_numbers(texts: Sequence[str]) -> Dict[str, Any]:
         out["printed_page"] = best[0]
         if best[1] is not None:
             out["printed_of"] = best[1]
-    m = _SHEET_OF.search(joined)
-    if m is None and "sheet" in joined.lower():
-        m = re.search(r"\b(\d{1,3})\s+of\s+(\d{1,3})\b", joined, re.I)
-    if m:
-        out["sheet"] = f"{int(m.group(1))} of {int(m.group(2))}"
+    where = (_band_line(float(width), float(height), bool(is_sheet))
+             if lines is not None and width and height else None)
+    band = ([ln for ln in lines if ln.bbox is not None and where(ln.bbox)]
+            if where is not None else [])
+    # The count. A page's own "Page 3 of 24" is masked first: it numbers
+    # the page, not the sheet.
+    unpaged = _PAGE_OF.sub(" ", joined)
+    m = _SHEET_OF.search(unpaged)
+    if m is None and "sheet" in unpaged.lower():
+        m = re.search(r"\b(\d{1,3})\s+of\s+(\d{1,3})\b", unpaged, re.I)
+    if m is None:
+        m = next((c for ln in band
+                  for c in [_SHEET_OF.search(_PAGE_OF.sub(" ", ln.text))]
+                  if c), None)
+    if m and int(m.group(1)) <= int(m.group(2)):
+        out["sheet_count"] = f"{int(m.group(1))} of {int(m.group(2))}"
+    # The number.
+    if where is not None:
+        from planlens.document.sheets import page_sheet_number
+        number = page_sheet_number(lines, width, height, is_sheet, where)
+        number = number or _sheet_word_number([ln.text for ln in band])
     else:
-        m = _SHEET_ID.search(joined)
-        if m:
-            out["sheet"] = m.group(1).upper()
+        number = _labelled_in_texts(texts) or _sheet_word_number(texts)
+    if number:
+        out["sheet"] = number.upper()
     return out
 
 

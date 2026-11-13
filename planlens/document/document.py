@@ -424,7 +424,15 @@ class Document:
         area_in2 = (width / 72.0) * (height / 72.0) or 1.0
         heading = _heading(lines, blocks)
         top, bottom = band_texts(lines, height)
-        numbers = printed_numbers(top + bottom)
+        # The sheet number is read in the title-block bands, by the sheet
+        # index's rules for one sheet; a sheet count is kept apart (PL-37).
+        from planlens.document.sheets import SHEET_MIN_AREA
+        numbers = printed_numbers(
+            top + bottom, lines, width, height,
+            is_sheet=(kind == "drawing_sheet"
+                      or width * height >= SHEET_MIN_AREA))
+        if numbers.get("sheet_count"):
+            evidence["sheet_count"] = numbers["sheet_count"]
         scales: List[str] = []
         if kind == "drawing_sheet":
             from planlens.pdf.scale import parse_scale_annotations

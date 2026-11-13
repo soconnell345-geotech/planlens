@@ -134,6 +134,21 @@
   view mark, so a broken callout to that view number on that sheet comes
   out `resolved`. The rest are in
   `planlens/document/DESIGN.md`, "Sheet index and cross-references".
+- **A page's printed sheet number is read where a title block prints it,
+  and a sheet count is never one (app BACKLOG PL-37, `printed_numbers`).**
+  The `sheet` of a page-map row (and the `sheets` and drawing-segment
+  titles of `document_structure` and `open_document`) came from the top and
+  bottom 8 % of the page only and from one loose pattern: it missed
+  "SHEET NO. S-201A", "DWG. NO.: A-101" and a label with its value in the
+  cell beside or under it, took the sheet named in a note ("REFER TO DWG
+  NO. S-501") and returned "3 of 24" as a sheet number. It is now read by
+  the sheet index's own rules for one sheet (`planlens/document/sheets.py`:
+  a number label's value, else on a sheet a number alone in the title
+  block's corner in lettering well above the rest), on a sheet in the
+  title-block bands (right and bottom) and the header band, on any other
+  page in the header and footer bands as before; a count goes in a row's new
+  `sheet_count` ("3 of 24"). A repair, for every host; tool names,
+  descriptions and arguments are unchanged.
 
 ## 0.15.1 — 2026-11-10
 

@@ -383,23 +383,39 @@ def _read_page(doc, page: int) -> _Sheet:
                         "sheet does: read its title block by looking")
         sheet.has_text = False
         return sheet
+    sheet.pieces = _pieces(page, lines, sheet.width, sheet.height)
+    return sheet
+
+
+def _pieces(page: int, lines, width: float, height: float,
+            where=None) -> List[_Piece]:
+    """The sheet-number-shaped pieces of one page's ``lines`` that lie in
+    its title-block bands (or wherever ``where(bbox)`` says), each marked
+    whether it is a label's value."""
+    def inside(bbox) -> bool:
+        if bbox is None:
+            return False
+        return where(bbox) if where is not None else _in_band(
+            bbox, width, height)
+
     # a label whose value is in the next cell: a label line with nothing
     # after its label (one with a value on it labels only that value)
     labels = []
     for ln in lines:
-        if not _in_band(ln.bbox, sheet.width, sheet.height):
+        if not inside(ln.bbox):
             continue
         m = _label_in(ln.text)
         if m is not None and _after_label(ln.text[m.end():]):
             labels.append(ln)
+    pieces: List[_Piece] = []
     for ln in lines:
-        if not _in_band(ln.bbox, sheet.width, sheet.height):
+        if not inside(ln.bbox):
             continue
         text = ln.text
         on_line = _label_in(text)
         for masked, m in _numbers_in(ln):
             box = _token_box(ln, m.start(), m.end())
-            if not _in_band(box, sheet.width, sheet.height):
+            if not inside(box):
                 continue
             before = masked[:m.start()]
             if NOT_A_SHEET_BEFORE.search(before):
@@ -409,11 +425,35 @@ def _read_page(doc, page: int) -> _Sheet:
                 and _after_label(masked[on_line.end():m.start()])) or any(
                 lab is not ln and _beside_label(box, lab.bbox, ln.rotation)
                 for lab in labels)
-            sheet.pieces.append(_Piece(
+            pieces.append(_Piece(
                 page, m.group(0), box, _size(ln), _turned(ln),
                 whole_line=masked.strip() == m.group(0), line_text=text,
                 labelled=labelled))
-    return sheet
+    return pieces
+
+
+def page_sheet_number(lines, width: float, height: float,
+                      is_sheet: bool = False, where=None) -> Optional[str]:
+    """The sheet number one page prints, read on that page alone by the
+    index's own rules for a sheet no slot covers: the value of a number
+    label (on the label's line, or alone in the cell beside or under it),
+    else -- on a sheet (``is_sheet``) -- a number standing alone in the
+    title block's corner in lettering well above the rest
+    (:func:`_by_label`, :func:`_by_size`). The slot needs the whole set,
+    so it is :func:`sheet_index`'s alone. ``lines`` are the page's text
+    lines in the displayed frame; ``where(bbox)`` widens or narrows the
+    title-block bands. A sheet count is never a number. ``None`` when the
+    page's text gives none."""
+    lines = [ln for ln in (lines or ()) if getattr(ln, "bbox", None)]
+    sheet = _Sheet(0, float(width), float(height), lines,
+                   has_text=bool(lines))
+    if not sheet.lines or not sheet.width or not sheet.height:
+        return None
+    sheet.pieces = _pieces(0, sheet.lines, sheet.width, sheet.height, where)
+    piece = _by_label(sheet)
+    if piece is None and is_sheet:
+        piece = _by_size(sheet)
+    return piece.token if piece is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -939,7 +979,8 @@ def _duplicate_note(index: SheetIndex) -> Optional[str]:
             f"page: {head}{more}")
 
 
-__all__ = ["SheetRow", "SheetIndex", "sheet_index", "normalize_number",
+__all__ = ["SheetRow", "SheetIndex", "sheet_index", "page_sheet_number",
+           "normalize_number",
            "number_shape", "discipline", "SHEET_NUMBER", "WHOLE_SHEET_NUMBER",
            "SHEET_COUNT", "HOW_SLOT", "HOW_LABEL", "HOW_SIZE",
            "HOW_PAGE_LABEL", "HOW_FURTHER_SLOT"]
