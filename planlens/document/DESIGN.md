@@ -276,6 +276,14 @@ unit the page leaves to its datum, so it is reported with `units=""` and
 to the obvious list, because "2H:1V" is among the most-compared statements on
 a geotechnical sheet and does not belong in `other`.
 
+**A rebar callout is not a quantity (PL-39).** Read case-blind, "10-20M EACH
+WAY" was a length of 10 to 20 m. A count, a hyphen and a metric bar size (10M
+to 55M, the M a capital against the size) is now taken out before any reading
+is kept, so neither the range nor "20M" alone is reported; "10-20 m" and
+"10-20m" stay ranges in metres. A bare bar size ("15M @ 300") is still read as
+15 m: it cannot be told from a length written in capitals without more
+context.
+
 ### The bake-off: native regex vs quantulum3
 
 Before choosing, both were run over 40 invented geotechnical sentences
@@ -809,10 +817,19 @@ the page comes back as confident nonsense rather than as U+FFFD.
 ### Thumbnails
 
 `Document.render_thumbnails()` composes contact sheets — every page as a small
-thumbnail with "<page> <kind> (<label>)" beneath, 6 x 8 per sheet, a red frame
-on pages with review markups — the way a viewer's page panel shows a document.
-A model can take in 48 pages in one image and pick out the plan, the logs, the
-tables. Cost: 3.2 s for all 260 pages; six 910 x 1322 px images.
+thumbnail with "pg <page> | PDF <pdf_page> <kind> (<label>)" beneath, 6 x 8 per
+sheet, a red frame on pages with review markups — the way a viewer's page panel
+shows a document. A model can take in 48 pages in one image and pick out the
+plan, the logs, the tables. Cost: 3.2 s for all 260 pages; six 910 x 1322 px
+images.
+
+Both page counts are printed and named, and the legend says which is which
+(PL-39). The label was a bare page counted from 0, and the tools take `page`
+from 0 and `pdf_page` from 1: in brief 7 a model read "3 drawing_sheet" as PDF
+page 3, looked at the sheet before the one it meant and reported five false
+alarms. The PDF's own page label is dropped before it would push the numbers
+past the cell, and the lettering shrinks to no less than 5 pt rather than cut
+a number.
 
 ## Text sources
 
@@ -862,6 +879,30 @@ and the tool layer prints them as `! look:` lines with the host's own
 instruction for how to look (`ReviewToolkit.vision_hint`). `open_document`
 lists `pages_to_view`; `document_page_map` flags `look`; a text-search miss
 names `pages_not_searchable_as_text` so a miss there is not read as absence.
+
+**Which pages, said truly (PL-39, 2026-11-13).** The kinds alone made both
+lists wrong. A titled drawing-size sheet with long notes or light linework is
+classed `text` or `mixed` by its content, so `pages_to_view` held 18 of brief
+7's 40 coordination sheets and 6 of its 15, every callout destination left
+out, under a note that called the list the scans, figures and drawing sheets;
+one model took it as the set of sheets and called 18 good callouts broken.
+`pages_to_view` and `look` now also hold every non-blank page 11 x 17 in or
+larger (`toolkit.to_view`), the yardstick `sheets.sheet_index` uses, so the
+list costs no extra reading and every page the sheet index finds is on it; the
+note says that `pages_by_kind` classes by content and that a smaller page off
+the list can still hold a drawing. The cost is more looks: on the coordination
+sets every sheet, which is what the page's rule of looking at every page in
+scope asks for anyway. Title blocks are not read for this (that is the opt-in
+sheet index's work), so a tabloid page of prose is listed too.
+
+`pages_not_searchable_as_text` had listed every page of the view kinds,
+including drawing sheets with a full text layer and pages the same search had
+just found hits on. It now lists only pages without a usable text layer
+(`toolkit.no_text_layer`: sent to OCR, or under 50 characters with no hidden
+CAD text, the classifier's own line), and never a page with a hit. A literal
+pattern holding "|" is matched as that character; the result now says that
+`regex=true` reads it as "or", ahead of the fuzzy tip. `find_quantities`
+keeps its own list by kind (noted in PL-39's CHECK).
 
 `Document.render(page, bbox, marks)` gives the image itself, in the displayed
 frame, pixel-capped (`DEFAULT_MAX_PIXELS`: a 300 dpi D-size render is 70 MP

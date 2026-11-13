@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **`open_document`'s `pages_to_view` holds every drawing-size sheet (app
+  BACKLOG PL-39 (1)).** It listed only pages classed as scans, figures,
+  drawing sheets or forms, so a titled sheet classed text or mixed by its
+  content was left off a list whose note called it the drawing sheets (22 of
+  40 on a coordination set). It and `document_page_map`'s `look` now also
+  hold every non-blank page 11 x 17 in or larger, the sheet index's own
+  yardstick, and the note says a page's kind is by content and a smaller
+  page off the list can still hold a drawing. A repair, for every host.
+- **Contact-sheet labels name both page counts (PL-39 (2)).** Each
+  thumbnail of `render_page_thumbnails` is labelled
+  "pg <page> | PDF <pdf_page> <kind>" and the legend says pg counts from 0
+  (the tools' `page`) and PDF from 1 (`pdf_page`); it was a bare page
+  counted from 0. A repair.
+- **`search_document` lists only pages it could not read, and explains "|"
+  (PL-39 (3)).** `pages_not_searchable_as_text` now holds only pages without
+  a usable text layer, never one with a full text layer or one the same
+  search found hits on; the tool's description says so. A literal pattern
+  holding "|" gets a hint that `regex=true` reads it as "or". A repair.
+- **`find_quantities` no longer reads a rebar callout as a length (PL-39
+  (4)).** "10-20M EACH WAY" was 10 to 20 m; a count and a metric bar size
+  are now no quantity. "10-20 m" is still a range. A repair.
+
 - **A drawing set's sheet index and a check of its callouts, for a host
   that asks (app BACKLOG PL-37, DR-07).** Off by default: no tool list,
   spec or result changes until a host turns them on.
