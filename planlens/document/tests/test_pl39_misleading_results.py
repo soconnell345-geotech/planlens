@@ -52,9 +52,28 @@ def _readings(text):
     "TOP 8-15M EACH WAY",
     "ADD 4-25M CONT. AT EDGE",
     "2 - 30M BARS",
+    "8-15M @ 300",
+    "4-20M T&B",
+    "3-10M STIRRUPS",
+    "10-15M E.F.",
+    "TOP: 4-25M",
+    "4-25M x 3000 LG",
 ])
 def test_a_rebar_callout_is_no_quantity(text):
     assert _readings(text) == []
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("PILE TIP 15-20M BELOW EXISTING GRADE", (15.0, 20.0, "m")),
+    ("BEDROCK EXPECTED AT 5-10M DEPTH", (5.0, 10.0, "m")),
+    ("SETBACK 2-25M FROM PROPERTY LINE", (2.0, 25.0, "m")),
+    ("PILES 10-15M LONG", (10.0, 15.0, "m")),
+])
+def test_a_range_in_capital_metres_with_no_rebar_word_is_a_length(
+        text, expected):
+    """PL-39 review: a count and a bar size alone matched these, and a
+    length range stated on a drawing lettered in capitals was dropped."""
+    assert [r[:3] for r in _readings(text)] == [expected]
 
 
 def test_a_rebar_callout_leaves_the_values_beside_it_alone():

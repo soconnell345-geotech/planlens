@@ -373,10 +373,22 @@ _RE_VALUE = re.compile(
 #: it as a length of 10 to 20 m (brief 7, F-10; PL-39). It is not a quantity
 #: this scanner reports: its characters are taken so that no other pattern
 #: reads them. The bar sizes are the Canadian standard's (CSA G30.18) and the
-#: M is a capital written against the size, which a length range in metres
-#: ("10-20 m", "10-20m") is not.
+#: M is a capital written against the size. That alone does not tell it from
+#: a length range in metres on a drawing lettered in capitals ("PILE TIP
+#: 15-20M BELOW GRADE"), so a rebar word must stand beside it: after it a
+#: spacing (@), each way or each face, top and bottom, bars, continuous,
+#: dowels, vertical or horizontal, stirrups, ties, hooks, or "x" and a
+#: length; or before it top, bottom, reinforcing or rebar (PL-39 review).
+_REBAR_SIZE = r"\d{1,3}\s*-\s*(?:10|15|20|25|30|35|45|55)M(?![A-Za-z0-9])"
+_REBAR_AFTER = (
+    r"\s*(?:@|[xX]\s*\d|(?i:e\.?\s?[wf]\.?(?![a-z])|each\s+(?:way|face)"
+    r"|t\s*&\s*b(?![a-z])|(?:top|bot|bott|bottom|bars?|cont|dowels?|dwls?"
+    r"|vert|horiz?|stirrups?|ties|hooks?|hooked)(?![a-z])))")
+_REBAR_BEFORE = (r"(?<![A-Za-z])(?i:top|bot|bott|bottom|t\s*&\s*b|reinf"
+                 r"|rebar)\.?\s*:?\s*")
 _RE_REBAR = re.compile(
-    r"(?<![\w.,/-])\d{1,3}\s*-\s*(?:10|15|20|25|30|35|45|55)M(?![A-Za-z0-9])")
+    r"(?<![\w.,/-])(?P<after>" + _REBAR_SIZE + r")(?=" + _REBAR_AFTER + r")"
+    r"|" + _REBAR_BEFORE + r"(?P<before>" + _REBAR_SIZE + r")")
 
 #: A count: 12 borings, three levels is not counted (words are not numbers).
 _RE_COUNT = re.compile(
@@ -780,7 +792,8 @@ def scan_text(text: str, line_breaks: Iterable[int] = ()
         label_cores[id(men)] = m.start()
 
     # A rebar callout is no quantity, and no part of it is one either.
-    rebar = [m.span() for m in _RE_REBAR.finditer(text)]
+    rebar = [m.span("after" if m.group("after") else "before")
+             for m in _RE_REBAR.finditer(text)]
     if rebar:
         found = [r for r in found
                  if not any(r[3].span[0] < b and a < r[3].span[1]

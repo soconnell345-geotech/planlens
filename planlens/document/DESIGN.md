@@ -278,11 +278,14 @@ a geotechnical sheet and does not belong in `other`.
 
 **A rebar callout is not a quantity (PL-39).** Read case-blind, "10-20M EACH
 WAY" was a length of 10 to 20 m. A count, a hyphen and a metric bar size (10M
-to 55M, the M a capital against the size) is now taken out before any reading
-is kept, so neither the range nor "20M" alone is reported; "10-20 m" and
-"10-20m" stay ranges in metres. A bare bar size ("15M @ 300") is still read as
-15 m: it cannot be told from a length written in capitals without more
-context.
+to 55M, the M a capital against the size) with a rebar word beside it (after
+it @, EW, EF, each way, T&B, top, bottom, bars, cont, dowels, vert, horiz,
+stirrups, ties, hooks or "x" and a length; before it top, bottom, reinf or
+rebar) is now taken out before any reading is kept, so neither the range nor
+"20M" alone is reported. Without such a word it stays a range in metres:
+on a drawing lettered in capitals "PILE TIP 15-20M BELOW GRADE" is a length
+(PL-39 review), as are "10-20 m" and "10-20m". A bare bar size ("15M @ 300")
+is still read as 15 m.
 
 ### The bake-off: native regex vs quantulum3
 
@@ -898,8 +901,10 @@ sheet index's work), so a tabloid page of prose is listed too.
 `pages_not_searchable_as_text` had listed every page of the view kinds,
 including drawing sheets with a full text layer and pages the same search had
 just found hits on. It now lists only pages without a usable text layer
-(`toolkit.no_text_layer`: sent to OCR, or under 50 text characters, the
-classifier's own line), and never a page with a hit. A literal
+(`toolkit.no_text_layer`: sent to OCR, under 50 text characters, or a drawing
+whose only text is its title block, under 10 characters of its own text
+outside the title-block bands, the rest drawn as strokes), and never a page
+with a hit. A literal
 pattern holding "|" is matched as that character; the result now says that
 `regex=true` reads it as "or", ahead of the fuzzy tip. `find_quantities`
 keeps its own list by kind (noted in PL-39's CHECK).

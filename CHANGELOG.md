@@ -8,8 +8,10 @@
   content was left off a list whose note called it the drawing sheets (22 of
   40 on a coordination set). It and `document_page_map`'s `look` now also
   hold every non-blank page 11 x 17 in or larger, the sheet index's own
-  yardstick, and the note says a page's kind is by content and a smaller
-  page off the list can still hold a drawing. A repair, for every host.
+  yardstick, and the note says a page's kind is by content, that
+  `read_document` also returns a listed page's text layer, and that a
+  smaller page off the list can still hold a drawing. A repair, for every
+  host.
 - **Contact-sheet labels name both page counts (PL-39 (2)).** Each
   thumbnail of `render_page_thumbnails` is labelled
   "pg <page> | PDF <pdf_page> <kind>" and the legend says pg counts from 0
@@ -17,12 +19,16 @@
   counted from 0. A repair.
 - **`search_document` lists only pages it could not read, and explains "|"
   (PL-39 (3)).** `pages_not_searchable_as_text` now holds only pages without
-  a usable text layer, never one with a full text layer or one the same
-  search found hits on; the tool's description says so. A literal pattern
+  a usable text layer (a scan, or a drawing whose only text is its title
+  block, its lettering drawn as strokes), never one with a full text layer
+  or one the same search found hits on; the tool's description says so. A
+  literal pattern
   holding "|" gets a hint that `regex=true` reads it as "or". A repair.
 - **`find_quantities` no longer reads a rebar callout as a length (PL-39
   (4)).** "10-20M EACH WAY" was 10 to 20 m; a count and a metric bar size
-  are now no quantity. "10-20 m" is still a range. A repair.
+  with a rebar word beside them (@, EW, EACH WAY, T&B, BARS, CONT, TOP,
+  BOT and the like) are now no quantity. Without one it is still a range:
+  "PILE TIP 15-20M BELOW GRADE" and "10-20 m" are lengths. A repair.
 
 - **A drawing set's sheet index and a check of its callouts, for a host
   that asks (app BACKLOG PL-37, DR-07).** Off by default: no tool list,

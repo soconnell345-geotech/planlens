@@ -65,11 +65,11 @@ from contextvars import ContextVar
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from planlens.document import (
-    DEFAULT_FUZZY_MIN_SCORE, Document, fuzzy_search_available, page_advice,
-    parse_pages,
+    DEFAULT_FUZZY_MIN_SCORE, SOURCE_CAD_HIDDEN, Document,
+    fuzzy_search_available, page_advice, parse_pages,
 )
 from planlens.document.quantities import KINDS as QUANTITY_KINDS
-from planlens.document.sheets import SHEET_MIN_AREA
+from planlens.document.sheets import BAND_BOTTOM, BAND_RIGHT, SHEET_MIN_AREA
 from planlens.tools.formatting import (
     compact_ranges, fit_items, json_len, render_markup, render_page,
     render_quantity,
@@ -116,9 +116,21 @@ VIEW_KINDS = ("scanned", "figure", "drawing_sheet", "form")
 
 #: Fewer text characters than this on a page with content is no usable text
 #: layer: a scan, lettering drawn as strokes, or a drawing whose text layer is
-#: a handful of labels (a few hidden CAD strings do not change that). The page
-#: classifier's own line for "no text layer" (``classify.classify_page``).
+#: a handful of labels (a few hidden CAD strings do not change that). The
+#: page classifier's image-only test uses the same number
+#: (``classify.classify_page``, which counts hidden CAD text in and applies
+#: it only to a page mostly covered by an image).
 NO_TEXT_LAYER_CHARS = 50
+
+#: A drawing whose own text layer holds fewer characters than this outside
+#: its title block has its lettering elsewhere: drawn as strokes, with only
+#: the title block set in a font (PL-39 review). Measured on made-up sets: a
+#: sheet whose only text is its title block has none there, and the
+#: sparsest sheet of the review suite's coordination sets (an elevation with
+#: grid bubbles and a view title) has 17. A limit: one short real-text label
+#: in the field (a key plan's name) is enough for the page to count as
+#: searchable.
+FIELD_TEXT_MIN_CHARS = 10
 
 
 def to_view(summary: Any) -> bool:
@@ -139,16 +151,45 @@ def to_view(summary: Any) -> bool:
             float(summary.width) * float(summary.height) >= SHEET_MIN_AREA)
 
 
-def no_text_layer(summary: Any) -> bool:
+def title_block_text_only(doc: Any, summary: Any) -> bool:
+    """Whether a drawing's text layer is its title block and nothing else
+    (PL-39 review): fewer than ``FIELD_TEXT_MIN_CHARS`` characters of the
+    page's own text (hidden CAD text not counted) outside the bands a title
+    block sits in, the sheet index's own (``sheets.BAND_RIGHT``,
+    ``sheets.BAND_BOTTOM``). Only a drawing sheet or a drawing-size page
+    has a title block; any other page is never one."""
+    if not (summary.kind == "drawing_sheet" or
+            float(summary.width) * float(summary.height) >= SHEET_MIN_AREA):
+        return False
+    content = doc.page(summary.page, tables=False)
+    right = BAND_RIGHT * float(content.width)
+    bottom = BAND_BOTTOM * float(content.height)
+    n = 0
+    for line in content.lines:
+        if line.source == SOURCE_CAD_HIDDEN:
+            continue
+        x0, y0, x1, y1 = line.bbox
+        if (x0 + x1) / 2.0 < right and (y0 + y1) / 2.0 < bottom:
+            n += len(line.text.strip())
+            if n >= FIELD_TEXT_MIN_CHARS:
+                return False
+    return True
+
+
+def no_text_layer(summary: Any, doc: Any = None) -> bool:
     """Whether a page has no usable text layer, so a text search cannot
     read it (PL-39): a page sent to OCR (no text layer, or one that does not
-    say what the page says), or a page with content and next to no text.
-    A drawing sheet with a full text layer is searchable, and is not one."""
+    say what the page says), a page with content and next to no text, or,
+    given its ``doc``, a drawing whose only text is its title block (its
+    notes and callouts drawn as strokes; ``title_block_text_only``). A
+    drawing with a full text layer is searchable, and is not one."""
     if summary.kind == "blank":
         return False
     if summary.evidence.get("needs_ocr") or not summary.text_reliable:
         return True
-    return summary.n_text_chars < NO_TEXT_LAYER_CHARS
+    if summary.n_text_chars < NO_TEXT_LAYER_CHARS:
+        return True
+    return doc is not None and title_block_text_only(doc, summary)
 
 #: How the model views a PNG this toolkit wrote, when the host has no other
 #: way to say it.
@@ -831,10 +872,11 @@ class ReviewToolkit:
             add("pages_to_view_note", self._look([
                 "these pages are drawings, scans, figures or forms, and "
                 "every page 11 x 17 in or larger is among them whatever its "
-                "text: what they say is in the picture, so read them by "
-                "viewing them. pages_by_kind classes a page by its content, "
-                "so a titled sheet can be classed text or mixed; a smaller "
-                "page left off this list can still hold a drawing"])[0])
+                "text: a drawing's content is in its picture, so view them; "
+                "read_document also returns whatever text layer a page has. "
+                "pages_by_kind classes a page by its content, so a titled "
+                "sheet can be classed text or mixed; a smaller page left off "
+                "this list can still hold a drawing"])[0])
         add("metadata", {k: meta[k] for k in
                          ("title", "author", "subject", "creator", "producer")
                          if meta.get(k)})
@@ -996,11 +1038,14 @@ class ReviewToolkit:
         # which pages in the searched range those are, so a miss there is not
         # taken as absence. Only those (PL-39): a drawing sheet with a full
         # text layer was searched, and a page this search found hits on was
-        # plainly read; listing either told a model the opposite.
+        # plainly read; listing either told a model the opposite. A drawing
+        # whose only text is its title block stays listed: its lettering is
+        # strokes the search never saw (PL-39 review).
         hit_pages = {int(k) for k in res["pages_with_hits"]}
         with entry.lock:
             unread = [s.page for s in entry.doc.page_map(pages)
-                      if no_text_layer(s) and s.page not in hit_pages]
+                      if s.page not in hit_pages
+                      and no_text_layer(s, entry.doc)]
         if unread:
             out["pages_not_searchable_as_text"] = compact_ranges(unread)
             if not hits:
