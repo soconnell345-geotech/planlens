@@ -69,6 +69,7 @@ from planlens.document import (
     parse_pages,
 )
 from planlens.document.quantities import KINDS as QUANTITY_KINDS
+from planlens.document.sheets import SHEET_MIN_AREA
 from planlens.tools.formatting import (
     compact_ranges, fit_items, json_len, render_markup, render_page,
     render_quantity,
@@ -112,6 +113,42 @@ DEFAULT_VISION_HINT = ("to view it: render_page(handle, page) for a page, "
 
 #: Page kinds whose content is mostly not in the text.
 VIEW_KINDS = ("scanned", "figure", "drawing_sheet", "form")
+
+#: Fewer text characters than this (and no hidden CAD text) on a page with
+#: content is no usable text layer: a scan, or lettering drawn as strokes. The
+#: page classifier's own line for "no text layer" (``classify.classify_page``).
+NO_TEXT_LAYER_CHARS = 50
+
+
+def to_view(summary: Any) -> bool:
+    """Whether a page is one to read by viewing it (PL-39).
+
+    A scan, figure, form or drawing sheet by its content, and every page
+    that is drawing size (11 x 17 in or larger) whatever its text — the
+    sheet index's own yardstick (``sheets.SHEET_MIN_AREA``). A titled sheet
+    whose drawing has little linework, or whose notes are long, is classed
+    ``text`` or ``mixed`` by content, and listing only the kinds left 22 of
+    a 40-sheet set, every callout destination among them, off the list a
+    model took as the set of sheets (brief 7, F-6). ``open_document``'s
+    ``pages_to_view`` and ``document_page_map``'s ``look`` both use this.
+    """
+    if summary.kind in VIEW_KINDS:
+        return True
+    return (summary.kind != "blank" and
+            float(summary.width) * float(summary.height) >= SHEET_MIN_AREA)
+
+
+def no_text_layer(summary: Any) -> bool:
+    """Whether a page has no usable text layer, so a text search cannot
+    read it (PL-39): a page sent to OCR (no text layer, or one that does not
+    say what the page says), or a page with content and next to no text.
+    A drawing sheet with a full text layer is searchable, and is not one."""
+    if summary.kind == "blank":
+        return False
+    if summary.evidence.get("needs_ocr") or not summary.text_reliable:
+        return True
+    return (summary.n_text_chars < NO_TEXT_LAYER_CHARS
+            and not summary.n_cad_text)
 
 #: How the model views a PNG this toolkit wrote, when the host has no other
 #: way to say it.
@@ -763,7 +800,7 @@ class ReviewToolkit:
                     return
                 rows = rows[:-1]
 
-        view = [s.page for s in summaries if s.kind in VIEW_KINDS]
+        view = [s.page for s in summaries if to_view(s)]
         add("pages_to_view", compact_ranges(view))
         if markups:
             add("markups", {"n": len(markups),
@@ -792,8 +829,12 @@ class ReviewToolkit:
                     "document at a glance")
         if view:
             add("pages_to_view_note", self._look([
-                "these pages are scans, figures or drawing sheets: their "
-                "text is labels at best, so read them by viewing them"])[0])
+                "these pages are drawings, scans, figures or forms, and "
+                "every page 11 x 17 in or larger is among them whatever its "
+                "text: what they say is in the picture, so read them by "
+                "viewing them. pages_by_kind classes a page by its content, "
+                "so a titled sheet can be classed text or mixed; a smaller "
+                "page left off this list can still hold a drawing"])[0])
         add("metadata", {k: meta[k] for k in
                          ("title", "author", "subject", "creator", "producer")
                          if meta.get(k)})
@@ -830,15 +871,16 @@ class ReviewToolkit:
             d = s.to_dict(detail=with_evidence)
             if not with_evidence and s.evidence.get("needs_ocr"):
                 d["needs_ocr"] = True
-            if s.kind in VIEW_KINDS:
+            if to_view(s):
                 d["look"] = True
             return d
 
         rows, nxt = fit_items(summaries, self._budget(300), to_payload=row)
         out: Dict[str, Any] = {"handle": handle, "rows": rows}
         if any(r.get("look") for r in rows):
-            out["look"] = self._look(["pages marked look are scans, figures "
-                                      "or drawing sheets: view them"])[0]
+            out["look"] = self._look(["pages marked look are drawings, "
+                                      "scans, figures, forms or pages 11 x "
+                                      "17 in or larger: view them"])[0]
         if nxt is not None:
             out["next_pages"] = compact_ranges(s.page for s in summaries[nxt:])
         return out
@@ -950,19 +992,30 @@ class ReviewToolkit:
             out["note"] = ("approximate matches, best score first; a hit's "
                            "score is 0-100 and its source says which "
                            "extractor read the text")
-        # Text search cannot see into scans, figures or sheets: say which
-        # pages in the searched range it could not read, so a miss there is
-        # not taken as absence.
+        # Text search cannot read a page without a usable text layer: say
+        # which pages in the searched range those are, so a miss there is not
+        # taken as absence. Only those (PL-39): a drawing sheet with a full
+        # text layer was searched, and a page this search found hits on was
+        # plainly read; listing either told a model the opposite.
+        hit_pages = {int(k) for k in res["pages_with_hits"]}
         with entry.lock:
             unread = [s.page for s in entry.doc.page_map(pages)
-                      if s.kind in VIEW_KINDS]
+                      if no_text_layer(s) and s.page not in hit_pages]
         if unread:
             out["pages_not_searchable_as_text"] = compact_ranges(unread)
             if not hits:
                 out["hint"] = self._look([
-                    "no text hit; the pages listed are scans, figures or "
-                    "drawing sheets whose content is not in the text — the "
+                    "no text hit; the pages listed have no usable text "
+                    "layer (a scan, or lettering drawn as strokes), so the "
                     "term may be on one of them"])[0]
+        # A literal pattern holding "|" is matched as that character: say
+        # that regex=true reads it as "or" (PL-39), before any other tip.
+        if "|" in pattern and not regex and not fuzzy:
+            bar = ('the pattern holds "|", which this search matched as '
+                   'that character; to find either term, search again with '
+                   'regex=true, which reads "|" as "or"')
+            out["hint"] = (bar + " — " + out["hint"] if out.get("hint")
+                           else bar)
         # An exact miss has two explanations, and the model should hear both:
         # the text is not there, or the text is there with a letter wrong.
         # Only offered when rapidfuzz is actually installed — advice that
