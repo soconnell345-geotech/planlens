@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The OpenCV probe's child leaves no core file.** On a host where loading
+  OpenCV aborts the interpreter (FIPS mode), the test import in a child
+  process left a `core.<pid>` file in the working directory each time it ran
+  (a Foundry app container, 2026-11-13). The child now lowers its own
+  core-file limit to zero before the import; the verdict and its reason are
+  unchanged (`planlens/opencv.py`, `CHILD_CODE`).
+
 - **`open_document`'s `pages_to_view` holds every drawing-size sheet (app
   BACKLOG PL-39 (1)).** It listed only pages classed as scans, figures,
   drawing sheets or forms, so a titled sheet classed text or mixed by its

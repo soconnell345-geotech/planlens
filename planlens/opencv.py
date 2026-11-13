@@ -13,6 +13,9 @@ in a child interpreter; if the child dies, :func:`load` raises an
 ``ImportError`` that says why, and callers (and hosts deciding which tools to
 offer) can leave raster work out instead of losing the process. The answer
 is cached per process; once OpenCV is loaded nothing is checked again.
+The child first lowers its own core-file limit to zero, so a child that
+dies leaves no ``core.<pid>`` file in the working directory (a Foundry app
+container, 2026-11-13).
 
 ``PLANLENS_CV2_PROBE=0`` skips the child process and imports directly.
 """
@@ -27,6 +30,17 @@ from typing import Optional, Tuple
 
 PROBE_ENV = "PLANLENS_CV2_PROBE"
 PROBE_TIMEOUT_S = 120
+
+# What the child runs: lower its own core-file limit (POSIX only; a host
+# without ``resource`` skips it), then the import being tested.
+CHILD_CODE = (
+    "try:\n"
+    "    import resource\n"
+    "    _soft, _hard = resource.getrlimit(resource.RLIMIT_CORE)\n"
+    "    resource.setrlimit(resource.RLIMIT_CORE, (0, _hard))\n"
+    "except Exception:\n"
+    "    pass\n"
+    "import cv2\n")
 
 _lock = threading.Lock()
 _verdict: Optional[Tuple[bool, str]] = None
@@ -53,7 +67,7 @@ def _probe() -> Tuple[bool, str]:
     env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
     try:
         run = subprocess.run(
-            [sys.executable, "-c", "import cv2"], env=env,
+            [sys.executable, "-c", CHILD_CODE], env=env,
             capture_output=True, timeout=PROBE_TIMEOUT_S,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except subprocess.TimeoutExpired:
