@@ -368,6 +368,16 @@ _RE_VALUE = re.compile(
     r"(?P<n1>" + _NUM + r")" + _RANGE_TAIL +
     r"\s*-?\s*(?P<unit>" + _UNIT_ALT + r")", re.I)
 
+#: A rebar callout in metric bar sizes: a count, a hyphen and a bar size,
+#: "10-20M EACH WAY", "8-15M @ 300". Read case-blind, the general pattern took
+#: it as a length of 10 to 20 m (brief 7, F-10; PL-39). It is not a quantity
+#: this scanner reports: its characters are taken so that no other pattern
+#: reads them. The bar sizes are the Canadian standard's (CSA G30.18) and the
+#: M is a capital written against the size, which a length range in metres
+#: ("10-20 m", "10-20m") is not.
+_RE_REBAR = re.compile(
+    r"(?<![\w.,/-])\d{1,3}\s*-\s*(?:10|15|20|25|30|35|45|55)M(?![A-Za-z0-9])")
+
 #: A count: 12 borings, three levels is not counted (words are not numbers).
 _RE_COUNT = re.compile(
     r"(?P<n>" + _NUM + r")\s+(?P<noun>" + "|".join(
@@ -769,6 +779,12 @@ def scan_text(text: str, line_breaks: Iterable[int] = ()
         add(0, start, end, men)
         label_cores[id(men)] = m.start()
 
+    # A rebar callout is no quantity, and no part of it is one either.
+    rebar = [m.span() for m in _RE_REBAR.finditer(text)]
+    if rebar:
+        found = [r for r in found
+                 if not any(r[3].span[0] < b and a < r[3].span[1]
+                            for a, b in rebar)]
     out: List[QuantityMention] = []
     taken_to = -1
     for start, _prio, _neg_len, men in sorted(found, key=lambda r: r[:3]):
