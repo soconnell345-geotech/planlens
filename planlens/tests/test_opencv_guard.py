@@ -98,6 +98,27 @@ def test_find_like_searches_without_opencv_instead_of_dying(monkeypatch):
         d.close()
 
 
+def test_the_child_lowers_its_core_limit_before_the_import(monkeypatch):
+    _not_loaded(monkeypatch)
+    calls = _child_exits(monkeypatch, -6)
+    opencv.available()
+    code = calls[0][-1]
+    assert code == opencv.CHILD_CODE
+    assert code.index("RLIMIT_CORE") < code.index("import cv2")
+
+
+def test_the_child_prelude_leaves_a_zero_core_limit():
+    resource = pytest.importorskip("resource")
+    del resource
+    prelude = opencv.CHILD_CODE.replace("import cv2\n", "")
+    check = (prelude + "import resource, sys\n"
+             "sys.exit(0 if resource.getrlimit(resource.RLIMIT_CORE)[0] == 0"
+             " else 3)\n")
+    run = subprocess.run([sys.executable, "-c", check], capture_output=True,
+                         timeout=60)
+    assert run.returncode == 0, run.stderr
+
+
 def test_the_real_probe_passes_here():
     pytest.importorskip("cv2")
     # a real child interpreter, as the first call in a process would run it
