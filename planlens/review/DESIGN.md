@@ -68,9 +68,13 @@ own item schema). `tests/app_tool_specs.json` is the app's own capture
 difference is a change the app's agents would see; re-capture only when the
 app changes a spec on purpose.
 
-The sheet tools (`sheet_index`, `check_cross_references`; see
-`planlens/document/DESIGN.md`, "Sheet index and cross-references") are not
-among them. `HOST_TOOLS` and `host_tool_names()` are what they were, and
+The sheet tools (`sheet_index`, `check_cross_references`,
+`check_schedule_marks`; see `planlens/document/DESIGN.md`, "Sheet index and
+cross-references" and "Schedules and the marks on the sheets") are not
+among them. For a host that asked, `open_document` also brings the sheet
+index and the schedule check (the toolkit's `sheets_at_open`, set by the
+dispatcher from the CALLING host, as below); for every other host it is
+byte for byte what it was. `HOST_TOOLS` and `host_tool_names()` are what they were, and
 `SHEET_TOOLS` is a list of its own. A host asks for them with
 `ReviewHost(toolkit_options={"sheet_tools": True})`: its toolkits then
 serve them, `tool_names()` and `specs()` list them after the others, and

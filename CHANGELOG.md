@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **A drawing set's schedules checked against the marks on its sheets,
+  and both sides brought with the document, for a host that asks (app
+  BACKLOG PL-42).** `Document.schedule_marks()`
+  (`planlens.document.schedules`) reads every schedule in the text layer
+  (a table titled SCHEDULE, or headed MARK, TAG, NO., NUMBER or ID with
+  three columns or more; a legend, keynote list, revision block or sheet
+  index is not one; one printed over two sheets is one), learns each
+  schedule's mark form from its rows (W-1, EF-2, FCU-1-1, LP-4A, 101), and
+  checks every sheet both ways: `no_row` (a mark drawn with no row),
+  `no_mark` (a row drawn on no sheet and named in no note or range),
+  `may_be_on_unread_sheet` (either, where sheets have no text layer; those
+  are listed apart) and `cannot_tell` (with the reason). Each item has its
+  sheet, `page`, `pdf_page`, schedule, box and why. A plain number counts
+  as a mark only in the lettering of the schedule's other marks on that
+  sheet, so room numbers and dimensions are not flagged. A third sheet
+  tool, `check_schedule_marks`, serves it; and with the sheet tools asked
+  for, `open_document` brings the sheet index and this check, compact and
+  capped, with the map, so an agent reviewing a set holds the plans' and
+  the schedules' sides at once. Off by default: without the sheet tools no
+  tool list, spec or result changes; through the host layer only a host
+  that asked (`ReviewHost(toolkit_options={"sheet_tools": True})`) gets
+  either. Measured on made-up sets only; see `planlens/document/DESIGN.md`,
+  "Schedules and the marks on the sheets", for what it misses.
+
 - **The OpenCV probe's child leaves no core file.** On a host where loading
   OpenCV aborts the interpreter (FIPS mode), the test import in a child
   process left a `core.<pid>` file in the working directory each time it ran
