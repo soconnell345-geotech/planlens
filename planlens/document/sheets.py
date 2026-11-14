@@ -340,15 +340,28 @@ def _numbers_in(line):
     return [(masked, m) for m in SHEET_NUMBER.finditer(masked)]
 
 
+#: A word that makes the label after it a reference to another sheet:
+#: "REFER TO DWG NO. S-201", "SEE SHEET NO. A-5", "AS SHOWN ON DWG NO. C-2".
+_REFERRAL_BEFORE = re.compile(
+    r"\b(?:see|refer|referred|to|on|per|in|from|with|for|also|and|or|by|"
+    r"of|verify|match|matches|shown)\W*$", re.I)
+
+
 def _label_in(text: str):
     """The number label of a line that is a label, else ``None``: a short
     line holding one (three words or fewer: "SHEET NO.", "DWG NO. A-101"),
-    or a line that begins with one. A label inside a sentence ("1. REFER
-    TO DWG NO. S-201 FOR DETAILS") is not one: it names another sheet."""
+    a line that begins with one, or one later in a line that is not a
+    reference to another sheet ("ACME ENGINEERS | DWG NO. C-101 | REV 2",
+    a footer printed as one line). A label after a word that refers
+    ("1. REFER TO DWG NO. S-201 FOR DETAILS") is not one: it names another
+    sheet."""
     m = NUMBER_LABEL.search(text)
     if m is None:
         return None
-    if len(text.split()) <= 3 or not text[:m.start()].strip():
+    before = text[:m.start()]
+    if len(text.split()) <= 3 or not before.strip():
+        return m
+    if not _REFERRAL_BEFORE.search(before):
         return m
     return None
 

@@ -84,6 +84,12 @@ def test_a_note_naming_another_sheet_is_not_the_number():
     assert s.sheet == "A-101"
     assert "sheet" not in printed_numbers(
         ["1. REFER TO DWG NO. S-501 FOR DETAILS."])
+    for note in ("SEE SHEET NO. A-5 FOR THE LAYOUT",
+                 "AS SHOWN ON DWG NO. C-2, TYPICAL"):
+        assert "sheet" not in printed_numbers([note]), note
+    # a footer printed as one line keeps its label's value
+    assert printed_numbers(["ACME ENGINEERS | DWG NO. C-101 | REV 2"]
+                           )["sheet"] == "C-101"
     # a report page is read in its header and footer bands only: prose low
     # on the page that opens with a label is not its sheet number
     report = _sheet([(0.12, 0.85, "SHEET NO. S-2 SHOWS THE FOOTING LAYOUT", 10),

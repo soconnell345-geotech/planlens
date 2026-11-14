@@ -443,6 +443,10 @@ class Document:
             top + bottom, lines, width, height,
             is_sheet=(kind == "drawing_sheet"
                       or width * height >= SHEET_MIN_AREA))
+        if evidence.get("text_unreliable"):
+            # a text layer that is there and wrong gives no sheet number
+            # (the sheet index refuses such pages too)
+            numbers.pop("sheet", None)
         if numbers.get("sheet_count"):
             evidence["sheet_count"] = numbers["sheet_count"]
         scales: List[str] = []
