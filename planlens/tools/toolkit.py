@@ -913,6 +913,13 @@ class ReviewToolkit:
             d = s.to_dict(detail=with_evidence)
             if not with_evidence and s.evidence.get("needs_ocr"):
                 d["needs_ocr"] = True
+            # The sheet's place in the set ("3 of 24"), kept apart from its
+            # number ("sheet"): a count is never a sheet number (PL-37).
+            count = s.evidence.get("sheet_count")
+            if count:
+                d["sheet_count"] = count
+                if with_evidence:
+                    d["evidence"].pop("sheet_count", None)
             if to_view(s):
                 d["look"] = True
             return d
@@ -1260,9 +1267,15 @@ class ReviewToolkit:
                 # The bytes come off the OPEN document rather than from
                 # resolving its source again: one document can be reached by
                 # several names, and the one it was first opened under may not
-                # even resolve for this caller.
+                # even resolve for this caller. They are the bytes it was
+                # opened from where it was opened from bytes, not another
+                # copy (PL-38); and when the marks go onto an existing copy
+                # (append) the document is not read at all, so its file
+                # stands in for it.
+                adding = bool(append) and os.path.isfile(out_path)
                 report = write_markups(
-                    entry.doc.tobytes(), out_path, markups,
+                    entry.path if adding and entry.path
+                    else entry.doc.pdf_bytes(), out_path, markups,
                     author=author or self.author or DEFAULT_AUTHOR,
                     append=bool(append))
         except ValueError as exc:

@@ -24,6 +24,7 @@ host=)``, :func:`planlens.review.host.using`).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from typing import Any, Dict, Optional
@@ -198,6 +199,43 @@ def _host_error(host, tool: str, exc: BaseException) -> Dict[str, Any]:
     return data if isinstance(data, dict) else tool_error(tool, exc)
 
 
+def _annotate_locked(handle, markups, output_path, append, remove,
+                     attachments, host, signer, final, dispatch):
+    """The part of :func:`annotate_document` done under the copy's lock:
+    ``(result, output_path)``, or the JSON text of an error to return."""
+    from planlens.review import markup_check
+    refused_here = []
+    if remove:
+        try:
+            if final and os.path.isfile(final):
+                with open(final, "rb") as fh:
+                    named, refused_here = markup_check.name_marks_by_words(
+                        fh.read(), remove, signer)
+                remove = named or [""]
+        except Exception:  # noqa: BLE001 - the remover's own matching stands
+            refused_here = []
+    try:
+        image = _marks.image_of(handle, attachments)
+        result = _marks.write_marked_copy(
+            handle, markups, output_path, append, signer, dispatch,
+            remove=remove, image=image)
+    except Exception as exc:  # noqa: BLE001 - a tool error, not the turn's
+        return json.dumps(host.hidden(
+            _host_error(host, "annotate_document", exc)))
+    if not isinstance(result, dict):
+        return json.dumps(host.hidden({"error": str(result)}))
+    if refused_here and "error" not in result:
+        result["not_removed"] = (list(result.get("not_removed") or [])
+                                 + refused_here)
+    out_pdf = result.get("output_path")
+    if out_pdf and os.path.isfile(out_pdf) and "error" not in result:
+        try:
+            markup_check.describe_copy(result, signer)
+        except Exception:  # noqa: BLE001 - the toolkit's own note stands
+            pass
+    return result, out_pdf
+
+
 def annotate_document(handle: str, markups: Optional[list] = None,
                       output_path: str = "", append: bool = True,
                       check: bool = True, remove: Optional[list] = None,
@@ -224,36 +262,19 @@ def annotate_document(handle: str, markups: Optional[list] = None,
     if problem is not None:
         return json.dumps(problem)
     signer = host.signed_by()
-    refused_here = []
-    if remove:
-        try:
-            final = _marks.markup_output_path(output_path, handle)
-            if os.path.isfile(final):
-                with open(final, "rb") as fh:
-                    named, refused_here = markup_check.name_marks_by_words(
-                        fh.read(), remove, signer)
-                remove = named or [""]
-        except Exception:  # noqa: BLE001 - the remover's own matching stands
-            refused_here = []
     try:
-        image = _marks.image_of(handle, attachments)
-        result = _marks.write_marked_copy(
-            handle, markups, output_path, append, signer, dispatch,
-            remove=remove, image=image)
-    except Exception as exc:  # noqa: BLE001 - a tool error, not the turn's
-        return json.dumps(host.hidden(
-            _host_error(host, "annotate_document", exc)))
-    if not isinstance(result, dict):
-        return json.dumps(host.hidden({"error": str(result)}))
-    if refused_here and "error" not in result:
-        result["not_removed"] = (list(result.get("not_removed") or [])
-                                 + refused_here)
-    out_pdf = result.get("output_path")
-    if out_pdf and os.path.isfile(out_pdf) and "error" not in result:
-        try:
-            markup_check.describe_copy(result, signer)
-        except Exception:  # noqa: BLE001 - the toolkit's own note stands
-            pass
+        final = _marks.markup_output_path(output_path, handle)
+    except Exception:  # noqa: BLE001 - write_marked_copy says what is wrong
+        final = None
+    # The copy's lock (PL-38) from naming the marks to remove to counting
+    # what the copy holds, so a second call on the same copy reads it only
+    # after this one's marks are in; the look's check runs outside it.
+    with (_marks.copy_lock(final) if final else contextlib.nullcontext()):
+        out = _annotate_locked(handle, markups, output_path, append, remove,
+                               attachments, host, signer, final, dispatch)
+    if isinstance(out, str):
+        return out
+    result, out_pdf = out
     if check and out_pdf and os.path.isfile(out_pdf) \
             and "error" not in result:
         try:

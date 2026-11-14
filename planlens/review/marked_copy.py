@@ -19,7 +19,8 @@ import os
 import re
 import threading
 from collections import OrderedDict
-from typing import Any, Dict, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Optional
 
 from planlens.review import conversation as _conv
 
@@ -88,6 +89,38 @@ def markup_output_path(output_path: str = "", handle: str = "") -> str:
 # conversation holds on it is closed (and reopens, by name, on next use);
 # and one mark can be removed or replaced by its id without rebuilding the
 # rest.
+
+#: One lock per marked copy (PL-38). Two annotate calls on one copy at once
+#: (parallel tool calls in one turn) each copied the file, added their
+#: marks and swapped their copy in: the second swap dropped the first
+#: call's marks without a word. A call now holds its copy's lock from
+#: reading the copy to swapping the new one in; calls on different copies
+#: never wait for each other. The lock is this process's: one app process
+#: serves every conversation.
+_COPY_LOCKS: Dict[str, List[Any]] = {}
+_COPY_LOCKS_GUARD = threading.Lock()
+
+
+@contextmanager
+def copy_lock(path: str) -> Iterator[None]:
+    """Hold the lock of the marked copy at ``path`` (re-entrant: a call
+    that holds it may take it again). A lock lives only while a call holds
+    or waits for it."""
+    key = os.path.normcase(os.path.abspath(str(path or "")))
+    with _COPY_LOCKS_GUARD:
+        entry = _COPY_LOCKS.get(key)
+        if entry is None:
+            entry = _COPY_LOCKS[key] = [threading.RLock(), 0]
+        entry[1] += 1
+    try:
+        with entry[0]:
+            yield
+    finally:
+        with _COPY_LOCKS_GUARD:
+            entry[1] -= 1
+            if entry[1] <= 0 and _COPY_LOCKS.get(key) is entry:
+                del _COPY_LOCKS[key]
+
 
 #: How a markup id that planlens' document_markups lists looks ("p0.m1").
 _MARKUP_ID = re.compile(r"^p(\d+)\.m(\d+)$")
@@ -477,8 +510,9 @@ def write_marked_copy(handle: str, markups: Optional[list], output_path: str,
     centred off the image -- or, for a PDF, off its page -- is refused
     before anything is written (BACKLOG VIS-26)."""
     try:
-        result = _write_marked_copy(handle, markups, output_path, append,
-                                    author, call, remove, image)
+        with copy_lock(markup_output_path(output_path, handle)):
+            result = _write_marked_copy(handle, markups, output_path, append,
+                                        author, call, remove, image)
     except MarkedCopyNotWritten as exc:
         return {"error": str(exc), "hint": WRITE_FAILED_HINT}
     # The host's last word on the result (the app checks the documents the
@@ -1024,6 +1058,7 @@ def _write_marked_copy(handle, markups, output_path, append, author, call,
 
 
 __all__ = ["markup_output_path", "forget_path", "WINDOWS_MAX_PATH",
+           "copy_lock",
            "MarkedCopyNotWritten", "WRITE_FAILED_HINT", "REMOVE_ENTRY_KEYS",
            "remove_problem", "remove_markups", "write_marked_copy",
            "markups_with_pages", "AUTHOR_IGNORED_NOTE",

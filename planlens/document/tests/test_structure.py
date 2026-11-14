@@ -55,7 +55,9 @@ def test_headers_footers_and_printed_numbers(doc, gt):
         assert (s.printed_page, s.printed_of) == (n, 2)
     for n, index in enumerate(gt.sheet_pages, start=1):
         s = doc.summary(index)
-        assert s.sheet == f"{n} of 2"
+        # a sheet count is not a sheet number (PL-37): kept apart
+        assert s.sheet is None
+        assert s.evidence["sheet_count"] == f"{n} of 2"
         assert s.scales == [f"SCALE: {gt.sheet_scale}"]
 
 
@@ -87,7 +89,7 @@ def test_segments_follow_the_documents_own_structure(doc, gt):
     assert forms["printed_of"] == 2
     assert forms["first_heading"].startswith("Log of Boring")
     sheets = segs[5]
-    assert sheets["sheets"] == ["1 of 2", "2 of 2"]
+    assert "sheets" not in sheets      # counts only, no sheet numbers
     assert sheets["title"].startswith("Drawing sheets")
     # every page knows its segment
     assert [doc.summary(i).segment for i in range(doc.n_pages)] == [
@@ -118,7 +120,7 @@ def test_printed_numbers_and_divider_titles():
     assert printed_numbers(["Page 7"]) == {"printed_page": 7}
     assert printed_numbers(["Page 15 of 300", "Checked"]) == {
         "printed_page": 15, "printed_of": 300}
-    assert printed_numbers(["SHEET", "2", "OF 7"])["sheet"] == "2 of 7"
+    assert printed_numbers(["SHEET", "2", "OF 7"]) == {"sheet_count": "2 of 7"}
     assert printed_numbers(["DWG NO. S-101"])["sheet"] == "S-101"
     assert printed_numbers(["nothing here"]) == {}
     assert divider_title("APPENDIX C", 12, ["APPENDIX C"]) == "APPENDIX C"
