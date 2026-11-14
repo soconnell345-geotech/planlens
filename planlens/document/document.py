@@ -312,6 +312,7 @@ class Document:
         self._segments: Optional[List[Dict[str, Any]]] = None
         self._sheet_index = None
         self._cross_references = None
+        self._schedule_marks = None
 
     # -- lifecycle ---------------------------------------------------------
     def close(self) -> None:
@@ -657,6 +658,18 @@ class Document:
             self._cross_references = cross_references(
                 self, self.sheet_index())
         return self._cross_references
+
+    def schedule_marks(self):
+        """This document's schedules, and the marks on its sheets checked
+        against them both ways: a mark drawn with no row, a row drawn on no
+        sheet, what unread sheets leave open, and what the text cannot settle
+        (:func:`planlens.document.schedules.schedule_marks`). Kept once
+        read."""
+        if self._schedule_marks is None:
+            from planlens.document.schedules import schedule_marks
+            self._schedule_marks = schedule_marks(
+                self, self.sheet_index(), self.cross_references())
+        return self._schedule_marks
 
     def render_thumbnails(self, pages: PageSpec = None, columns: int = 6,
                           thumb_px: int = 140, per_sheet: int = 48

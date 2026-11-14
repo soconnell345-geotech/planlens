@@ -138,7 +138,7 @@ def _document_args(name: str, a: Dict[str, Any]) -> Dict[str, Any]:
             args["author"] = a["author"]
     elif name == "sheet_index":
         return {"handle": a.get("handle"), "offset": a.get("offset", 0)}
-    elif name == "check_cross_references":
+    elif name in ("check_cross_references", "check_schedule_marks"):
         args["offset"] = a.get("offset", 0)
         if a.get("status"):
             args["status"] = a["status"]

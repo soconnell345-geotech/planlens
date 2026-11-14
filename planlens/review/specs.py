@@ -71,6 +71,7 @@ DOCUMENT_TOOL_NOTES = {
         "its lines." + PDF_PAGES_NOTE),
     "document_page_map": PDF_PAGES_NOTE,
     "check_cross_references": PDF_PAGES_NOTE,
+    "check_schedule_marks": PDF_PAGES_NOTE,
     "document_markups": PDF_PAGES_NOTE,
     "find_quantities": PDF_PAGES_NOTE,
     "render_page_thumbnails": PDF_PAGES_NOTE,
@@ -140,11 +141,13 @@ LOOK_TOOLS = ("find_like",)
 #: Every tool this layer specifies.
 HOST_TOOLS = DOCUMENT_TOOLS + OPTIONAL_DOCUMENT_TOOLS + LOOK_TOOLS
 
-#: The sheet tools (a drawing set's sheets from their title blocks, and its
-#: callouts checked against them): offered only to a host that asks, with
+#: The sheet tools (a drawing set's sheets from their title blocks, its
+#: callouts checked against them, and the marks on its sheets checked
+#: against its schedules): offered only to a host that asks, with
 #: ``ReviewHost(toolkit_options={"sheet_tools": True})``. Not in
 #: :data:`HOST_TOOLS`: that list is what every host has had.
-SHEET_TOOLS = ("sheet_index", "check_cross_references")
+SHEET_TOOLS = ("sheet_index", "check_cross_references",
+               "check_schedule_marks")
 
 # -- the arguments, as the app's tool functions declare them -----------------
 # (name, form, default); a name with no default is required. Forms:
@@ -196,6 +199,11 @@ _ARGS: Dict[str, List[Tuple[str, str, Any]]] = {
                                ("status", "opt_str", None),
                                ("offset", "int", 0),
                                ("pdf_pages", "any", None)],
+    "check_schedule_marks": [("handle", "str", _REQUIRED),
+                             ("pages", "any", None),
+                             ("status", "opt_str", None),
+                             ("offset", "int", 0),
+                             ("pdf_pages", "any", None)],
     "find_like": [("attachment_key", "str", _REQUIRED),
                   ("page", "opt_int", None), ("bbox", "opt_list", None),
                   ("text", "str", ""), ("pages", "opt_str", None),
@@ -290,7 +298,8 @@ def _shown(name: str) -> Dict[str, Dict[str, Any]]:
     the one their declared type gives: ``annotate_document``'s ``markups``
     with the toolkit's markup fields and ``remove`` as strings;
     ``search_document``'s ``min_score`` with the toolkit's default, 80;
-    ``check_cross_references``' ``status`` with the toolkit's words."""
+    ``check_cross_references``' and ``check_schedule_marks``' ``status``
+    with the toolkit's words."""
     if name == "annotate_document":
         shown = {"remove": {"type": "array", "items": {"type": "string"}}}
         item = annotate_markups_schema()
@@ -299,8 +308,8 @@ def _shown(name: str) -> Dict[str, Dict[str, Any]]:
         return shown
     if name == "search_document":
         return {"min_score": {"type": "integer", "default": 80}}
-    if name == "check_cross_references":
-        # the toolkit's words for a callout's status, read off its spec
+    if name in ("check_cross_references", "check_schedule_marks"):
+        # the toolkit's words for an item's status, read off its spec
         spec = _toolkit_spec(name) or {}
         status = ((spec.get("parameters") or {}).get("properties")
                   or {}).get("status") or {}
