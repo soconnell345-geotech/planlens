@@ -117,7 +117,8 @@ def _asked_for_sheet_tools(host) -> bool:
 
 #: The toolkit tools a host is served only when it asked for them
 #: (:data:`planlens.review.specs.SHEET_TOOLS`).
-_OPT_IN_TOOLS = ("sheet_index", "check_cross_references")
+_OPT_IN_TOOLS = ("sheet_index", "check_cross_references",
+                 "check_schedule_marks")
 
 
 def _unknown_tool(name: str) -> str:
@@ -142,6 +143,21 @@ def _refused_opt_in(name: str) -> Optional[str]:
     if name not in _OPT_IN_TOOLS or _asked_for_sheet_tools(_host()):
         return None
     return _unknown_tool(name)
+
+
+def _call_kit(kit, name: str, arguments: Dict[str, Any],
+              max_chars: Optional[int]) -> str:
+    """``kit.call_json``, with ``open_document`` adding the sheet index and
+    the schedule check only for a CALLING host that asked for the sheet
+    tools: the conversation's toolkit is shared (built with them), so the
+    calling host decides on each call, and a host that did not ask is
+    answered byte for byte as before."""
+    try:
+        from planlens.tools.toolkit import sheets_at_open
+    except ImportError:                       # an older planlens.tools
+        return kit.call_json(name, arguments, max_chars=max_chars)
+    with sheets_at_open(_asked_for_sheet_tools(_host())):
+        return kit.call_json(name, arguments, max_chars=max_chars)
 
 
 def _new_toolkit(folder: Optional[str]):
@@ -414,7 +430,7 @@ def dispatch_document_tool(name: str, arguments: Dict[str, Any],
         tally = [0.0]
         lock_token = _LOCK_WAIT.set(tally)
         try:
-            out = space.kit.call_json(name, arguments, max_chars=max_chars)
+            out = _call_kit(space.kit, name, arguments, max_chars)
         finally:
             _LOCK_WAIT.reset(lock_token)
             _report_lock_wait(name, tally[0])

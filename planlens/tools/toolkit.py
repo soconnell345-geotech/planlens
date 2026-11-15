@@ -200,6 +200,32 @@ DEFAULT_IMAGE_VIEW_HINT = "open the image file at image_path and look at it"
 _CALL_LIMIT: ContextVar[Optional[int]] = ContextVar("planlens_call_limit",
                                                     default=None)
 
+#: Whether ``open_document`` adds the sheet index and the schedule-marks
+#: check to its result, for the call in progress: ``None`` follows the
+#: toolkit's ``sheet_tools``. A host layer whose toolkit is shared by hosts
+#: that did and did not ask for the sheet tools sets it on each call
+#: (:func:`sheets_at_open`).
+_SHEETS_AT_OPEN: ContextVar[Optional[bool]] = ContextVar(
+    "planlens_sheets_at_open", default=None)
+
+
+class sheets_at_open:
+    """``with sheets_at_open(True):`` makes the calls inside it add the
+    sheet index and the schedule-marks check to ``open_document``'s result
+    (``False``: leave them out), whatever the toolkit's ``sheet_tools``."""
+
+    def __init__(self, on: Optional[bool]):
+        self.on = None if on is None else bool(on)
+        self._token = None
+
+    def __enter__(self):
+        self._token = _SHEETS_AT_OPEN.set(self.on)
+        return self
+
+    def __exit__(self, *exc):
+        _SHEETS_AT_OPEN.reset(self._token)
+        return False
+
 
 class ToolError(Exception):
     """A mistake the model can fix; its message is returned, not raised."""
@@ -384,10 +410,14 @@ class ReviewToolkit:
         render tools make — ``auto`` keeps a conversation full of zooms
         inside request limits without blurring line art.
     sheet_tools : bool
-        ``True`` also offers ``sheet_index`` and ``check_cross_references``
-        (:data:`OPT_IN_TOOLS`): a drawing set's sheets from their title
-        blocks, and its callouts checked against them. Off by default, so a
-        host's tool list is what it was until the host asks.
+        ``True`` also offers ``sheet_index``, ``check_cross_references``
+        and ``check_schedule_marks`` (:data:`OPT_IN_TOOLS`): a drawing set's
+        sheets from their title blocks, its callouts checked against them,
+        and the marks on its sheets checked against its schedules; and
+        ``open_document`` then returns the sheet index and the schedule
+        check with the document map (:func:`sheets_at_open`). Off by
+        default, so a host's tool list and results are what they were
+        until the host asks.
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -444,7 +474,8 @@ class ReviewToolkit:
 
     #: Tools offered only by a toolkit built with ``sheet_tools=True``
     #: (:data:`planlens.tools.specs.SHEET_TOOL_SPECS`).
-    OPT_IN_TOOLS: Tuple[str, ...] = ("sheet_index", "check_cross_references")
+    OPT_IN_TOOLS: Tuple[str, ...] = ("sheet_index", "check_cross_references",
+                                     "check_schedule_marks")
 
     def _offered(self, name: str) -> bool:
         if name in self.OPT_IN_TOOLS:
@@ -877,6 +908,20 @@ class ReviewToolkit:
                 "pages_by_kind classes a page by its content, so a titled "
                 "sheet can be classed text or mixed; a smaller page left off "
                 "this list can still hold a drawing"])[0])
+        on = _SHEETS_AT_OPEN.get()
+        if on if on is not None else self.sheet_tools:
+            # the sheet tools asked for: the sheet index and the schedule
+            # check come with the map, so the agent holds both sides of
+            # every schedule without choosing to call a tool
+            try:
+                block = self._sheets_at_open(
+                    entry, (ceiling - json_len(out)) * 3 // 4)
+            except Exception as exc:          # noqa: BLE001 - never the open
+                block = {"sheet_index": {
+                    "error": f"the sheet index could not be read: "
+                             f"{type(exc).__name__}: {exc}"[:300]}}
+            for key, value in block.items():
+                add(key, value)
         add("metadata", {k: meta[k] for k in
                          ("title", "author", "subject", "creator", "producer")
                          if meta.get(k)})
@@ -1533,6 +1578,190 @@ class ReviewToolkit:
         out["callouts"] = shown
         if nxt is not None:
             out["next_offset"] = nxt
+        return out
+
+    #: What ``check_schedule_marks`` says of its fields.
+    SCHEDULE_MARKS_NOTE = (
+        "an item is one fact about this file: side mark is a mark drawn on "
+        "a sheet, side row a schedule's row; sheet, page (0-based PDF "
+        "page) and pdf_page (1-based, as a viewer shows) are where the "
+        "mark is drawn or the row is printed, bbox its place there (PDF "
+        "points, top-left origin); schedule names the schedule by its "
+        "title and sheets; why says what was and was not found; "
+        "rows_found counts the rows whose mark is drawn on some sheet")
+
+    @staticmethod
+    def _unread_groups(unread) -> List[Dict[str, Any]]:
+        """The sheets with no usable text, grouped by reason, with their
+        pages and, where a page label gave one, their numbers."""
+        by_reason: Dict[str, list] = {}
+        for r in unread:
+            by_reason.setdefault(r.reason or "no usable text layer",
+                                 []).append(r)
+        groups = []
+        for reason, rows in by_reason.items():
+            group: Dict[str, Any] = {
+                "pages": compact_ranges(r.page for r in rows),
+                "reason": reason}
+            numbers = [r.number for r in rows if r.number]
+            if numbers:
+                group["sheets"] = numbers[:12]
+                if len(numbers) > 12:
+                    group["more_sheets"] = len(numbers) - 12
+            groups.append(group)
+        return groups
+
+    def _tool_check_schedule_marks(self, handle: str, pages: Any = None,
+                                   status: Optional[str] = None,
+                                   offset: int = 0) -> Dict[str, Any]:
+        from planlens.document.schedules import STATUSES
+        entry = self._entry(handle)
+        with entry.lock:
+            result = entry.doc.schedule_marks()
+            n_pages = entry.doc.n_pages
+        wanted = (None if pages in (None, "", [], ())
+                  else set(parse_pages(pages, n_pages)))
+        status = (status or "").strip().lower() or None
+        if status is not None and status not in STATUSES:
+            raise ToolError(
+                f"status must be one of {list(STATUSES)}, not {status!r}")
+        on_pages = [i for i in result.items
+                    if wanted is None or i.page in wanted]
+        rows = [i for i in on_pages if status is None or i.status == status]
+        if offset < 0 or (rows and offset >= len(rows)):
+            raise ToolError(f"offset {offset} is outside 0-{len(rows) - 1}")
+        whole = result.counts()
+        counts = {k: whole[k] for k in ("schedules", "rows", "rows_found")}
+        counts.update((s, 0) for s in STATUSES)
+        for item in on_pages:
+            counts[item.status] += 1
+        out: Dict[str, Any] = {"handle": handle, "counts": counts}
+        budget = self._budget(300)
+        # the schedules, the unread sheets and the notes each get a share of
+        # the room, so the items always have some
+        share = max(160, budget // 5)
+        schedules = [s.to_dict() for s in result.schedules]
+        groups = self._unread_groups(result.unread)
+        for key, values in (("schedules", schedules),
+                            ("unread_sheets", groups),
+                            ("notes", list(result.notes))):
+            if not values:
+                continue
+            kept, cut = fit_items(values, share)
+            out[key] = kept
+            if cut is not None:
+                out[key + "_left_out"] = len(values) - cut
+        out["note"] = self.SCHEDULE_MARKS_NOTE
+        if rows:
+            out["look"] = self._look([
+                "view an item at its bbox, and the schedule's row, before "
+                "you comment on it"])[0]
+        names = result.names()
+
+        def with_items() -> Dict[str, Any]:
+            shown, nxt = fit_items(rows, budget - json_len(out),
+                                   to_payload=lambda i: i.to_dict(names),
+                                   start=offset)
+            done = dict(out, items=shown)
+            if nxt is not None:
+                done["next_offset"] = nxt
+            return done
+
+        # under a small limit what the items are read with gives way, never
+        # the items: the notes, the unread sheets' detail, the schedules'
+        done = with_items()
+        for key in ("notes", "unread_sheets", "schedules", "note"):
+            if json_len(done) <= budget + 280:
+                break
+            if key == "note":
+                out["note"] = "see the tool's description"
+            elif key in out:
+                out[key + "_left_out"] = len(out.pop(key)) + out.pop(
+                    key + "_left_out", 0)
+            done = with_items()
+        return done
+
+    #: The schedule check's items ``open_document`` shows at most.
+    OPEN_SCHEDULE_ITEMS = 12
+
+    def _sheets_at_open(self, entry: "_Entry", room: int) -> Dict[str, Any]:
+        """The sheet index and the schedule-marks check for ``open_document``,
+        compact, in ``room`` characters: the index's page, number and title
+        per sheet; the check's counts, schedules and first items. Empty for
+        a document with no drawing sheets."""
+        with entry.lock:
+            index = entry.doc.sheet_index()
+            marks = entry.doc.schedule_marks() if index.rows else None
+        if marks is None or room < 300:
+            return {}
+        out: Dict[str, Any] = {}
+        idx: Dict[str, Any] = {"n_sheets": len(index.rows),
+                               "n_indexed": len(index.indexed)}
+        if index.not_indexed:
+            idx["pages_not_indexed"] = compact_ranges(
+                r.page for r in index.not_indexed)
+
+        def sheet_row(r) -> Dict[str, Any]:
+            # pdf_page here, so the host adding it cannot push the result
+            # past its limit
+            shown: Dict[str, Any] = {"page": r.page, "pdf_page": r.page + 1,
+                                     "sheet": r.number}
+            if r.title:
+                shown["title"] = r.title
+            return shown
+
+        more = ("sheet_index for each sheet's revision, view marks and how "
+                "its number was read")
+        half = room * 11 // 20
+        rows = index.indexed
+        shown, _nxt = fit_items(rows, max(0, half - json_len(idx) - 160),
+                                to_payload=sheet_row)
+        while shown and json_len(dict(idx, sheets=shown, more=more)) > half:
+            shown = shown[:-1]
+        idx["sheets"] = shown
+        if len(shown) < len(rows):
+            idx["sheets_left_out"] = len(rows) - len(shown)
+        idx["more"] = more
+        out["sheet_index"] = idx
+
+        sm: Dict[str, Any] = {"counts": marks.counts()}
+        names = marks.names()
+        if names:
+            kept, cut = fit_items(names, max(120, room // 6))
+            sm["schedules"] = kept
+            if cut is not None:
+                sm["schedules_left_out"] = len(names) - cut
+        if marks.unread:
+            sm["pages_unread"] = compact_ranges(r.page for r in marks.unread)
+        if not names:
+            sm["note"] = "; ".join(marks.notes)
+        else:
+            sm["note"] = (
+                "no_row: a mark drawn on a sheet with no row in the schedule "
+                "of its form; no_mark: a row whose mark is drawn on no sheet; "
+                "may_be_on_unread_sheet: either, where sheets could not be "
+                "read; cannot_tell: the text does not settle it (why says "
+                "what was seen); view an item before you comment on it")
+        sm["more"] = ("check_schedule_marks for every item with its box, "
+                      "and filters by status or pages")
+
+        def compact(item) -> Dict[str, Any]:
+            shown = item.to_dict(names)
+            shown.pop("bbox", None)
+            return shown
+
+        items = marks.items[:self.OPEN_SCHEDULE_ITEMS]
+        rest = room - json_len(out) - json_len(sm) - 40
+        kept, _nxt = fit_items(items, max(0, rest), to_payload=compact)
+        while kept and json_len(dict(out, schedule_marks=dict(
+                sm, items=kept))) > room:
+            kept = kept[:-1]
+        if kept:
+            sm["items"] = kept
+        if len(kept) < len(marks.items):
+            sm["items_left_out"] = len(marks.items) - len(kept)
+        if json_len(dict(out, schedule_marks=sm)) <= room:
+            out["schedule_marks"] = sm
         return out
 
     def _tool_document_roles(self, handle: str, items_only: bool = False,

@@ -1826,6 +1826,165 @@ and the rows page on.
   here. Whether a detail suits the place it is called from is not
   attempted.
 
+## Schedules and the marks on the sheets (unreleased; app BACKLOG PL-42)
+
+**Why.** A schedule (doors, windows, equipment, panels, footings) lists
+marks; the plans draw them. A mark drawn with no row, or a row drawn
+nowhere, is a coordination error a reviewer is paid to find, and it is a
+whole-set question: the row is on one sheet, the mark on another. An
+agent that reviews a large set on separate helpers, one reading the plans
+and another the schedules, holds the two sides in different contexts and
+cannot compare them, however well each reads its own sheets. So the
+comparison is made in code, from the text layer, over every sheet, and the
+agent is handed both sides with each item's place.
+
+**What a schedule is.** Nothing knows a schedule's name or its marks in
+advance. On each readable sheet (upright lines only) a table is anchored by
+a heading that says it holds marks (`MARK_HEADING`: MARK, TAG, NO.,
+NUMBER, ID, #, with up to two words before it: "DOOR NO.", "EQUIP. TAG"),
+or by the header row under a title with the word SCHEDULE. The header row
+is the pieces level with the anchor in like lettering, cut at a gap much
+wider than the others (drawing text on its line). The mark column is the
+pieces under the anchor's span, read down while the lettering keeps its
+size (within a fifth) and the cells their spacing (no step over about twice
+the rows'); its values must be mostly different (a column of repeated
+values is a property, not marks). A cell that is one mark is a row; a cell
+holding several marks of the column's forms ("EF-3, EF-4", "W-1 THRU W-3")
+gives each; a cell of words (a sub-heading, "SECOND FLOOR") is passed over;
+a cell with figures and no mark of the column's forms is passed over and
+kept as not read (`cells_not_read`). A sheet number of the set, a callout
+bubble or a mark of one or two characters after longer ones ends the
+column: a view title printed under the table is not a row. A table is a schedule if it has a SCHEDULE title
+and two headings, or no such title, a mark heading, three headings or
+more, two rows or more, and no title naming a legend, keynote list, key,
+notes, revisions, issues, abbreviations, symbols, an index, a drawing list
+or a sheet list, above it or below it (a Revit legend view titled under
+the table). A title is looked for above the headings past a row of group
+headings, and below the last row past a view-title bubble. A header row at
+the same place on most sheets, or an untitled mark heading at one place on
+three sheets or more (a consultant's revision table), is the title
+block's, and a table whose marks are mostly the set's own sheet numbers is
+a drawing index; neither is a schedule. A title
+repeated with CONTINUED, or an untitled table with the same headings,
+joins the schedule it continues, so a schedule printed over two sheets is
+one.
+
+**The mark's form.** Each schedule's form is learnt from its own rows
+(`mark_form`): letters before the digits are literal, a run of digits
+matches a run of about its length, letters after the digits match any
+letter. `W-1` gives `W-9` (W-4, W-12), `FCU-1-1` gives `FCU-9-9`, `LP-4A`
+gives `LP-9A`, a plain `101` gives `999`. Marks of one or two characters,
+all digits or all letters (`A`, `3`, `12`), are too common in a drawing's
+text to look for; they are counted as not looked for and the result says
+so.
+
+**Where a mark is drawn.** A mark is drawn where a piece of text on a sheet
+is that mark alone, outside every schedule, outside a callout bubble
+(`Document.cross_references`), outside the title block's number and not
+one of the set's sheet numbers. Lettering a CAD program keeps only as
+hidden annotations ("AutoCAD SHX Text", its glyphs drawn as lines) is read
+with the text, as planlens reads it elsewhere. A mark written inside a line
+of words (a note) or inside a range ("DOORS 202 TO 205", "W-1 THRU W-6") is
+not drawn, but it is named, which keeps a row out of `no_mark`.
+
+**The four statuses, kept apart.**
+- `no_row`: a mark drawn on a sheet fits a schedule's form and no schedule
+  of that form has its row.
+- `no_mark`: a row of a schedule titled SCHEDULE whose mark is drawn on no
+  sheet and named nowhere, where at least half the schedule's rows are
+  found in the sheets' text.
+- `may_be_on_unread_sheet`: a row not found where some sheets have no
+  usable text, or have their drawing in an image (image cover of half the
+  sheet or more: its marks are not in its text); and a mark with no row
+  where an unread sheet sits beside one of its schedule's pages, where a
+  part of the schedule could be printed. The unread sheets are listed
+  apart, with their pages. A mark with no row stays `no_row` where the
+  unread sheets are away from its schedule, and its why names them.
+- `cannot_tell`: the text does not settle it, with the reason in `why`.
+  Among the reasons: a row of a table with no SCHEDULE title (it may be a
+  list whose entries need not all be drawn); a row of a schedule fewer
+  than half of whose rows are found in the sheets' text (its marks may be
+  drawn as lines or in an image: absence is not established); a mark with
+  no row where a cell of its schedule's mark column could not be read.
+Each item carries its sheet, `page` (0-based) and `pdf_page` (1-based), the
+schedule by its title and sheets, its box, and why.
+
+**Plain numbers.** A door numbered 105 is drawn in a plan that also prints
+room 105, dimension 1050 and detail 5. So a plain number counts as a mark
+only in the lettering the schedule's other marks are drawn in on that
+sheet (font, size, bold), and only on a sheet showing two or more of them.
+The lettering is settled when one lettering holds two of the scheduled
+marks, or when exactly one of several stands alone (a number with a word
+just over or under it is a room's name and number); otherwise the sheet is
+ambiguous and any plain-number item from it is `cannot_tell`. Where the
+lettering was settled only by which one stands alone (doors numbered as
+their rooms, in one lettering), an unlisted number in it is `cannot_tell`
+too: a room numbered as its door, with no name over it, reads the same. On a settled
+sheet one unlisted number in the marks' lettering is `no_row`; two or
+three are `cannot_tell` each; more than three are one `cannot_tell` item
+for the sheet, with a sample (dimensions or detail numbers share the
+lettering). A row found only in a lettering unlike the schedule's other
+marks on that sheet is `cannot_tell` (a room numbered as the door is).
+
+**Families.** Wall types, window marks and keynote tags can share a form
+(`W-1`). Where three or more different marks of a form have no row and
+they outnumber half the rows found, they are `cannot_tell`: something the
+schedule does not list may share the form.
+
+**In the toolkit.** `Document.schedule_marks()` (cached, with the sheet
+index and the callouts it needs) returns a `ScheduleMarks`. The tool
+`check_schedule_marks(handle, pages, status, offset)` is the third sheet
+tool (`SHEET_TOOL_SPECS`, a toolkit with `sheet_tools=True`): counts, the
+schedules (rows, forms, rows found), unread sheets grouped by reason, notes,
+then the items paged by `next_offset`; under a small limit the notes, the
+unread sheets' detail and the schedules give way before any item. And
+`open_document` on such a toolkit brings `sheet_index` (page, pdf_page,
+number, title of each sheet) and `schedule_marks` (counts, schedule names,
+up to 12 items without their boxes), in at most three quarters of the room
+left after the map, before the metadata and segments; each says which tool
+gives the rest. A host layer sets per call whether the caller asked
+(`sheets_at_open`), so a host that did not ask is answered byte for byte as
+before, and a document with no drawing sheets brings nothing.
+
+**Measured.** On made-up sets only: planlens' fixture
+(`planlens.testing.schedule_set_fixtures`: every item its truth, with a
+sheet scanned, and with no schedule) and the app's coordination sets (15
+sheets: three planted errors found, nothing else said; 40 sheets: seven
+planted errors in four schedules found, nothing else said; the 15 sheets
+scanned: every sheet listed unread, nothing said of the marks). A review
+of 2026-11-14 built four sets with what real sets hold and the fixture did
+not (tags kept as hidden SHX text, a view title under a schedule, two marks
+in one cell, a keynote list titled below, a consultant's revision table on
+4 of 10 sheets, doors numbered as their rooms, a scanned sheet): the first
+version said 17 definite false items there (21 counting a variant's
+repeats); this one says none, and finds every planted item. On 8 dense
+sheets of 4,000 text lines the check took 16 s and now takes 0.6 s (the
+word over or under a number is looked up by bisection on the page's word
+boxes, worked out once). No figure here says how it does on real drawing
+sets.
+
+**What it does not do, and where it will be wrong.**
+- Text only (with hidden CAD text). A schedule drawn as lines or on a
+  scan is not seen. Marks drawn as lines with no hidden text, or in an
+  image, are not seen: their rows come back `cannot_tell` (fewer than half
+  the rows found) or `may_be_on_unread_sheet` (an image sheet), never
+  `no_mark`; but where most of a schedule's marks are text and a few are
+  lines, those few rows are `no_mark`. A turned schedule is not read; a
+  table with no SCHEDULE title and no mark heading is not a schedule here.
+- A plain-number mark is looked for only on sheets showing two of that
+  schedule's marks, so a floor whose doors are all missing from the
+  schedule is not seen; where rooms are numbered as the doors are, in the
+  same lettering, a door's row can be found as a room's number.
+- A form shared by unrelated tags below the family guard (two wall types
+  shaped like window marks) is reported `no_row`: the item says to view it.
+- An unread sheet turns every row not found into
+  `may_be_on_unread_sheet`, and a mark with no row too where it sits beside
+  the schedule's pages. A part of a schedule printed on an unread sheet
+  away from its other parts is not allowed for: the mark is `no_row`, and
+  its why names the unread pages.
+- Marks of one or two characters are not looked for; a legend or keynote
+  list is told from a schedule by its title's words only.
+
 ## Not built yet
 
 - RapidOCR (`planlens.ocr`) as a text source (it currently emits IR TextItems).

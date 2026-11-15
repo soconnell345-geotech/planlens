@@ -1,4 +1,5 @@
-"""sheet_index and check_cross_references: offered only by a toolkit built
+"""sheet_index and check_cross_references (and check_schedule_marks,
+tested in ``test_schedule_marks_tool.py``): offered only by a toolkit built
 with ``sheet_tools=True``, and what they return on a made-up drawing set
 (:mod:`planlens.testing.sheet_set_fixtures`)."""
 
@@ -15,7 +16,10 @@ from planlens.tools import (  # noqa: E402
     SHEET_TOOL_SPECS, TOOL_SPECS, ReviewToolkit,
 )
 
-SHEET_TOOLS = ["sheet_index", "check_cross_references"]
+SHEET_TOOLS = ["sheet_index", "check_cross_references",
+               "check_schedule_marks"]
+#: What open_document adds for a toolkit with the sheet tools.
+AT_OPEN = ("sheet_index", "schedule_marks")
 VIEW_HINT = "look_at(source, page, bbox)"
 
 
@@ -71,12 +75,12 @@ def test_the_sheet_tools_are_offered_only_when_asked_for(gt):
     assert asked.tool_names == published + SHEET_TOOLS
     for style in ("anthropic", "openai", "plain"):
         assert asked.specs(style)[:len(published)] == plain.specs(style)
-    assert [s["name"] for s in asked.specs()[-2:]] == SHEET_TOOLS
-    for spec in asked.specs()[-2:]:
+    assert [s["name"] for s in asked.specs()[-3:]] == SHEET_TOOLS
+    for spec in asked.specs()[-3:]:
         assert spec["input_schema"]["required"] == ["handle"]
         assert "handle" in spec["input_schema"]["properties"]
     assert asked.specs("openai")[-1]["function"]["name"] == \
-        "check_cross_references"
+        "check_schedule_marks"
 
 
 def test_a_toolkit_that_did_not_ask_refuses_them_and_answers_as_before(gt):
@@ -85,7 +89,12 @@ def test_a_toolkit_that_did_not_ask_refuses_them_and_answers_as_before(gt):
     asked = _kit(gt.pdf)
     opened_plain = call(plain, "open_document", source="set.pdf")
     opened_asked = call(asked, "open_document", source="set.pdf")
-    assert opened_plain == opened_asked            # open_document unchanged
+    # open_document adds the sheet index and the schedule check where the
+    # sheet tools were asked for, and nothing else changes
+    assert not set(AT_OPEN) & set(opened_plain)
+    assert set(AT_OPEN) <= set(opened_asked)
+    assert {k: v for k, v in opened_asked.items()
+            if k not in AT_OPEN} == opened_plain
     handle = opened_plain["handle"]
     for name in SHEET_TOOLS:
         refused = call(plain, name, handle=handle)

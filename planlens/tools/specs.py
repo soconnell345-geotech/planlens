@@ -874,4 +874,56 @@ SHEET_TOOL_SPECS = [
             "required": ["handle"],
         },
     },
+    {
+        "name": "check_schedule_marks",
+        "description": (
+            "The schedules it can read in the text layer of this "
+            "document (a drawing set), and the marks drawn on its sheets "
+            "checked against them both ways. A schedule is a table titled "
+            "SCHEDULE, or one with a column headed MARK, TAG, NO., NUMBER "
+            "or ID and three columns or more; a legend, keynote list, "
+            "revision block or sheet index is not one, and a schedule "
+            "printed over two sheets is one. Each schedule's mark form is "
+            "learnt from its own rows (W-1, EF-2, FCU-1-1, LP-4A, 101; a "
+            "cell \"EF-3, EF-4\" gives both): a mark is drawn where a "
+            "piece of text, or of hidden CAD text, is that mark alone, on "
+            "any sheet, outside the schedules. Each item is one fact (the "
+            "why gives the detail). no_row: a mark drawn on a sheet fits a "
+            "schedule's form and no schedule of that form has a row for "
+            "it. no_mark: a row of a schedule titled SCHEDULE whose mark is "
+            "drawn on no sheet and named in no note or range. "
+            "may_be_on_unread_sheet: a row not found where some sheets have "
+            "no usable text or have their drawing in an image (listed under "
+            "unread_sheets), or a mark with no row where an unread sheet "
+            "sits beside the schedule's pages. cannot_tell: the text does "
+            "not settle it (a row named only in a note or a range; a row of "
+            "a table with no SCHEDULE title; rows of a schedule mostly found "
+            "in no sheet's text, as where its marks are drawn as lines; a "
+            "plain number whose lettering does not tell it from room "
+            "numbers or dimensions; more marks of a form with no row than "
+            "its rows found; a mark with no row where a cell of the "
+            "schedule could not be read). A plain number (101) is taken as "
+            "a mark only in the lettering the schedule's other marks are "
+            "drawn in on that sheet, and only on sheets that show two or "
+            "more of them; marks of one or two characters (A, 3, 12) are "
+            "not looked for. It misses a turned schedule and a table with "
+            "no SCHEDULE title and no mark heading. View an item at its "
+            "bbox, and the schedule's row, before you comment. Each item "
+            "has its sheet, page (0-based) and pdf_page (1-based) and its "
+            "schedule; filter by pages or status. Continues via "
+            "next_offset."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "pages": PAGES_SCHEMA,
+                "status": {"type": "string",
+                           "enum": ["no_row", "no_mark",
+                                    "may_be_on_unread_sheet",
+                                    "cannot_tell"]},
+                "offset": {"type": "integer", "minimum": 0},
+            },
+            "required": ["handle"],
+        },
+    },
 ]

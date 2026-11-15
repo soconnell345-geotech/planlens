@@ -13,7 +13,8 @@ from planlens.review import specs  # noqa: E402
 from planlens.review.tests.conftest import make_tools  # noqa: E402
 from planlens.testing.sheet_set_fixtures import build_sheet_set  # noqa: E402
 
-SHEET_TOOLS = ("sheet_index", "check_cross_references")
+SHEET_TOOLS = ("sheet_index", "check_cross_references",
+               "check_schedule_marks")
 BEFORE = specs.DOCUMENT_TOOLS + specs.OPTIONAL_DOCUMENT_TOOLS
 ASK = {"sheet_tools": True}
 
@@ -63,8 +64,13 @@ def test_a_host_that_asks_is_offered_them_after_the_others(gt):
                                          "offset", "pdf_pages"]
     assert "title blocks" in shown["sheet_index"]["description"]
     assert "unresolved" in shown["check_cross_references"]["description"]
+    marks = shown["check_schedule_marks"]["input_schema"]
+    assert marks["required"] == ["handle"]
+    assert list(marks["properties"]) == ["handle", "pages", "status",
+                                         "offset", "pdf_pages"]
+    assert "no_row" in shown["check_schedule_marks"]["description"]
     openai = review.tool_specs("openai")
-    assert openai[-1]["function"]["name"] == "check_cross_references"
+    assert openai[-1]["function"]["name"] == "check_schedule_marks"
 
 
 def test_the_sheet_tools_through_the_host_give_both_page_numbers(gt):

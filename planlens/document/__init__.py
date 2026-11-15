@@ -26,6 +26,8 @@ PDF into data an LLM can navigate and cite:
   revision, read from its title block (:meth:`Document.sheet_index`) — and
   its **callouts** checked against it: which section and detail references
   lead to a view that is in the set (:meth:`Document.cross_references`);
+  and its **schedules** checked against the marks on its sheets, both ways
+  (:meth:`Document.schedule_marks`);
 - an optional **Azure Document Intelligence** text source for scanned pages,
   paragraph roles and header-marked tables — the caller runs the paid
   analysis, planlens only reads the result (:class:`AzureLayout`).
@@ -102,6 +104,12 @@ from planlens.document.quantities import (
     QuantityMention,
     scan_text,
 )
+from planlens.document.schedules import (
+    MarkItem,
+    Schedule,
+    ScheduleMarks,
+    schedule_marks,
+)
 from planlens.document.sheets import SheetIndex, SheetRow, sheet_index
 from planlens.document.scale import (
     SOURCE_MEASUREMENT_MARKUP,
@@ -149,6 +157,10 @@ __all__ = [
     "Callout",
     "CrossReferences",
     "cross_references",
+    "MarkItem",
+    "Schedule",
+    "ScheduleMarks",
+    "schedule_marks",
     "PageContent",
     "PageSummary",
     "TextLine",
