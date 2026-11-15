@@ -25,6 +25,16 @@
   that asked (`ReviewHost(toolkit_options={"sheet_tools": True})`) gets
   either. Measured on made-up sets only; see `planlens/document/DESIGN.md`,
   "Schedules and the marks on the sheets", for what it misses.
+  Its review on harder made-up sets made it more careful: hidden CAD
+  lettering (AutoCAD SHX) is read; a schedule whose rows are mostly found
+  in no sheet's text, a table with no SCHEDULE title, a mark whose row may
+  be in a cell not read, and a number settled only by which lettering
+  stands alone give `cannot_tell`, not a definite item; a view title under
+  a schedule, a cell holding two marks, a sub-heading row, a keynote list
+  titled below and a consultant's revision table are read as they are; a
+  mark with no row stays `no_row` where an unread sheet is away from its
+  schedule; and dense sheets no longer slow it (16 s to 0.6 s on 8 sheets
+  of 4,000 lines).
 
 - **The OpenCV probe's child leaves no core file.** On a host where loading
   OpenCV aborts the interpreter (FIPS mode), the test import in a child
