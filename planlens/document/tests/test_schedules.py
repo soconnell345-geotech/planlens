@@ -96,7 +96,7 @@ def test_each_item_gives_its_sheet_both_pages_its_schedule_and_why():
     # a row's place is where the schedule prints it
     assert (row["sheet"], row["page"], row["pdf_page"]) == ("A-601", 3, 4)
     assert row["schedule"] == "DOOR SCHEDULE (A-601, A-602)"
-    assert "every sheet was read" in row["why"]
+    assert "every sheet's text was read" in row["why"]
 
 
 def test_a_plain_number_is_a_mark_only_in_the_marks_lettering():
@@ -157,8 +157,8 @@ def test_a_scanned_sheet_leaves_open_what_could_be_on_it():
         "sheet(s) could not be read (page(s) 2) and may show it")
     mark = next(i for i in result.items if i.mark == "W-4")
     assert mark.why.endswith(
-        "; 1 sheet(s) could not be read (page(s) 2): a part of the "
-        "schedule there would not be seen")
+        "; page(s) 2 could not be read and sit beside the schedule's "
+        "pages: a part of the schedule there would not be seen")
     assert any("could not be read" in n for n in result.notes)
 
 

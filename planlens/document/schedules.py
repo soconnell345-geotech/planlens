@@ -11,24 +11,34 @@ WHAT IS A SCHEDULE. Nothing here knows a mark type or a schedule's name.
 On each sheet that has a usable text layer, a table is a schedule when, in
 upright lettering:
 
-* its title (the line just above its column headings, or one below its
-  last row) says SCHEDULE, it has at least two column headings, and its
-  first column holds marks; or
+* its title (a line above its column headings, past a row of group
+  headings, or one below its last row) says SCHEDULE, it has at least two
+  column headings, and its first column holds marks; or
 * it has no such title, its mark column's heading says it holds marks
   (MARK, TAG, NO., NUMBER, ID or #, alone or after a word: "DOOR NO.",
   "EQUIPMENT TAG"), it has at least three column headings and two rows,
-  and no title calls it a legend, a key or keynote list, notes, revisions,
-  issues, abbreviations, symbols, an index or a drawing list.
+  and no line above it or below it (a view title under it) calls it a
+  legend, a key or keynote list, notes, revisions, issues, abbreviations,
+  symbols, an index or a drawing list.
 
 The mark column is the one under a heading that says it holds marks, else
-the first column. It is read down from the heading while each cell is one
-mark-shaped piece of text ("101", "F1", "FCU-1-1", "LP-4A", "W-3", "MDP")
-spaced as the rows before it are. A column whose values repeat (a TYPE
-column) is not a mark column. Heading rows printed at the same place on
-most sheets are the title block's (a revision block), not a schedule; a
-table whose marks are mostly the set's own sheet numbers is a drawing
-list. A schedule printed in parts (a second sheet titled "... (CONTINUED)",
-or a second block of the same columns) is one schedule.
+the first column. It is read down from the heading while the lettering
+keeps its size (within a fifth of the first row's) and the cells their
+spacing (no step over about twice the rows'). A cell that is one mark
+("101", "F1", "FCU-1-1", "LP-4A", "W-3", "MDP") is a row; a cell holding
+several marks of the column's forms ("EF-3, EF-4", "W-1 THRU W-3") gives
+each; a cell of words (a sub-heading, "SECOND FLOOR") is passed over; a
+cell with figures and no mark of the column's forms is passed over and
+kept as not read. A sheet number of the set, a callout bubble or a mark of
+one or two characters after longer ones (a view title under the table)
+ends the column. A column whose values repeat (a TYPE column) is not a
+mark column. Heading rows printed at the same place on most sheets, and an
+untitled mark heading at one place on three sheets or more, are the title
+block's (a revision table), not a schedule; a heading row is cut at a gap
+much wider than its others (drawing text on its line); a table whose marks
+are mostly the set's own sheet numbers is a drawing list. A schedule
+printed in parts (a second sheet titled "... (CONTINUED)", or a second
+block of the same columns) is one schedule.
 
 THE MARK'S FORM is learnt from each schedule's own rows. Letters before the
 first digit are kept as they are; each run of digits may be one digit
@@ -46,20 +56,32 @@ page (0-based ``page``, 1-based ``pdf_page``) and the schedule:
 
 * ``no_row``: a mark drawn on a sheet fits the form of a schedule's marks
   and no schedule of that form has a row for it;
-* ``no_mark``: a schedule's row whose mark is drawn on no sheet, as a piece
-  of text of its own, outside the schedules, and named in no note or range;
-* ``may_be_on_unread_sheet``: either of the two above where some sheets could
-  not be read (no text layer, or one that does not read as the sheet does):
-  the mark, or the row, may be on one of those, and the item names them;
+* ``no_mark``: a row of a schedule titled SCHEDULE whose mark is drawn on
+  no sheet, as a piece of text of its own, outside the schedules, and named
+  in no note or range, where at least half the schedule's rows are found;
+* ``may_be_on_unread_sheet``: a row not found where some sheets could not
+  be read (no text layer, or one that does not read as the sheet does) or
+  have their drawing in an image; and a mark with no row where an unread
+  sheet sits beside one of its schedule's pages (a part of the schedule
+  may be there). The item names those pages. A mark with no row stays
+  ``no_row`` where the unread sheets are away from its schedule, and says
+  so;
 * ``cannot_tell``: the text does not settle it; the ``why`` says what was
-  seen (a row's mark found only inside a note or a range; a mark named only
-  in a note; a plain number whose lettering does not settle it; more marks
-  of a form with no row than the form's rows found, so something else
-  shares the form).
+  seen (a row's mark found only inside a note or a range; a row of a table
+  with no SCHEDULE title, which may be a list whose entries need not all be
+  drawn; a row of a schedule fewer than half of whose rows are found in
+  the sheets' text, as where its marks are drawn as lines; a mark named
+  only in a note; a plain number whose lettering does not settle it, or
+  settled only by which lettering stands alone; more marks of a form with
+  no row than the form's rows found, so something else shares the form; a
+  mark with no row where a cell of its schedule's mark column could not be
+  read as marks).
 
 A mark counts as drawn where a piece of text is that mark and nothing else,
 on any sheet, in any reading direction, outside every schedule, not in a
-callout bubble and not the sheet's own number.
+callout bubble and not the sheet's own number. Lettering a CAD program keeps
+only as hidden annotations ("AutoCAD SHX Text", its glyphs drawn as lines)
+is read with the text.
 
 A PLAIN NUMBER is a mark only by its lettering. On each sheet the schedule's
 marks found there set the lettering its marks are drawn in: the font, the
@@ -71,22 +93,26 @@ sheet; two or three such are each ``cannot_tell``; more are one
 ``cannot_tell`` for the sheet (room numbers or dimensions lettered alike).
 A number in another lettering is not counted. Where the schedule's numbers
 are drawn on a sheet in two letterings or more (door numbers that are the
-rooms' numbers too), the one that stands alone is its marks' (a name over
-a number labels the named thing); where none or several stand alone, each
-number of the form in those letterings with no row is ``cannot_tell``.
+rooms' numbers too), the one that stands alone is taken as its marks' (a
+name over a number labels the named thing), but a number with no row in
+it is then ``cannot_tell`` (a room numbered as its door may be lettered so
+too); where none or several stand alone, each number of the form in those
+letterings with no row is ``cannot_tell``.
 A row whose number is found
 on a sheet only in another lettering than the schedule's other marks there
 is ``cannot_tell``. Sheets that show fewer than two of a schedule's marks
 are not searched for its plain numbers.
 
 It reads what the text layer holds. A sheet with no usable text has no
-schedule and no marks here; the result lists those sheets, and a mark or a
-row that could be on one is never called missing.
+schedule and no marks here; the result lists those sheets; a row that could
+be drawn on one is never called missing, nor a mark's row where an unread
+sheet sits beside its schedule's pages.
 """
 
 from __future__ import annotations
 
 import re
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from dataclasses import dataclass, field
 from statistics import median
@@ -143,9 +169,18 @@ SIDE_MARK, SIDE_ROW = "mark", "row"
 #: A heading row printed at the same place on at least this share of the
 #: readable sheets (and on three or more) is the title block's.
 STATIC_SHARE = 0.5
+#: An untitled heading at one place on this many sheets is the title
+#: block's (a consultant's revision table), however few sheets that is.
+STATIC_MIN = 3
 #: A family of marks of one form is in doubt where more of them have no row
 #: than this share of the form's rows found (and at least three).
 FAMILY_SHARE = 0.5
+#: A schedule whose rows are found on the sheets fewer than this share of
+#: the time is not taken as read there: its marks may be drawn as lines.
+FOUND_SHARE = 0.5
+#: A readable sheet this much covered by images has its drawing in an
+#: image: marks drawn there are not in its text.
+PICTURED = 0.5
 
 
 def _clean(text: str) -> str:
@@ -239,7 +274,8 @@ def _title_like(text: str) -> bool:
 
 def _header_row(anchor: _Piece, pieces: Sequence[_Piece]) -> List[_Piece]:
     """The column headings on ``anchor``'s level: pieces centred on its
-    line, of a like size, each within reach of the next."""
+    line, of a like size, each within reach of the next; cut at a gap much
+    wider than the others (drawing text on the same line)."""
     level = [p for p in pieces
              if abs(p.cy - anchor.cy) <= 0.5 * anchor.h
              and _like_size(p, anchor)]
@@ -259,13 +295,76 @@ def _header_row(anchor: _Piece, pieces: Sequence[_Piece]) -> List[_Piece]:
             last = p
             i += step
     row.sort(key=lambda p: p.bbox[0])
+    if len(row) >= 3:
+        gaps = [row[i + 1].bbox[0] - row[i].bbox[2]
+                for i in range(len(row) - 1)]
+        wide = max(3.0 * median(gaps), 8.0 * anchor.size)
+        lo = hi = row.index(anchor)
+        while lo > 0 and gaps[lo - 1] <= wide:
+            lo -= 1
+        while hi < len(gaps) and gaps[hi] <= wide:
+            hi += 1
+        row = row[lo:hi + 1]
     return row
 
 
+def _split_last(mark: str) -> Optional[Tuple[str, int, str, int]]:
+    """``(head, number, tail, width)`` of ``mark`` about its last digit
+    run ("FCU-1-3" -> ("FCU-1-", 3, "", 1)); ``None`` with no digit."""
+    found = list(re.finditer(r"\d+", mark))
+    if not found:
+        return None
+    last = found[-1]
+    return (mark[:last.start()], int(last.group(0)), mark[last.end():],
+            len(last.group(0)))
+
+
+def _expand(a: str, b: str, most: int = 60) -> List[str]:
+    """The marks of the range ``a`` to ``b`` ("W-1", "W-3" -> W-1, W-2,
+    W-3); just the two ends where they do not make a range."""
+    sa, sb = _split_last(a), _split_last(b)
+    if (sa is None or sb is None or sa[0] != sb[0] or sa[2] != sb[2]
+            or not 0 < sb[1] - sa[1] <= most):
+        return [a, b]
+    return [f"{sa[0]}{str(n).zfill(sa[3])}{sa[2]}"
+            for n in range(sa[1], sb[1] + 1)]
+
+
+def _cell_marks(text: str, shapes: Sequence[Any]) -> List[str]:
+    """The marks a cell of a mark column holds that fit ``shapes`` (the
+    forms of the column's rows so far; before any, a mark with a figure):
+    "EF-3, EF-4" gives both, "W-1 THRU W-3" each of W-1 to W-3, "W-3
+    (ALT)" W-3, "SECOND FLOOR" none."""
+    def fits(tok: str) -> bool:
+        if tok in _NOT_MARKS or not MARK.match(tok) or too_short(tok):
+            return False
+        if shapes:
+            return any(rx.fullmatch(tok) for rx in shapes)
+        return any(c.isdigit() for c in tok)
+
+    out: List[str] = []
+    for a, b in _ranges_in(text):
+        if fits(a) and fits(b):
+            out.extend(_expand(a, b))
+    out.extend(tok for tok in _TOKENS.findall(text) if fits(tok))
+    return list(dict.fromkeys(out))
+
+
 def _column(anchor: _Piece, header: Sequence[_Piece],
-            pieces: Sequence[_Piece]) -> List[_Piece]:
-    """The marks under ``anchor``: pieces below it overlapping its span,
-    read down while each is one mark spaced as the rows before it."""
+            pieces: Sequence[_Piece], known: FrozenSet[str] = frozenset(),
+            bubbles: Sequence[BBox] = ()
+            ) -> Tuple[List[Tuple[str, _Piece]], List[_Piece], List[str]]:
+    """The marks under ``anchor``: the cells below it over its span, read
+    down while their lettering and spacing hold. A cell that is one mark is
+    a row; a cell holding several marks of the column's forms gives each; a
+    cell of words only (a sub-heading such as "SECOND FLOOR") is passed
+    over; a cell with figures and no mark of the column's forms is passed
+    over and kept as not read. A sheet number of the set or a callout
+    bubble ends the column (a view title printed under the table), as does
+    a lettering size a fifth off the first row's, a step of more than
+    about twice the rows' spacing, or a mark of one or two characters
+    after longer ones (a view number). ``(marks, cells, unread)``: ``(mark,
+    cell)`` pairs, every cell read, and the text of the cells not read."""
     pad = 0.5 * anchor.size
     lo, hi = anchor.bbox[0] - pad, anchor.bbox[2] + pad
     held = set(map(id, header))
@@ -274,52 +373,99 @@ def _column(anchor: _Piece, header: Sequence[_Piece],
                     and p.bbox[1] >= anchor.bbox[3] - 0.3 * anchor.h
                     and p.bbox[0] < hi and p.bbox[2] > lo
                     and _like_size(p, anchor)),
-                   key=lambda p: p.bbox[1])
-    out: List[_Piece] = []
+                   key=lambda p: (p.bbox[1], p.bbox[0]))
+    marks: List[Tuple[str, _Piece]] = []
+    cells: List[_Piece] = []
+    unread: List[str] = []
+    shapes: Dict[str, Any] = {}
     last_top = anchor.bbox[1]
     steps: List[float] = []
+    first: Optional[_Piece] = None
     for p in below:
         step = p.bbox[1] - last_top
-        if not steps:
-            limit = 4.5 * anchor.h
-        else:
-            usual = median(steps[1:] or steps)
-            limit = max(3.2 * usual, 2.5 * anchor.h)
-        if step > limit:
+        same_row = bool(cells) and step < 0.5 * min(p.h, cells[-1].h)
+        if not same_row:
+            if not steps:
+                limit = 4.5 * anchor.h
+            elif len(steps) == 1:
+                limit = max(3.2 * steps[0], 2.5 * anchor.h)
+            else:
+                limit = max(2.2 * median(steps[1:]), 1.6 * anchor.h)
+            if step > limit:
+                break
+        if first is not None and abs(p.size / first.size - 1.0) > 0.2:
             break
         token = p.text.upper()
-        if " " in token or not MARK.match(token) or token in _NOT_MARKS:
+        if mark_of(token) in known or _boxed(p.bbox, bubbles):
             break
-        out.append(p)
-        steps.append(step)
-        last_top = p.bbox[1]
-    return out
+        if " " not in token and MARK.match(token) and token not in _NOT_MARKS:
+            if marks and too_short(token) and not too_short(marks[-1][0]):
+                break                     # a view number under the table
+            got = [token]
+        else:
+            got = _cell_marks(token, list(shapes.values()))
+        if got:
+            for m in got:
+                m = mark_of(m)
+                marks.append((m, p))
+                form = mark_form(m)
+                if form is not None and form[0] not in shapes:
+                    shapes[form[0]] = re.compile(form[0])
+            if first is None:
+                first = p
+        elif re.search(r"\d", token):
+            if not marks:
+                break                     # the column does not hold marks
+            unread.append(p.text)
+        elif not marks and len(cells) >= 2:
+            break
+        cells.append(p)
+        if not same_row:
+            steps.append(step)
+            last_top = p.bbox[1]
+    while cells and not any(c is cells[-1] for _m, c in marks) \
+            and cells[-1].text not in unread:
+        cells.pop()                       # words after the last row
+    return marks, cells, unread
 
 
-def _title_near(header: Sequence[_Piece], marks: Sequence[_Piece],
-                pieces: Sequence[_Piece]) -> Optional[_Piece]:
-    """The table's title: the nearest wording just above its headings over
-    their span, else a line saying SCHEDULE just below its last row."""
-    held = set(map(id, header)) | set(map(id, marks))
+def _titles_near(header: Sequence[_Piece], cells: Sequence[_Piece],
+                 pieces: Sequence[_Piece]) -> List[_Piece]:
+    """The lines that may title the table, best first: a line saying
+    SCHEDULE above its headings (past a row of group headings), the
+    nearest wording just above them, a line saying SCHEDULE just below its
+    last row, the nearest wording below it (a view title under the table,
+    past its bubble)."""
+    held = set(map(id, header)) | set(map(id, cells))
     x0 = min(p.bbox[0] for p in header) - 5.0
     x1 = max(p.bbox[2] for p in header) + 5.0
     top = min(p.bbox[1] for p in header)
     h = max(p.h for p in header)
-    above = [p for p in pieces
-             if id(p) not in held and _letters(p.text) >= 3
-             and top - 3.5 * h - 6.0 <= p.bbox[3] <= top + 0.5
-             and p.bbox[0] < x1 and p.bbox[2] > x0]
-    if above:
-        return max(above, key=lambda p: p.bbox[3])
-    if not marks:
-        return None
-    bottom = max(p.bbox[3] for p in marks)
-    below = [p for p in pieces
-             if id(p) not in held and SCHEDULE_WORD.search(p.text)
+
+    def over(p: _Piece) -> bool:
+        return id(p) not in held and p.bbox[0] < x1 and p.bbox[2] > x0
+
+    out: List[_Piece] = []
+    named = [p for p in pieces
+             if over(p) and SCHEDULE_WORD.search(p.text)
              and _title_like(p.text)
-             and bottom - 0.5 <= p.bbox[1] <= bottom + 6.0 * h
-             and p.bbox[0] < x1 and p.bbox[2] > x0]
-    return min(below, key=lambda p: p.bbox[1]) if below else None
+             and top - 7.0 * h - 12.0 <= p.bbox[3] <= top + 0.5]
+    if named:
+        out.append(max(named, key=lambda p: p.bbox[3]))
+    above = [p for p in pieces
+             if over(p) and _letters(p.text) >= 3
+             and top - 3.5 * h - 6.0 <= p.bbox[3] <= top + 0.5]
+    if above:
+        out.append(max(above, key=lambda p: p.bbox[3]))
+    if cells:
+        bottom = max(p.bbox[3] for p in cells)
+        below = sorted((p for p in pieces
+                        if over(p) and _title_like(p.text)
+                        and bottom - 0.5 <= p.bbox[1] <= bottom + 8.0 * h),
+                       key=lambda p: p.bbox[1])
+        out.extend([p for p in below if SCHEDULE_WORD.search(p.text)][:1])
+        out.extend(below[:1])
+    return list({id(p): p for p in out}.values())
 
 
 @dataclass
@@ -333,6 +479,10 @@ class _Part:
     bbox: BBox
     #: The heading row's place, for telling the title block's tables.
     place: Tuple[int, int]
+    #: The mark heading's place (an untitled table's place on the sheet).
+    anchor_place: Tuple[int, int] = (0, 0)
+    #: The cells of its mark column that could not be read as marks.
+    skipped: List[str] = field(default_factory=list)
 
     @property
     def title_key(self) -> Optional[str]:
@@ -342,14 +492,15 @@ class _Part:
         return " ".join(re.sub(r"[^A-Z0-9 ]+", " ", key).split()) or None
 
 
-def _table_box(header: Sequence[_Piece], marks: Sequence[_Piece],
+def _table_box(header: Sequence[_Piece], cells: Sequence[_Piece],
                title: Optional[_Piece], pieces: Sequence[_Piece]) -> BBox:
-    """The box a table's text is in: from its title (or headings) to its
-    last row, across its headings and the cells started under them."""
-    x0 = min([p.bbox[0] for p in header] + [p.bbox[0] for p in marks]) - 2.0
+    """The box a table's text is in: from its title (or headings) to the
+    last cell of its mark column, across its headings and the cells
+    started under them."""
+    x0 = min([p.bbox[0] for p in header] + [p.bbox[0] for p in cells]) - 2.0
     last = max(header, key=lambda p: p.bbox[0])
     y0 = min(p.bbox[1] for p in header)
-    y1 = max([p.bbox[3] for p in marks] or [last.bbox[3]]) + 2.0
+    y1 = max([p.bbox[3] for p in cells] or [last.bbox[3]]) + 2.0
     x1 = last.bbox[2]
     for p in pieces:
         if y0 - 1.0 <= p.cy <= y1 and x0 <= p.bbox[0] <= last.bbox[2] + 2.0:
@@ -360,8 +511,12 @@ def _table_box(header: Sequence[_Piece], marks: Sequence[_Piece],
     return (x0, y0 - 2.0, x1 + 2.0, y1)
 
 
-def _parts_on(page: int, lines: Sequence[Any]) -> List[_Part]:
-    """The schedule blocks printed upright on one page."""
+def _parts_on(page: int, lines: Sequence[Any],
+              known: FrozenSet[str] = frozenset(),
+              bubbles: Sequence[BBox] = ()) -> List[_Part]:
+    """The schedule blocks printed upright on one page. ``known`` are the
+    set's sheet numbers and ``bubbles`` the page's callout bubbles: neither
+    is a row."""
     pieces = [_Piece(ln) for ln in lines
               if _direction(ln) == 0 and _clean(ln.text)]
     anchors: List[Tuple[_Piece, bool]] = []
@@ -385,37 +540,48 @@ def _parts_on(page: int, lines: Sequence[Any]) -> List[_Part]:
     parts: List[_Part] = []
     seen: set = set()
     for anchor, by_heading in anchors:
+        if not by_heading and (
+                mark_of(anchor.text) in known
+                or (MARK.match(anchor.text.upper())
+                    and any(c.isdigit() for c in anchor.text))):
+            continue        # a row of data under the title, not headings
         header = _header_row(anchor, pieces)
         key = frozenset(map(id, header))
         if key in seen:
             continue
-        marks = _column(anchor, header, pieces)
+        marks, cells, unread = _column(anchor, header, pieces, known,
+                                       bubbles)
         if not marks:
             continue
-        values = [mark_of(p.text) for p in marks]
+        values = [m for m, _p in marks]
         if len(values) >= 3 and len(set(values)) < 0.8 * len(values):
             continue                        # values repeat: not marks
-        title = _title_near(header, marks, pieces)
-        title_text = title.text if title is not None else None
-        titled = bool(title_text and SCHEDULE_WORD.search(title_text)
-                      and _title_like(title_text))
+        near = _titles_near(header, cells, pieces)
+        title = next((t for t in near if SCHEDULE_WORD.search(t.text)
+                      and _title_like(t.text)), None)
+        titled = title is not None
+        if not titled and near:
+            title = near[0]
         if titled:
             ok = len(header) >= 2
         else:
             ok = (bool(MARK_HEADING.match(anchor.text)) and len(header) >= 3
-                  and len(marks) >= 2
-                  and not (title_text and NOT_A_SCHEDULE.search(title_text)))
+                  and len(set(values)) >= 2
+                  and not any(NOT_A_SCHEDULE.search(t.text) for t in near))
         if not ok:
             continue
         seen.add(key)
         hx, hy = header[0].bbox[0], header[0].bbox[1]
         parts.append(_Part(
-            page=page, title=title_text if titled else None,
+            page=page, title=title.text if titled else None,
             header=tuple(p.text.upper() for p in header),
             mark_heading=anchor.text,
-            marks=[(v, p.bbox) for v, p in zip(values, marks)],
-            bbox=_table_box(header, marks, title, pieces),
-            place=(int(hx // 24), int(hy // 24))))
+            marks=[(m, p.bbox) for m, p in marks],
+            bbox=_table_box(header, cells, title, pieces),
+            place=(int(hx // 24), int(hy // 24)),
+            anchor_place=(int(anchor.bbox[0] // 24),
+                          int(anchor.bbox[1] // 24)),
+            skipped=list(unread)))
     return parts
 
 
@@ -441,6 +607,8 @@ class Schedule:
     #: The rows found drawn on a sheet, and the rows not looked for.
     rows_found: int = 0
     rows_not_looked_for: int = 0
+    #: Cells of its mark column that could not be read as marks.
+    unread_cells: List[str] = field(default_factory=list)
 
     @property
     def pages(self) -> List[int]:
@@ -485,6 +653,8 @@ class Schedule:
         out["rows_found"] = self.rows_found
         if self.rows_not_looked_for:
             out["rows_not_looked_for"] = self.rows_not_looked_for
+        if self.unread_cells:
+            out["cells_not_read"] = self.unread_cells[:3]
         return out
 
 
@@ -499,6 +669,7 @@ def _joined(parts: Sequence[_Part], number_of: Dict[int, Optional[str]]
     def add(s: Schedule, part: _Part) -> None:
         s.parts.append((part.page, part.bbox))
         s.sheets.append(number_of.get(part.page))
+        s.unread_cells.extend(part.skipped)
         held = set(s.marks)
         for mark, box in part.marks:
             if mark not in held:
@@ -588,6 +759,8 @@ class ScheduleMarks:
     unread: List[SheetRow] = field(default_factory=list)
     n_sheets: int = 0
     notes: List[str] = field(default_factory=list)
+    #: Readable sheets whose drawing is an image: marks there are not read.
+    pictured: List[int] = field(default_factory=list)
 
     def counts(self) -> Dict[str, int]:
         out = {"schedules": len(self.schedules),
@@ -610,31 +783,45 @@ def _boxed(box: BBox, boxes: Sequence[BBox]) -> bool:
     return any(b[0] <= cx <= b[2] and b[1] <= cy <= b[3] for b in boxes)
 
 
-def _named(line, lines: Sequence[Any]) -> bool:
-    """Whether a word (three letters or more) is lettered directly over or
-    under ``line``, as a room's name is over its number."""
-    x0, y0, x1, y1 = (float(v) for v in line.bbox)
-    h = max(1.0, y1 - y0)
-    cx = (x0 + x1) / 2.0
-    for other in lines:
-        if other is line or _letters(str(other.text or "")) < 3:
-            continue
-        ox0, oy0, ox1, oy1 = (float(v) for v in other.bbox)
-        if not ox0 - 0.5 * h <= cx <= ox1 + 0.5 * h:
-            continue
-        gap = max(oy0 - y1, y0 - oy1)
-        if -0.3 * h <= gap <= 1.0 * h:
-            return True
-    return False
+class _Words:
+    """The lines of one page holding a word (three letters or more),
+    sorted by their top, to find a word over or under a line quickly."""
+
+    def __init__(self, lines: Sequence[Any]):
+        boxes = sorted((tuple(float(v) for v in ln.bbox) for ln in lines
+                        if _letters(str(ln.text or "")) >= 3),
+                       key=lambda b: b[1])
+        self.boxes = boxes
+        self.tops = [b[1] for b in boxes]
+        self.tallest = max((b[3] - b[1] for b in boxes), default=0.0)
+
+    def named(self, line) -> bool:
+        """Whether a word is lettered directly over or under ``line``, as a
+        room's name is over its number."""
+        x0, y0, x1, y1 = (float(v) for v in line.bbox)
+        h = max(1.0, y1 - y0)
+        cx = (x0 + x1) / 2.0
+        lo = bisect_left(self.tops, y0 - h - self.tallest)
+        hi = bisect_right(self.tops, y1 + h)
+        for ox0, oy0, ox1, oy1 in self.boxes[lo:hi]:
+            if (ox0, oy0, ox1, oy1) == (x0, y0, x1, y1):
+                continue
+            if not ox0 - 0.5 * h <= cx <= ox1 + 0.5 * h:
+                continue
+            gap = max(oy0 - y1, y0 - oy1)
+            if -0.3 * h <= gap <= 1.0 * h:
+                return True
+        return False
 
 
 class _Letterings:
     """The lettering of a seen mark (font, size, whether a word is over or
-    under it), worked out once per line."""
+    under it), worked out once per line; each page's words once."""
 
     def __init__(self, pages: Dict[int, Sequence[Any]]):
         self.pages = pages
         self._held: Dict[int, Tuple[str, float, bool]] = {}
+        self._words: Dict[int, _Words] = {}
 
     def of(self, seen: _Seen) -> Tuple[str, float, bool]:
         key = id(seen.line)
@@ -643,8 +830,12 @@ class _Letterings:
             size = getattr(ln, "size", None)
             size = round(float(size), 1) if size else round(
                 (seen.bbox[3] - seen.bbox[1]) * 0.8, 1)
+            words = self._words.get(seen.page)
+            if words is None:
+                words = self._words[seen.page] = _Words(
+                    self.pages.get(seen.page, ()))
             self._held[key] = (str(getattr(ln, "font", None) or ""), size,
-                               _named(ln, self.pages.get(seen.page, ())))
+                               words.named(ln))
         return self._held[key]
 
 
@@ -664,17 +855,10 @@ def _shown_marks(marks: Sequence[str], most: int = 6) -> str:
 def _range_holds(mark: str, a: str, b: str) -> bool:
     """Whether the range ``a`` to ``b`` holds ``mark``: the three alike but
     for their last digit run, and that run between."""
-    def split(m):
-        found = list(re.finditer(r"\d+", m))
-        if not found:
-            return None
-        last = found[-1]
-        return m[:last.start()], int(last.group(0)), m[last.end():]
-
-    parts = [split(m) for m in (mark, a, b)]
+    parts = [_split_last(m) for m in (mark, a, b)]
     if None in parts:
         return False
-    (h, n, t), (ha, na, ta), (hb, nb, tb) = parts
+    (h, n, t, _w), (ha, na, ta, _wa), (hb, nb, tb, _wb) = parts
     return h == ha == hb and t == ta == tb and na < nb and na <= n <= nb
 
 
@@ -701,7 +885,9 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
         return out
     out.unread = list(index.unread)
     number_of = {r.page: r.number for r in index.rows}
-    known = {normalize_number(r.number) for r in index.indexed}
+    known = frozenset(normalize_number(r.number) for r in index.indexed)
+    from planlens.document.annotations import drop_cad_text_already_in_layer
+    from planlens.document.document import _image_coverage
     pages: Dict[int, List[Any]] = {}
     for row in index.rows:
         if not row.readable:
@@ -710,17 +896,41 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
             lines = list(doc._page_text(row.page)[0])
         except Exception:                             # noqa: BLE001
             lines = []
+        try:
+            # lettering a CAD program keeps only as hidden annotations
+            # ("AutoCAD SHX Text"), its glyphs drawn as lines
+            cad = list(doc._page_annots(row.page)[1])
+            if cad:
+                lines += drop_cad_text_already_in_layer(cad, lines)[0]
+        except Exception:                             # noqa: BLE001
+            pass
         if lines:
             pages[row.page] = lines
+        try:
+            if _image_coverage(doc._doc[row.page]) >= PICTURED:
+                out.pictured.append(row.page)
+        except Exception:                             # noqa: BLE001
+            pass
+    if refs is None:
+        refs = doc.cross_references()
+    callouts: Dict[int, List[BBox]] = {}
+    for c in getattr(refs, "callouts", ()):
+        callouts.setdefault(c.page, []).append(tuple(c.bbox))
 
     # -- the schedules ------------------------------------------------------
     parts: List[_Part] = []
     for page, lines in pages.items():
-        parts.extend(_parts_on(page, lines))
+        parts.extend(_parts_on(page, lines, known, callouts.get(page, ())))
     places = Counter((p.header, p.place) for p in parts)
-    floor = max(3, STATIC_SHARE * len(pages))
+    floor = max(STATIC_MIN, STATIC_SHARE * len(pages))
+    # an untitled table whose mark heading is at one place on three sheets
+    # or more is the title block's, whatever drawing text joins its headings
+    heads = Counter((p.mark_heading.upper(), p.anchor_place)
+                    for p in parts if p.title is None)
     parts = [p for p in parts
              if places[(p.header, p.place)] < floor       # a title block's
+             and not (p.title is None and heads[
+                 (p.mark_heading.upper(), p.anchor_place)] >= STATIC_MIN)
              and sum(m in known for m, _b in p.marks)     # a drawing list
              < 0.5 * len(p.marks)]
     out.schedules = _joined(parts, number_of)
@@ -733,11 +943,6 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
         return out
 
     # -- what is drawn on the sheets ---------------------------------------
-    if refs is None:
-        refs = doc.cross_references()
-    callouts: Dict[int, List[BBox]] = {}
-    for c in getattr(refs, "callouts", ()):
-        callouts.setdefault(c.page, []).append(tuple(c.bbox))
     tables: Dict[int, List[BBox]] = {}
     for p in parts:
         tables.setdefault(p.page, []).append(p.bbox)
@@ -769,10 +974,25 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
                     in_text.setdefault(tok, []).append(seen)
             for a, b in _ranges_in(text):
                 ranges.append((a, b, seen))
+    # the ranges by the shape of their ends, to look a row up in them
+    by_shape: Dict[Tuple[str, str], List[Tuple[int, int, _Seen]]] = {}
+    for a, b, seen in ranges:
+        sa, sb = _split_last(a), _split_last(b)
+        if sa and sb and sa[0] == sb[0] and sa[2] == sb[2] and sa[1] < sb[1]:
+            by_shape.setdefault((sa[0], sa[2]), []).append(
+                (sa[1], sb[1], seen))
+
+    def in_ranges(mark: str) -> List[_Seen]:
+        sm = _split_last(mark)
+        if sm is None:
+            return []
+        return [seen for na, nb, seen in by_shape.get((sm[0], sm[2]), ())
+                if na <= sm[1] <= nb]
 
     letterings = _Letterings(pages)
     blind = sorted(r.page for r in out.unread)
     blind_text = _page_runs(blind)
+    pictured = sorted(out.pictured)
     names = out.names()
     items: List[MarkItem] = []
 
@@ -805,22 +1025,24 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
         return +held
 
     def settle(held: Counter) -> Tuple[Optional[Tuple[str, float, bool]],
-                                       List[Tuple[str, float, bool]]]:
-        """``(lettering, open)`` of a schedule's marks on a sheet from the
-        letterings its rows are drawn in there: the one lettering holding
-        two or more; or, where several do, the only one standing alone (a
-        name over a number labels the named thing, a mark stands alone);
-        else ``None`` and the letterings that leave it open."""
+                                       List[Tuple[str, float, bool]], bool]:
+        """``(lettering, letterings, tie)`` of a schedule's marks on a sheet
+        from the letterings its rows are drawn in there: the one lettering
+        holding two or more; or, where several do, the only one standing
+        alone (``tie``: things numbered as the marks may share it); else
+        ``None`` and the letterings that leave it open."""
         strong = [k for k, n in held.items() if n >= 2]
         if len(strong) == 1:
-            return strong[0], []
+            return strong[0], [], False
         alone_ones = [k for k in strong if not k[2]]
         if len(alone_ones) == 1:
-            return alone_ones[0], []
-        return None, sorted(strong)
+            return alone_ones[0], sorted(strong), True
+        return None, sorted(strong), False
 
     # -- each row: is its mark drawn on a sheet? ---------------------------
     for sid, s in enumerate(out.schedules):
+        missing: List[MarkItem] = []
+        told = 0
         for row in s.rows:
             mark = row.mark
             if too_short(mark):
@@ -831,8 +1053,8 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
             if drawn and plain(mark):
                 kept = []
                 for seen in drawn:
-                    lead, _open = settle(counts_on({sid}, seen.page,
-                                                   leave=mark))
+                    lead, _open, _tie = settle(counts_on({sid}, seen.page,
+                                                         leave=mark))
                     mine = letterings.of(seen)
                     if lead is not None and lead != mine:
                         unlike.append((seen, mine, lead))
@@ -846,8 +1068,7 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
                             page=row.page, sheet=number_of.get(row.page),
                             bbox=row.bbox)
             named_in = in_text.get(mark, [])
-            ranged = [seen for a, b, seen in ranges
-                      if _range_holds(mark, a, b)]
+            ranged = in_ranges(mark)
             if unlike:
                 seen, mine, lead = unlike[0]
                 item.why = (
@@ -863,17 +1084,49 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
                 item.why = (
                     f"row {mark} is drawn alone on no sheet, but is {how} "
                     f"on {on_sheet(seen)}: \"{seen.text[:70]}\"; view it")
-            elif blind:
+            else:
+                missing.append(item)
+                continue
+            told += 1
+            items.append(item)
+        looked = len(s.rows) - s.rows_not_looked_for
+        thin = looked >= 2 and s.rows_found + told < FOUND_SHARE * looked
+        for item in missing:
+            mark = item.mark
+            if blind and not pictured:
                 item.status = MAYBE_UNREAD
                 item.why = (
                     f"row {mark} is drawn on none of the sheets that could "
                     f"be read; {len(blind)} sheet(s) could not be read "
                     f"(page(s) {blind_text}) and may show it")
+            elif blind or pictured:
+                item.status = MAYBE_UNREAD
+                why = []
+                if blind:
+                    why.append(f"{len(blind)} sheet(s) could not be read "
+                               f"(page(s) {blind_text})")
+                why.append(f"{len(pictured)} sheet(s) have their drawing "
+                           f"in an image, whose marks are not read (page(s) "
+                           f"{_page_runs(pictured)})")
+                item.why = (f"row {mark} is drawn in the text of no sheet; "
+                            + " and ".join(why) + ", and may show it")
+            elif s.title is None:
+                item.why = (
+                    f"row {mark} is drawn on no sheet, but the table it is "
+                    f"in has no SCHEDULE title: it may be a list whose "
+                    f"entries need not all be drawn; view it")
+            elif thin:
+                item.why = (
+                    f"row {mark} is drawn on no sheet, but only "
+                    f"{s.rows_found + told} of the {looked} rows of this "
+                    f"schedule are found in the sheets' text: its marks may "
+                    f"be drawn as lines or in an image; view a plan")
             else:
                 item.status = NO_MARK
                 item.why = (
                     f"row {mark} is drawn on no sheet as a mark of its own, "
-                    f"and named in no note or range; every sheet was read")
+                    f"and named in no note or range; every sheet's text was "
+                    f"read")
             items.append(item)
 
     # -- each mark drawn: has it a row? ------------------------------------
@@ -916,12 +1169,28 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
                     if m in alone})
 
     def no_row(token: str, seen: _Seen, sids, why: str) -> MarkItem:
+        """A mark drawn with no row: ``no_row``, unless a cell of the
+        schedule's mark column could not be read (its row may be there:
+        ``cannot_tell``) or an unread sheet sits beside one of the
+        schedule's pages (a part of it may be there: ``may_be``)."""
         status, tail = NO_ROW, ""
-        if blind:
+        cells = [c for sid in sorted(sids)
+                 for c in out.schedules[sid].unread_cells]
+        near = sorted({p for p in blind for sid in sids
+                       for q in out.schedules[sid].pages if abs(p - q) <= 1})
+        if cells:
+            status = CANNOT_TELL
+            tail = (f"; but a cell of the schedule's mark column could not "
+                    f"be read as marks (\"{cells[0][:40]}\"), and its row "
+                    f"may be there: view it")
+        elif near:
             status = MAYBE_UNREAD
+            tail = (f"; page(s) {_page_runs(near)} could not be read and "
+                    f"sit beside the schedule's pages: a part of the "
+                    f"schedule there would not be seen")
+        elif blind:
             tail = (f"; {len(blind)} sheet(s) could not be read (page(s) "
-                    f"{blind_text}): a part of the schedule there would "
-                    f"not be seen")
+                    f"{blind_text}), none beside the schedule's pages")
         return MarkItem(status, SIDE_MARK, sorted(sids), why + tail,
                         mark=token, page=seen.page, sheet=seen.sheet,
                         bbox=seen.bbox)
@@ -968,7 +1237,7 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
                                       key=lambda kv: (kv[0][1],
                                                       sorted(kv[0][0]))):
         held = counts_on(sids, page)
-        key, open_keys = settle(held)
+        key, open_keys, tie = settle(held)
         if key is None and not open_keys:
             continue                       # nothing sets the lettering here
         wanted = [key] if key is not None else open_keys
@@ -978,17 +1247,26 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
             continue
         where = on_sheet(alike[0][1])
         shown = forms_of(sids)
+        kinds = "; ".join(f"{_lettering_text(k)}: {held[k]}"
+                          for k in open_keys)
         if key is None:
             # the schedule's numbers are drawn in two letterings or more
             # here, none the only one standing alone
-            kinds = "; ".join(f"{_lettering_text(k)}: {held[k]}"
-                              for k in open_keys)
             lead_in = (f"the schedule's numbers on {where} are drawn in "
                        f"{len(open_keys)} letterings ({kinds}), so which "
                        f"are its marks the text does not tell")
+        elif tie:
+            # the one standing alone was taken; things numbered as the
+            # marks (rooms numbered as their doors) may share it
+            lead_in = (f"the schedule's numbers on {where} are drawn in "
+                       f"{len(open_keys)} letterings ({kinds}); the one "
+                       f"standing alone ({_lettering_text(key)}) is taken "
+                       f"as its marks', but things numbered as its marks "
+                       f"(rooms numbered as their doors) may be lettered "
+                       f"so too")
         else:
             lead_in = None
-        if key is not None and len(alike) == 1:
+        if key is not None and not tie and len(alike) == 1:
             token, seen = alike[0]
             items.append(no_row(
                 token, seen, sids,
@@ -1050,8 +1328,19 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
         out.notes.append(
             f"{len(out.unread)} sheet(s) could not be read (page(s) "
             f"{blind_text}): a schedule or a mark on them is not in this "
-            f"check, so a mark or row not found is "
-            f"{MAYBE_UNREAD}, never called missing")
+            f"check, so a row not found is {MAYBE_UNREAD}, and so is a mark "
+            f"with no row where an unread sheet sits beside its schedule's "
+            f"pages")
+    if pictured:
+        out.notes.append(
+            f"{len(pictured)} sheet(s) have their drawing in an image "
+            f"(page(s) {_page_runs(pictured)}): a mark drawn in the image is "
+            f"not read, so a row not found is {MAYBE_UNREAD}")
+    if any(s.unread_cells for s in out.schedules):
+        out.notes.append(
+            "a schedule's mark column has a cell that could not be read as "
+            "marks (see cells_not_read): a mark of its form drawn with no "
+            "row is cannot_tell, since its row may be in that cell")
     return out
 
 
