@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.0 — 2026-11-17
+
 - **A drawing set's schedules checked against the marks on its sheets,
   and both sides brought with the document, for a host that asks (app
   BACKLOG PL-42).** `Document.schedule_marks()`

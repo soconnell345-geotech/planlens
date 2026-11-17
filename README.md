@@ -614,6 +614,18 @@ Apache-2.0/MIT/BSD).
   `find_like`, page numbers, frames and zoom windows), with what the host
   supplies passed in one `ReviewHost` per process or per conversation;
   `ReviewToolkit` takes a `look`; `Label (unit): value` read as a quantity.
+- **0.16.0** — for a host that asks (the sheet tools,
+  `ReviewHost(toolkit_options={"sheet_tools": True})`): a drawing set's
+  sheet index, a check of its callouts against the sheets they name, and
+  a check of its schedules against the marks on its sheets, brought with
+  the document at `open_document`; off by default. For every host: a
+  page's printed sheet number read where a title block prints it, with a
+  sheet count kept apart; every drawing-size sheet in `pages_to_view`;
+  contact-sheet labels with both page counts; `search_document` lists
+  only pages it could not read; a rebar callout is not a length; two
+  `annotate_document` calls on one marked copy keep both; a marked copy
+  holds no second copy of the file; the viewer-page note; and the
+  OpenCV probe leaves no core file on a FIPS host.
 
 ### Hosts where OpenCV cannot load
 
@@ -621,7 +633,9 @@ On a host whose OpenSSL enforces FIPS mode, OpenCV's bundled crypto library
 fails its self-test and aborts the interpreter when it is imported; no
 exception can be caught. planlens therefore test-imports OpenCV in a child
 process first (`planlens.opencv.available()`, cached per process;
-`PLANLENS_CV2_PROBE=0` skips the test). What the code then does there:
+`PLANLENS_CV2_PROBE=0` skips the test). The child sets its core-file limit
+to zero first, so where the import aborts it leaves no `core.<pid>` file
+(0.16.0). What the code then does there:
 
 - `find_like` uses its numpy matcher (same scores as OpenCV's
   `TM_CCOEFF_NORMED`); `PLANLENS_FINDLIKE_BACKEND` = `auto` | `numpy` |
