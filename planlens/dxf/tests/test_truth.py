@@ -385,3 +385,102 @@ class TestMirroredInsert:
             tuple(td["text_midpoint"]), abs=1e-4)
         # ...and both sit inside the footprint the block actually plots.
         assert 40.0 <= dim.text_midpoint[0] <= 50.0
+
+
+# --- MINSERT inside a block --------------------------------------------------
+#
+# CELL is one LEADER (0,0) -> (1,1). HOST holds CELL as a 2 x 2 MINSERT at
+# (2, 3) in HOST's own frame, turned ``phi``, columns 6 apart and rows 4
+# apart; HOST is placed at (100, 100) with scale (sx, sy) and rotation
+# ``rot``. The expected vertices are worked out here with plain
+# trigonometry, separately from the ingest side's tests, so the truth record
+# cannot pass by agreeing with an ingest that shares its error.
+
+def _rot(p, deg):
+    import math
+    a = math.radians(deg)
+    return (p[0] * math.cos(a) - p[1] * math.sin(a),
+            p[0] * math.sin(a) + p[1] * math.cos(a))
+
+
+def _in_host(q, row, col, phi):
+    ox, oy = _rot((6.0 * col, 4.0 * row), phi)
+    qx, qy = _rot(q, phi)
+    return (2.0 + ox + qx, 3.0 + oy + qy)
+
+
+def _placed(p, sx, sy, rot):
+    x, y = _rot((sx * p[0], sy * p[1]), rot)
+    return (round(100.0 + x, 4) + 0.0, round(100.0 + y, 4) + 0.0)
+
+
+def _minsert_leader_doc(*, sx=1.0, sy=1.0, rot=0.0, phi=0.0, deep=False):
+    doc = ezdxf.new("R2018", setup=True)
+    doc.blocks.new("CELL").add_leader(vertices=[(0, 0), (1, 1)])
+    host = doc.blocks.new("HOST")
+    m = host.add_blockref("CELL", (2, 3), dxfattribs={"rotation": phi})
+    m.dxf.row_count, m.dxf.column_count = 2, 2
+    m.dxf.row_spacing, m.dxf.column_spacing = 4.0, 6.0
+    msp = doc.modelspace()
+    if deep:
+        # HOST inside OUTER at (10, 0) at scale 2; OUTER at (100, 100)
+        # turned 90.
+        doc.blocks.new("OUTER").add_blockref(
+            "HOST", (10, 0), dxfattribs={"xscale": 2, "yscale": 2})
+        msp.add_blockref("OUTER", (100, 100), dxfattribs={"rotation": 90})
+    else:
+        msp.add_blockref("HOST", (100, 100), dxfattribs={
+            "xscale": sx, "yscale": sy, "rotation": rot})
+    return doc
+
+
+def _leader_vertices(t):
+    return sorted(tuple(tuple(v) for v in ld["vertices"])
+                  for ld in t["spaces"]["model"]["leaders"])
+
+
+class TestNestedMinsertTruth:
+    @pytest.mark.parametrize("sx, sy, rot, phi", [
+        (2.0, 2.0, 45.0, 0.0),     # scaled and turned parent
+        (-1.0, 1.0, 0.0, 0.0),     # mirrored parent
+        (3.0, 1.0, 0.0, 0.0),      # uneven scale
+        (-1.0, 1.0, 0.0, 30.0),    # mirrored parent of a turned array
+        (-1.0, 1.0, 60.0, 30.0),   # mirrored and turned parent, turned array
+    ])
+    def test_every_cell_is_recorded_where_the_parent_puts_it(
+            self, sx, sy, rot, phi):
+        t = extract_native_annotations(doc=_minsert_leader_doc(
+            sx=sx, sy=sy, rot=rot, phi=phi))
+        want = sorted(
+            tuple(_placed(_in_host(q, r, c, phi), sx, sy, rot)
+                  for q in ((0, 0), (1, 1)))
+            for r in range(2) for c in range(2))
+        assert _leader_vertices(t) == want
+        assert "warnings" not in t
+        assert all(ld["block"] == "HOST"
+                   for ld in t["spaces"]["model"]["leaders"])
+
+    def test_two_levels_deep(self):
+        t = extract_native_annotations(doc=_minsert_leader_doc(deep=True))
+
+        def outer(p):
+            x, y = _rot((10.0 + 2.0 * p[0], 2.0 * p[1]), 90.0)
+            return (round(100.0 + x, 4) + 0.0, round(100.0 + y, 4) + 0.0)
+
+        want = sorted(tuple(outer(_in_host(q, r, c, 0.0))
+                            for q in ((0, 0), (1, 1)))
+                      for r in range(2) for c in range(2))
+        assert _leader_vertices(t) == want
+
+    def test_cells_are_capped_across_the_space(self):
+        doc = ezdxf.new("R2018", setup=True)
+        doc.blocks.new("CELL").add_leader(vertices=[(0, 0), (1, 1)])
+        msp = doc.modelspace()
+        for k in range(20):
+            ins = msp.add_blockref("CELL", (0, 10.0 * k))
+            ins.dxf.row_count = ins.dxf.column_count = 1000
+            ins.dxf.row_spacing = ins.dxf.column_spacing = 1.0
+        t = extract_native_annotations(doc=doc, max_block_entities=50)
+        assert len(t["spaces"]["model"]["leaders"]) == 50
+        assert any("expansion stopped at the 50-entity budget" in w
+                   for w in t["warnings"])

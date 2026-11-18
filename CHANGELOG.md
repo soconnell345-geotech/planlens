@@ -5,12 +5,16 @@
 - **A DXF MINSERT arrives with every placement (app BACKLOG PL-18, its
   MINSERT part).** A MINSERT places its block on a row/column grid; ezdxf
   resolves only the first placement, so `from_dxf` ingested one cell of
-  the array and warned. Each grid cell is now expanded (ezdxf's
-  `multi_insert()`, the grid in the reference's own frame, the ATTRIBs
-  moved with each placement) and ingested as a single INSERT; the warning
-  is gone. The number of placements is capped at `max_block_entities`,
-  with a warning when the cap cuts an array. `planlens.dxf.truth` walks
-  the same placements. A DXF without a MINSERT ingests exactly as before.
+  the array and warned. Each grid cell is now expanded and ingested as a
+  single INSERT, with its own copy of the ATTRIBs; the warning is gone. In
+  a layout the grid steps in the reference's own frame, turned by its
+  rotation. Inside a block the cells are built from the definition's
+  MINSERT and moved by the parent's whole transform, so a scaled or
+  mirrored parent scales or mirrors the grid too (ezdxf's own transform
+  leaves the spacing alone). Cells are counted file-wide against
+  `max_block_entities`, with a warning when the cap stops the expansion.
+  `planlens.dxf.truth` expands the same cells. A DXF without a MINSERT
+  ingests exactly as before.
 - **The page map's sheet number follows the sheet index once it is made
   (app BACKLOG PL-41).** Read on its own, a page took a labelled number
   anywhere in its title-block area, so a reference-drawings table listing

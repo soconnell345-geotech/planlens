@@ -656,7 +656,8 @@ class TestEzdxfSideLossesAreReported:
         doc.saveas(path)
         ir = from_dxf(path, max_block_entities=20)
         assert any("MINSERT 'EMPTY' places 1000000 copies" in w
-                   and "stopped after 20" in w for w in ir.warnings)
+                   and "stopped at the 20-entity budget" in w
+                   for w in ir.warnings)
         assert len(_by_type(ir, Line)) == 1
 
     def test_truth_walks_every_minsert_placement_as_ingest_does(
@@ -1178,3 +1179,209 @@ class TestNativeAnnotationIdentity:
         ldr = _by_type(ir, Leader)[0]
         assert t["leaders"][0]["block"] == (ldr.style or "").split("|")[0][6:]
         assert t["leaders"][0]["layer"] == ldr.layer
+
+
+# --- MINSERT inside a block, and the file-wide cap on its cells -----------
+#
+# CELL is one line (0,0)-(1,0). HOST holds CELL as a 2 x 2 MINSERT at (2, 3)
+# in HOST's own frame, turned ``phi``, columns 6 apart and rows 4 apart.
+# HOST is placed at (100, 100) with scale (sx, sy) and rotation ``rot``.
+# The expected places are worked out below with plain trigonometry, not
+# with ezdxf, so the test cannot pass by sharing ezdxf's arithmetic.
+
+def _turn(p, deg):
+    import math
+    a = math.radians(deg)
+    return (p[0] * math.cos(a) - p[1] * math.sin(a),
+            p[0] * math.sin(a) + p[1] * math.cos(a))
+
+
+def _cell_point(q, row, col, phi):
+    """Point ``q`` of CELL in HOST's frame, for the cell (row, col)."""
+    ox, oy = _turn((6.0 * col, 4.0 * row), phi)
+    qx, qy = _turn(q, phi)
+    return (2.0 + ox + qx, 3.0 + oy + qy)
+
+
+def _host_to_wcs(p, sx, sy, rot):
+    x, y = _turn((sx * p[0], sy * p[1]), rot)
+    return (100.0 + x, 100.0 + y)
+
+
+def _deep_to_wcs(p):
+    # HOST inside OUTER at (10, 0) at scale 2; OUTER at (100, 100) turned 90.
+    x, y = _turn((10.0 + 2.0 * p[0], 2.0 * p[1]), 90.0)
+    return (100.0 + x, 100.0 + y)
+
+
+def _r4(p):
+    return (round(p[0], 4) + 0.0, round(p[1], 4) + 0.0)
+
+
+def _nested_minsert_dxf(path, *, sx=1.0, sy=1.0, rot=0.0, phi=0.0,
+                        attrib=False, deep=False):
+    import ezdxf
+    doc = ezdxf.new("R2018", setup=True)
+    doc.header["$INSUNITS"] = 6
+    doc.blocks.new("CELL").add_line((0, 0), (1, 0))
+    host = doc.blocks.new("HOST")
+    m = host.add_blockref("CELL", (2, 3), dxfattribs={"rotation": phi})
+    if attrib:
+        m.add_attrib("ID", "X-1", (2.5, 3.5))
+    m.dxf.row_count, m.dxf.column_count = 2, 2
+    m.dxf.row_spacing, m.dxf.column_spacing = 4.0, 6.0
+    msp = doc.modelspace()
+    if deep:
+        doc.blocks.new("OUTER").add_blockref(
+            "HOST", (10, 0), dxfattribs={"xscale": 2, "yscale": 2})
+        msp.add_blockref("OUTER", (100, 100), dxfattribs={"rotation": 90})
+    else:
+        msp.add_blockref("HOST", (100, 100), dxfattribs={
+            "xscale": sx, "yscale": sy, "rotation": rot})
+    doc.saveas(str(path))
+    return str(path)
+
+
+def _line_ends(ir):
+    return sorted((_r4(ln.start), _r4(ln.end)) for ln in _by_type(ir, Line))
+
+
+class TestNestedMinsert:
+    @pytest.mark.parametrize("sx, sy, rot, phi", [
+        (2.0, 2.0, 45.0, 0.0),     # scaled and turned parent
+        (-1.0, 1.0, 0.0, 0.0),     # mirrored parent
+        (3.0, 1.0, 0.0, 0.0),      # uneven scale
+        (-1.0, 1.0, 0.0, 30.0),    # mirrored parent of a turned array
+        (-1.0, 1.0, 60.0, 30.0),   # mirrored and turned parent, turned array
+        (2.0, 2.0, 45.0, 30.0),    # scaled and turned, turned array
+    ])
+    def test_every_cell_lands_where_the_parent_puts_it(
+            self, tmp_path, sx, sy, rot, phi):
+        ir = from_dxf(_nested_minsert_dxf(tmp_path / "n.dxf", sx=sx, sy=sy,
+                                          rot=rot, phi=phi))
+        want = sorted(
+            (_r4(_host_to_wcs(_cell_point((0, 0), r, c, phi), sx, sy, rot)),
+             _r4(_host_to_wcs(_cell_point((1, 0), r, c, phi), sx, sy, rot)))
+            for r in range(2) for c in range(2))
+        assert _line_ends(ir) == want
+        assert ir.warnings == []
+
+    def test_attribs_follow_each_cell_under_a_mirrored_parent(
+            self, tmp_path):
+        ir = from_dxf(_nested_minsert_dxf(tmp_path / "a.dxf", sx=-1.0,
+                                          attrib=True))
+        got = sorted(_r4(t.position) for t in _by_type(ir, TextItem)
+                     if t.content == "X-1")
+        want = sorted(_r4(_host_to_wcs(_cell_point((0.5, 0.5), r, c, 0.0),
+                                       -1.0, 1.0, 0.0))
+                      for r in range(2) for c in range(2))
+        assert got == want
+
+    def test_no_definition_source_falls_back_to_the_first_cell(
+            self, tmp_path, monkeypatch):
+        import ezdxf.entities
+        path = _nested_minsert_dxf(tmp_path / "f.dxf", sx=2.0, sy=2.0,
+                                   rot=45.0)
+        monkeypatch.setattr(ezdxf.entities.Insert, "source_of_copy",
+                            property(lambda self: None))
+        ir = from_dxf(path)
+        want = [(_r4(_host_to_wcs(_cell_point((0, 0), 0, 0, 0.0),
+                                  2.0, 2.0, 45.0)),
+                 _r4(_host_to_wcs(_cell_point((1, 0), 0, 0, 0.0),
+                                  2.0, 2.0, 45.0)))]
+        assert _line_ends(ir) == want
+        assert any("only the first is ingested" in w for w in ir.warnings)
+
+    def test_two_levels_deep(self, tmp_path):
+        ir = from_dxf(_nested_minsert_dxf(tmp_path / "d.dxf", deep=True))
+        want = sorted((_r4(_deep_to_wcs(_cell_point((0, 0), r, c, 0.0))),
+                       _r4(_deep_to_wcs(_cell_point((1, 0), r, c, 0.0))))
+                      for r in range(2) for c in range(2))
+        assert _line_ends(ir) == want
+        assert all((ln.style or "").startswith("block:OUTER")
+                   for ln in _by_type(ir, Line))
+
+
+def _many_arrays_dxf(path, n_arrays, rows, cols, *, row_spacing=1.0,
+                     col_spacing=1.0, with_line=False):
+    import ezdxf
+    doc = ezdxf.new("R2010")
+    doc.header["$INSUNITS"] = 6
+    blk = doc.blocks.new("ARR")
+    if with_line:
+        blk.add_line((0, 0), (0.5, 0))
+    msp = doc.modelspace()
+    msp.add_line((0, 0), (1, 0))
+    for k in range(n_arrays):
+        ins = msp.add_blockref("ARR", (0, 10.0 * k))
+        ins.dxf.row_count, ins.dxf.column_count = rows, cols
+        ins.dxf.row_spacing = row_spacing
+        ins.dxf.column_spacing = col_spacing
+    doc.saveas(str(path))
+    return str(path)
+
+
+class TestMinsertCellBudget:
+    def test_the_cap_is_counted_across_the_file(self, tmp_path,
+                                                monkeypatch):
+        # Twenty million-cell arrays of an empty block: the cells are
+        # counted file-wide, so all twenty together build no more cells
+        # than the budget.
+        import ezdxf.entities
+        path = _many_arrays_dxf(tmp_path / "many.dxf", 20, 1000, 1000)
+        built = []
+        real = ezdxf.entities.Insert.copy
+
+        def counting(self, *a, **k):
+            built.append(1)
+            return real(self, *a, **k)
+
+        monkeypatch.setattr(ezdxf.entities.Insert, "copy", counting)
+        ir = from_dxf(path, max_block_entities=50)
+        assert len(built) <= 50
+        assert any("expansion stopped at the 50-entity budget" in w
+                   for w in ir.warnings)
+        assert len(_by_type(ir, Line)) == 1
+
+    def test_many_huge_arrays_return_within_seconds(self, tmp_path):
+        import time
+        path = _many_arrays_dxf(tmp_path / "huge.dxf", 20, 1000, 1000)
+        t0 = time.perf_counter()
+        ir = from_dxf(path)
+        assert time.perf_counter() - t0 < 30.0
+        assert any("expansion stopped at the 50000-entity budget" in w
+                   for w in ir.warnings)
+
+    def test_the_entity_budget_spent_stops_the_cells_too(self, tmp_path):
+        # Once the walked block entities reach the budget, a further cell
+        # would add nothing but its own copy: the expansion stops there.
+        path = _many_arrays_dxf(tmp_path / "spent.dxf", 3, 100, 100,
+                                with_line=True)
+        ir = from_dxf(path, max_block_entities=40)
+        assert len(_by_type(ir, Line)) == 1 + 40
+        assert any("expansion stopped at the 40-entity budget" in w
+                   for w in ir.warnings)
+
+    def test_a_zero_spacing_direction_is_walked_once(self, tmp_path):
+        # rows x columns = 9e4 loop steps, but the rows all coincide: three
+        # cells, one per column.
+        path = _many_arrays_dxf(tmp_path / "zero.dxf", 1, 30000, 3,
+                                row_spacing=0.0, with_line=True)
+        ir = from_dxf(path)
+        cells = sorted(_r4(ln.start) for ln in _by_type(ir, Line)
+                       if ln.style)
+        assert cells == [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]
+        assert ir.warnings == []
+
+    def test_a_zero_spacing_array_of_the_largest_size_is_quick(
+            self, tmp_path):
+        # 32767 x 3000 with the rows coinciding: 3000 cells, under the
+        # budget, so nothing caps the loop. Looping rows x columns to find
+        # them (as ezdxf's multi_insert() does) takes about 1e8 steps.
+        import time
+        path = _many_arrays_dxf(tmp_path / "zbig.dxf", 1, 32767, 3000,
+                                row_spacing=0.0)
+        t0 = time.perf_counter()
+        ir = from_dxf(path)
+        assert time.perf_counter() - t0 < 10.0
+        assert not any("MINSERT" in w for w in ir.warnings)
