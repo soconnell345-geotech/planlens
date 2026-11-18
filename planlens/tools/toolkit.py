@@ -212,7 +212,9 @@ _SHEETS_AT_OPEN: ContextVar[Optional[bool]] = ContextVar(
 class sheets_at_open:
     """``with sheets_at_open(True):`` makes the calls inside it add the
     sheet index and the schedule-marks check to ``open_document``'s result
-    (``False``: leave them out), whatever the toolkit's ``sheet_tools``."""
+    and take sheet numbers where they take pages (``sheets`` / ``sheet``,
+    :mod:`planlens.tools.sheet_addresses`); ``False``: neither, whatever
+    the toolkit's ``sheet_tools``."""
 
     def __init__(self, on: Optional[bool]):
         self.on = None if on is None else bool(on)
@@ -415,9 +417,12 @@ class ReviewToolkit:
         sheets from their title blocks, its callouts checked against them,
         and the marks on its sheets checked against its schedules; and
         ``open_document`` then returns the sheet index and the schedule
-        check with the document map (:func:`sheets_at_open`). Off by
-        default, so a host's tool list and results are what they were
-        until the host asks.
+        check with the document map (:func:`sheets_at_open`), and every
+        tool that takes ``pages`` / ``page`` also takes printed sheet
+        numbers as ``sheets`` / ``sheet``
+        (:mod:`planlens.tools.sheet_addresses`). Off by default, so a
+        host's tool list and results are what they were until the host
+        asks.
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -491,10 +496,13 @@ class ReviewToolkit:
     def specs(self, style: str = "anthropic") -> List[Dict[str, Any]]:
         """Tool definitions: ``anthropic`` (input_schema), ``openai``
         (type=function) or ``plain`` (name/description/parameters)."""
+        from planlens.tools.sheet_addresses import with_sheet_args
         out = []
         for spec in self._all_specs():
             if not self._offered(spec["name"]):
                 continue
+            if self.sheet_tools:
+                spec = with_sheet_args(spec)
             if style == "anthropic":
                 out.append({"name": spec["name"],
                             "description": spec["description"],
@@ -521,13 +529,19 @@ class ReviewToolkit:
         if handler is None or name not in self.tool_names:
             return {"error": f"unknown tool '{name}'",
                     "hint": f"available tools: {self.tool_names}"}
+        sheet_pages = None
+        if self._sheets_on():
+            arguments, sheet_pages, refused = self._sheet_addresses(
+                handler, arguments)
+            if refused is not None:
+                return refused
         try:
             inspect.signature(handler).bind(**arguments)
         except TypeError as exc:
             return {"error": f"bad arguments for {name}: {exc}",
                     "hint": "check parameter names against the tool schema"}
         try:
-            return handler(**arguments)
+            return self._with_sheet_pages(handler(**arguments), sheet_pages)
         except ToolError as exc:
             out = {"error": str(exc)}
             if exc.hint:
@@ -562,6 +576,114 @@ class ReviewToolkit:
                      f"{limit} limit",
             "hint": "narrow the request (fewer pages, a page range, a "
                     "pattern) and retry"})
+
+    # -- sheet numbers as addresses (BACKLOG PL-37) ----------------------------
+    def _sheets_on(self) -> bool:
+        """Whether the call in progress serves the sheet tools: as the host
+        layer set it for the call (:class:`sheets_at_open`), else
+        :attr:`sheet_tools`."""
+        on = _SHEETS_AT_OPEN.get()
+        return self.sheet_tools if on is None else on
+
+    def _sheet_addresses(self, handler: Callable[..., Any],
+                         arguments: Dict[str, Any]):
+        """``(arguments, sheet_pages, refusal)``: ``sheets`` / ``sheet``
+        turned into the ``pages`` / ``page`` the document's sheet index reads
+        them on (:func:`planlens.tools.sheet_addresses.resolve`), with the
+        rows saying which (``[{"sheet", "page"}]``, ``None`` when none was
+        given); or a refusal (``{"error", "hint"}``) for a number the index
+        does not hold, holds on more than one page, or that names other
+        pages than a ``pages`` / ``page`` given beside it. A tool that takes
+        no page keeps the argument, and is refused it as an unknown
+        argument, as before."""
+        from planlens.tools import sheet_addresses as sa
+        takes = inspect.signature(handler).parameters
+        arguments = dict(arguments)
+        # one name for the other where the tool takes only the other's page
+        # argument: the same sheet numbers, nothing guessed
+        for one, other, page_arg in (("sheet", "sheets", "pages"),
+                                     ("sheets", "sheet", "page")):
+            if one in arguments and other not in arguments \
+                    and page_arg in takes and len(set(sa.SHEET_ARGS)
+                                                  & set(takes)) == 1:
+                arguments[other] = arguments.pop(one)
+        rows: List[Dict[str, Any]] = []
+        for page_arg, sheet_arg in sa.SHEET_ARGS.items():
+            if sheet_arg not in arguments or page_arg not in takes:
+                continue
+            value = arguments.pop(sheet_arg)
+            if not sa.given(value):
+                continue
+            numbers, problem = sa.split_sheets(value)
+            if problem is None and page_arg == "page" and len(numbers) > 1:
+                problem = (f"it names one sheet, not {len(numbers)}"
+                           + ("; give sheets for several"
+                              if "pages" in takes else ""))
+            if problem is None and not arguments.get("handle"):
+                problem = "it needs handle, the document whose sheet it is"
+            if problem is not None:
+                return arguments, None, {"error": f"{sheet_arg}: {problem}",
+                                         "hint": sa.OTHER_WAYS}
+            try:
+                entry = self._entry(arguments["handle"])
+                with entry.lock:
+                    index = entry.doc.sheet_index()
+                    n_pages = entry.doc.n_pages
+            except ToolError as exc:
+                refusal = {"error": str(exc)}
+                if exc.hint:
+                    refusal["hint"] = exc.hint
+                return arguments, None, refusal
+            except Exception as exc:  # noqa: BLE001 - said, never raised
+                return arguments, None, {
+                    "error": (f"the sheet index could not be read: "
+                              f"{type(exc).__name__}: {exc}")[:300],
+                    "hint": "give pages (0-based) or pdf_pages (1-based) "
+                            "instead"}
+            found, refusal = sa.resolve(index, numbers, sheet_arg)
+            if refusal is not None:
+                return arguments, None, refusal
+            pages = sorted({page for _number, page in found})
+            beside = arguments.get(page_arg)
+            if beside not in (None, "", [], ()):
+                try:
+                    named = (sorted(set(parse_pages(beside, n_pages)))
+                             if page_arg == "pages" else [int(beside)])
+                except (TypeError, ValueError, IndexError):
+                    named = None
+                if named != pages:
+                    return arguments, None, {
+                        "error": (f"{page_arg} {beside!r} and {sheet_arg} "
+                                  f"{', '.join(numbers)} name different "
+                                  f"pages (the sheet index reads "
+                                  f"{', '.join(numbers)} on "
+                                  f"{sa.pages_text(pages)})"),
+                        "hint": f"give one of them, {page_arg} or "
+                                f"{sheet_arg}"}
+            arguments[page_arg] = (",".join(str(p) for p in pages)
+                                   if page_arg == "pages" else pages[0])
+            rows.extend({"sheet": number, "page": page}
+                        for number, page in found)
+        return arguments, (rows or None), None
+
+    def _with_sheet_pages(self, out: Any,
+                          rows: Optional[List[Dict[str, Any]]]) -> Any:
+        """``out`` with ``sheet_pages`` (the page each sheet number given is
+        read on) when the call gave sheet numbers, ``out`` is no error, and
+        the rows still fit the call's size limit; ``out`` as it is
+        otherwise."""
+        if not rows or not isinstance(out, dict) or "error" in out:
+            return out
+        added = dict(out)
+        added["sheet_pages"] = rows
+        try:
+            size = len(json.dumps(added, ensure_ascii=False,
+                                  separators=(",", ":")))
+        except (TypeError, ValueError):
+            return out
+        limit = _CALL_LIMIT.get() or self.max_chars
+        # room for the viewer's page number a host layer adds to each row
+        return added if size + 16 * len(rows) <= limit else out
 
     # -- documents --------------------------------------------------------------
     def _content_key(self, resolved: Source) -> str:

@@ -372,8 +372,49 @@ def _shown(name: str) -> Dict[str, Dict[str, Any]]:
     return {}
 
 
-def input_schema(name: str, description: str) -> Dict[str, Any]:
-    """The input schema of host tool ``name``, as the app showed it."""
+#: Host tools that do not take sheet numbers though they take a page:
+#: ``find_like`` reads its document from an attachment's bytes, with no
+#: handle whose sheet index could say where a sheet is.
+NO_SHEET_ARGS = ("find_like",)
+
+
+def sheet_args(name: str, sheet_tools: bool = False
+               ) -> List[Tuple[str, Dict[str, Any]]]:
+    """The sheet-number arguments host tool ``name`` takes for a host that
+    asked for the sheet tools (BACKLOG PL-37; none for any other host):
+    ``sheets`` where it takes ``pages``, ``sheet`` where it takes ``page``,
+    each with its schema as the model is shown it."""
+    if not sheet_tools or name in NO_SHEET_ARGS:
+        return []
+    from planlens.tools.sheet_addresses import (SHEET_ARGS,
+                                                SHEET_DESCRIPTION,
+                                                SHEETS_DESCRIPTION)
+    forms = {
+        "sheets": {"anyOf": [{"type": "string"},
+                             {"type": "array", "items": {"type": "string"}},
+                             {"type": "null"}],
+                   "default": None, "description": SHEETS_DESCRIPTION},
+        "sheet": {"anyOf": [{"type": "string"}, {"type": "null"}],
+                  "default": None, "description": SHEET_DESCRIPTION},
+    }
+    takes = {arg for arg, _form, _default in _ARGS.get(name, ())}
+    return [(SHEET_ARGS[arg], forms[SHEET_ARGS[arg]])
+            for arg in ("pages", "page") if arg in takes]
+
+
+def host_arg_names(name: str, sheet_tools: bool = False) -> List[str]:
+    """Every argument host tool ``name`` takes: the app's own, then, for a
+    host that asked for the sheet tools, its sheet-number arguments
+    (:func:`sheet_args`)."""
+    return ([arg for arg, _form, _default in _ARGS.get(name, ())]
+            + [arg for arg, _schema in sheet_args(name, sheet_tools)])
+
+
+def input_schema(name: str, description: str,
+                 sheet_tools: bool = False) -> Dict[str, Any]:
+    """The input schema of host tool ``name``, as the app showed it; for a
+    host that asked for the sheet tools, with its sheet-number arguments
+    after the others (:func:`sheet_args`)."""
     shown = _shown(name)
     props: Dict[str, Any] = {}
     required = []
@@ -390,6 +431,8 @@ def input_schema(name: str, description: str) -> Dict[str, Any]:
                 field["default"] = default
         field["title"] = _title(arg)
         props[arg] = field
+    for arg, field in sheet_args(name, sheet_tools):
+        props[arg] = dict(field, title=_title(arg))
     schema: Dict[str, Any] = {"description": description,
                               "properties": props}
     if required:
@@ -433,7 +476,7 @@ def host_specs(style: str = "plain", look: bool = True,
     out = []
     for name in host_tool_names(look, sheet_tools, plan_tools):
         desc = tool_description(name)
-        schema = input_schema(name, desc)
+        schema = input_schema(name, desc, sheet_tools=sheet_tools)
         if style in ("plain", "anthropic"):
             out.append({"name": name, "description": desc,
                         "input_schema": schema})
@@ -451,6 +494,7 @@ __all__ = ["DOCUMENT_TOOL_NOTES", "PDF_PAGES_NOTE", "PDF_PAGE_NOTE",
            "HOST_TOOLS", "SHEET_TOOLS", "PLAN_TOOLS",
            "PLAN_SHOWN_FROM_TOOLKIT", "APP_MARKUP_FIELDS",
            "WITHHELD_MARKUP_FIELDS",
-           "DESCRIBED_MARKUP_FIELDS", "annotate_markups_schema",
+           "DESCRIBED_MARKUP_FIELDS", "NO_SHEET_ARGS",
+           "annotate_markups_schema", "sheet_args", "host_arg_names",
            "input_schema", "tool_description", "host_tool_names",
            "host_specs"]
