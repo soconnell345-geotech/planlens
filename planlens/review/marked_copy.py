@@ -124,6 +124,9 @@ def copy_lock(path: str) -> Iterator[None]:
 
 #: How a markup id that planlens' document_markups lists looks ("p0.m1").
 _MARKUP_ID = re.compile(r"^p(\d+)\.m(\d+)$")
+#: A markup's stable uid (:func:`planlens.document.annotations.
+#: stable_markup_id`): ``p3.n<its /NM>`` or ``p3.h<hash>``.
+_MARKUP_UID = re.compile(r"^p\d+\.[nh]\S+$")
 
 
 def _temp_beside(final: str) -> str:
@@ -261,13 +264,17 @@ def _is_label(doc, xref) -> bool:
     return kind == "name" and str(val).lstrip("/") == "Group"
 
 
-#: The keys a ``remove`` entry written as an object may hold.
+#: The keys a ``remove`` entry written as an object may hold. A mark's
+#: stable ``uid`` (``p0.nplanlens-...``, as the result of the call that
+#: wrote it gives it) is taken wherever an id is: as the entry itself or
+#: under ``id`` (BACKLOG PL-27).
 REMOVE_ENTRY_KEYS = ("id", "text")
 
 #: Words a ``remove`` object's key may be meant as, for the did-you-mean.
 _REMOVE_KEY_HINTS = {
     "markupid": ("id",), "markup": ("id",), "mark": ("id",),
     "markid": ("id",), "annotationid": ("id",),
+    "uid": ("id",), "markupuid": ("id",),
     "comment": ("text",), "label": ("text",), "words": ("text",),
     "says": ("text",), "quote": ("text",),
 }
@@ -302,8 +309,10 @@ def remove_markups(pdf: bytes, remove, signer: str):
     """``(new_pdf_bytes, removed, not_removed)``: the marks named in
     ``remove`` taken out of a marked copy, each with its label and any
     reply to it. An entry is a markup id as document_markups lists it
-    (``"p0.m1"``) or words from its comment, which must name exactly one
-    mark this app wrote. Only this app's marks are removed."""
+    (``"p0.m1"``), a mark's stable ``uid`` (``"p0.nplanlens-..."``, which
+    does not change when another mark is removed; BACKLOG PL-27) or words
+    from its comment, which must name exactly one mark this app wrote.
+    Only this app's marks are removed."""
     import pymupdf
     from planlens.document.annotations import extract_annotations
 
@@ -330,6 +339,10 @@ def remove_markups(pdf: bytes, remove, signer: str):
                         "positions on a page and change after a removal: "
                         "list them again with document_markups)")})
                     continue
+            elif _MARKUP_UID.match(want) and any(
+                    m.uid == want for m in everything):
+                # a stable uid: the same mark however many were removed
+                hits = [m for m in everything if m.uid == want]
             else:
                 # A mark's label rides on it (removed with it), so only the
                 # marks themselves are matched by their words.

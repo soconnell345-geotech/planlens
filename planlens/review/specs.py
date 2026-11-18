@@ -12,6 +12,10 @@ neither of its pages' agents changes when it binds this layer:
   ``annotate_document``, no ``author``);
 * ``find_like``, which reads every candidate with the host's look.
 
+Two groups are offered only to a host that asks: the sheet tools
+(:data:`SHEET_TOOLS`) and the plan tools (:data:`PLAN_TOOLS`, BACKLOG
+PL-27), each specified the way the others are.
+
 Each input schema is written the way the app's agent framework writes the
 schema of the app's tool function (pydantic's JSON schema: a ``title`` per
 argument, the function's default), because that is what the model was
@@ -72,6 +76,8 @@ DOCUMENT_TOOL_NOTES = {
     "document_page_map": PDF_PAGES_NOTE,
     "check_cross_references": PDF_PAGES_NOTE,
     "check_schedule_marks": PDF_PAGES_NOTE,
+    "plan_symbols": PDF_PAGE_NOTE,
+    "plan_grid": PDF_PAGE_NOTE,
     "document_markups": PDF_PAGES_NOTE,
     "find_quantities": PDF_PAGES_NOTE,
     "render_page_thumbnails": PDF_PAGES_NOTE,
@@ -149,10 +155,18 @@ HOST_TOOLS = DOCUMENT_TOOLS + OPTIONAL_DOCUMENT_TOOLS + LOOK_TOOLS
 SHEET_TOOLS = ("sheet_index", "check_cross_references",
                "check_schedule_marks")
 
+#: The plan tools (a vector plan's symbols with their exact centres and
+#: labels, and page points turned into local easting / northing): offered
+#: only to a host that asks, with ``ReviewHost(toolkit_options={"plan_tools":
+#: True})`` (BACKLOG PL-27). The toolkit itself serves them to everyone, as
+#: it always has; this layer offers them to the hosts that asked. Not in
+#: :data:`HOST_TOOLS`.
+PLAN_TOOLS = ("plan_symbols", "plan_grid")
+
 # -- the arguments, as the app's tool functions declare them -----------------
 # (name, form, default); a name with no default is required. Forms:
 # "str", "int", "bool", "any" (no type), and "opt_int" / "opt_str" /
-# "opt_list" (a type or null).
+# "opt_list" / "opt_num" / "opt_dict" (a type or null).
 _REQUIRED = object()
 
 _ARGS: Dict[str, List[Tuple[str, str, Any]]] = {
@@ -204,6 +218,23 @@ _ARGS: Dict[str, List[Tuple[str, str, Any]]] = {
                              ("status", "opt_str", None),
                              ("offset", "int", 0),
                              ("pdf_pages", "any", None)],
+    # The plan tools: every argument but handle, page and pdf_page shown
+    # as the toolkit shows it (:data:`PLAN_SHOWN_FROM_TOOLKIT`); nothing
+    # given is nothing handed on, so the toolkit's defaults apply.
+    "plan_symbols": [("handle", "str", _REQUIRED), ("page", "opt_int", None),
+                     ("label_pattern", "opt_str", None),
+                     ("shapes", "opt_list", None),
+                     ("min_size", "opt_num", None),
+                     ("max_size", "opt_num", None),
+                     ("max_label_gap", "opt_num", None),
+                     ("bbox", "opt_list", None),
+                     ("pdf_page", "opt_int", None)],
+    "plan_grid": [("controls", "opt_list", None), ("north", "opt_list", None),
+                  ("scale", "opt_num", None), ("origin", "opt_dict", None),
+                  ("points", "opt_list", None),
+                  ("on_mirror", "opt_str", None), ("units", "opt_str", None),
+                  ("handle", "opt_str", None), ("page", "opt_int", None),
+                  ("pdf_page", "opt_int", None)],
     "find_like": [("attachment_key", "str", _REQUIRED),
                   ("page", "opt_int", None), ("bbox", "opt_list", None),
                   ("text", "str", ""), ("pages", "opt_str", None),
@@ -221,6 +252,20 @@ _FORMS = {
     "opt_str": {"anyOf": [{"type": "string"}, {"type": "null"}]},
     "opt_list": {"anyOf": [{"items": {}, "type": "array"},
                            {"type": "null"}]},
+    "opt_num": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+    "opt_dict": {"anyOf": [{"additionalProperties": True, "type": "object"},
+                           {"type": "null"}]},
+}
+
+#: The plan tools' arguments shown with the toolkit's own schema of them
+#: (type, limits and words, read off its spec so they cannot drift): all
+#: but ``handle`` (shown as every document tool shows it) and ``page`` /
+#: ``pdf_page`` (either may be given, so neither is required here).
+PLAN_SHOWN_FROM_TOOLKIT = {
+    "plan_symbols": ("label_pattern", "shapes", "min_size", "max_size",
+                     "max_label_gap", "bbox"),
+    "plan_grid": ("controls", "north", "scale", "origin", "points",
+                  "on_mirror", "units"),
 }
 
 
@@ -299,7 +344,8 @@ def _shown(name: str) -> Dict[str, Dict[str, Any]]:
     with the toolkit's markup fields and ``remove`` as strings;
     ``search_document``'s ``min_score`` with the toolkit's default, 80;
     ``check_cross_references``' and ``check_schedule_marks``' ``status``
-    with the toolkit's words."""
+    with the toolkit's words; the plan tools' arguments as the toolkit
+    shows them (:data:`PLAN_SHOWN_FROM_TOOLKIT`)."""
     if name == "annotate_document":
         shown = {"remove": {"type": "array", "items": {"type": "string"}}}
         item = annotate_markups_schema()
@@ -317,6 +363,12 @@ def _shown(name: str) -> Dict[str, Dict[str, Any]]:
             return {"status": {"anyOf": [
                 {"type": "string", "enum": list(status["enum"])},
                 {"type": "null"}]}}
+    if name in PLAN_SHOWN_FROM_TOOLKIT:
+        spec = _toolkit_spec(name) or {}
+        props = (spec.get("parameters") or {}).get("properties") or {}
+        return {arg: copy.deepcopy(props[arg])
+                for arg in PLAN_SHOWN_FROM_TOOLKIT[name]
+                if isinstance(props.get(arg), dict)}
     return {}
 
 
@@ -338,8 +390,14 @@ def input_schema(name: str, description: str) -> Dict[str, Any]:
                 field["default"] = default
         field["title"] = _title(arg)
         props[arg] = field
-    return {"description": description, "properties": props,
-            "required": required, "title": name, "type": "object"}
+    schema: Dict[str, Any] = {"description": description,
+                              "properties": props}
+    if required:
+        # pydantic writes no "required" for a function that has none
+        # (plan_grid; every other tool has a required argument)
+        schema["required"] = required
+    schema.update(title=name, type="object")
+    return schema
 
 
 def tool_description(name: str) -> str:
@@ -352,24 +410,28 @@ def tool_description(name: str) -> str:
     return spec["description"] + DOCUMENT_TOOL_NOTES.get(name, "")
 
 
-def host_tool_names(look: bool = True,
-                    sheet_tools: bool = False) -> Tuple[str, ...]:
+def host_tool_names(look: bool = True, sheet_tools: bool = False,
+                    plan_tools: bool = False) -> Tuple[str, ...]:
     """The host tools to offer: the document tools the installed toolkit
-    publishes, the look tools only when the host gave a look, and the
-    sheet tools (:data:`SHEET_TOOLS`) only when the host asked for them."""
+    publishes, the look tools only when the host gave a look, the sheet
+    tools (:data:`SHEET_TOOLS`) only when the host asked for them, and the
+    plan tools (:data:`PLAN_TOOLS`) after them, only when the host asked
+    for those."""
     names = DOCUMENT_TOOLS + tuple(n for n in OPTIONAL_DOCUMENT_TOOLS
                                    if _toolkit_spec(n) is not None)
     return (names + (LOOK_TOOLS if look else ())
-            + (SHEET_TOOLS if sheet_tools else ()))
+            + (SHEET_TOOLS if sheet_tools else ())
+            + (PLAN_TOOLS if plan_tools else ()))
 
 
 def host_specs(style: str = "plain", look: bool = True,
-               sheet_tools: bool = False) -> List[Dict[str, Any]]:
+               sheet_tools: bool = False,
+               plan_tools: bool = False) -> List[Dict[str, Any]]:
     """The host tools' specs: ``plain`` (name / description /
     input_schema), ``anthropic`` (the same) or ``openai``
     (``type=function``)."""
     out = []
-    for name in host_tool_names(look, sheet_tools):
+    for name in host_tool_names(look, sheet_tools, plan_tools):
         desc = tool_description(name)
         schema = input_schema(name, desc)
         if style in ("plain", "anthropic"):
@@ -386,7 +448,8 @@ def host_specs(style: str = "plain", look: bool = True,
 __all__ = ["DOCUMENT_TOOL_NOTES", "PDF_PAGES_NOTE", "PDF_PAGE_NOTE",
            "IMAGE_FIND_NOTE", "IMAGE_MARKUP_NOTE", "FIND_LIKE_DESCRIPTION",
            "DOCUMENT_TOOLS", "OPTIONAL_DOCUMENT_TOOLS", "LOOK_TOOLS",
-           "HOST_TOOLS", "SHEET_TOOLS", "APP_MARKUP_FIELDS",
+           "HOST_TOOLS", "SHEET_TOOLS", "PLAN_TOOLS",
+           "PLAN_SHOWN_FROM_TOOLKIT", "APP_MARKUP_FIELDS",
            "WITHHELD_MARKUP_FIELDS",
            "DESCRIBED_MARKUP_FIELDS", "annotate_markups_schema",
            "input_schema", "tool_description", "host_tool_names",

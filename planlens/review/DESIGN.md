@@ -89,6 +89,29 @@ answered the same way, with the calling host's list, never the toolkit's.
 The conversation's toolkit is built with them on, so the order of the
 calls does not matter.
 
+The plan tools (`plan_symbols`, `plan_grid`; see
+`planlens/document/DESIGN.md` on plan locations) are offered the same way
+(app BACKLOG PL-27): `PLAN_TOOLS` is a list of its own, a host asks with
+`ReviewHost(toolkit_options={"plan_tools": True})`, `tool_names()` and
+`specs()` then list them after the sheet tools, and the dispatcher serves
+them to the calling host that asked and refuses them by name to any other.
+The difference is in the toolkit: it has always served the plan tools to
+everyone, so there is no toolkit option to turn on; `plan_tools` is this
+layer's option and is taken out before the toolkit is built. Their specs
+follow the toolkit's: each argument but `handle`, `page` and `pdf_page` is
+shown as the toolkit's spec shows it (`PLAN_SHOWN_FROM_TOOLKIT`, read off
+that spec, so its words cannot drift), every argument is optional but
+`plan_symbols`' handle, and an argument not given is not handed on, so the
+toolkit's defaults apply.
+
+`annotate_document`'s `remove` takes a mark's stable `uid` (the
+annotation's `/NM`, as the call that wrote the mark returns it; it does not
+move when another mark is removed, as the positional id does) wherever it
+takes an id, as the entry or under `id`. The keys of a `remove` object are
+still `id` and `text`: the spec shows `remove` as strings, so no spec text
+changes, and a refusal of a wrong key reads as it did. `forget_path` closes
+a file's documents with the toolkit's own `ReviewToolkit.forget`.
+
 ## Modules
 
 ```
@@ -98,7 +121,7 @@ review/
                    interchangeable; pdf_pages/pdf_page and viewer page
                    numbers (and a note where they did not fit, PL-38);
                    Word/Excel/DXF read as text; lock-wait timing
-  marked_copy.py   annotate's copy: temp file + swap, remove by id or words,
+  marked_copy.py   annotate's copy: temp file + swap, remove by id, uid or words,
                    marks on an image in its pixels, off-the-page refusal;
                    one lock per copy, so two calls on it keep both (PL-38)
   markup_check.py  every mark looked at on the marked copy

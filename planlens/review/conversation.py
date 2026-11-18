@@ -115,21 +115,34 @@ def _asked_for_sheet_tools(host) -> bool:
                 .get("sheet_tools"))
 
 
-#: The toolkit tools a host is served only when it asked for them
-#: (:data:`planlens.review.specs.SHEET_TOOLS`).
-_OPT_IN_TOOLS = ("sheet_index", "check_cross_references",
-                 "check_schedule_marks")
+def _asked_for_plan_tools(host) -> bool:
+    """Whether ``host`` asked for the plan tools
+    (``toolkit_options={"plan_tools": True}``; BACKLOG PL-27)."""
+    return bool((getattr(host, "toolkit_options", None) or {})
+                .get("plan_tools"))
+
+
+#: The toolkit tools a host is served only when it asked for them, by the
+#: option it asks with (:data:`planlens.review.specs.SHEET_TOOLS`,
+#: :data:`planlens.review.specs.PLAN_TOOLS`).
+_OPT_IN_TOOLS = {"sheet_index": _asked_for_sheet_tools,
+                 "check_cross_references": _asked_for_sheet_tools,
+                 "check_schedule_marks": _asked_for_sheet_tools,
+                 "plan_symbols": _asked_for_plan_tools,
+                 "plan_grid": _asked_for_plan_tools}
 
 
 def _unknown_tool(name: str) -> str:
     """"unknown tool" for the calling host, naming the tools THAT host is
     offered: the conversation's toolkit serves more than some hosts are
-    offered (the sheet tools), so its own list is never shown."""
+    offered (the sheet tools, the plan tools), so its own list is never
+    shown."""
     from planlens.review import specs as _specs
     host = _host()
     offered = list(_specs.host_tool_names(
         look=host.look is not None,
-        sheet_tools=_asked_for_sheet_tools(host)))
+        sheet_tools=_asked_for_sheet_tools(host),
+        plan_tools=_asked_for_plan_tools(host)))
     return json.dumps({"error": f"unknown tool '{name}'",
                        "hint": f"available tools: {offered}"})
 
@@ -137,10 +150,11 @@ def _unknown_tool(name: str) -> str:
 def _refused_opt_in(name: str) -> Optional[str]:
     """The refusal of an opt-in tool the calling host did not ask for, or
     ``None``. A conversation's toolkit is shared by every host that calls
-    into it, so it can serve the sheet tools; whether they are served is
-    the CALLING host's choice, made on each call, so a host is served
-    exactly what it is offered."""
-    if name not in _OPT_IN_TOOLS or _asked_for_sheet_tools(_host()):
+    into it, so it can serve the sheet tools and the plan tools; whether
+    they are served is the CALLING host's choice, made on each call, so a
+    host is served exactly what it is offered."""
+    asked = _OPT_IN_TOOLS.get(name)
+    if asked is None or asked(_host()):
         return None
     return _unknown_tool(name)
 
@@ -168,6 +182,9 @@ def _new_toolkit(folder: Optional[str]):
     # tools, and each call decides whether they are served
     # (:func:`_refused_opt_in`)
     kw["sheet_tools"] = True
+    # the plan tools are the toolkit's own for every toolkit; asking for
+    # them is this layer's option, not the toolkit's
+    kw.pop("plan_tools", None)
     kw.update(resolve_source=_resolve, look=host.look)
     if host.vision_hint is not None:
         kw["vision_hint"] = host.vision_hint
@@ -1337,42 +1354,19 @@ def forget_path(path: str) -> int:
     """Close every document THIS conversation's toolkit holds open from the
     file ``path`` (so it can be replaced, and is re-read when next used: its
     handle still resolves, by the name it was opened under). Returns how
-    many were closed. planlens has no public call for one document; this
-    reaches into the toolkit's own entries under its lock."""
+    many were closed. The toolkit's own :meth:`ReviewToolkit.forget` does
+    the closing (BACKLOG PL-27: this used to reach into its private
+    entries); a document that fails to close is housekeeping, never the
+    caller's error."""
     space = _space(create=False)
     kit = space.kit if space is not None else None
     if kit is None or not path:
         return 0
     _remember(space)
-    target = os.path.normcase(os.path.abspath(str(path)))
-    entries = getattr(kit, "_entries", None)
-    if not isinstance(entries, dict):
-        return 0
-    guard = getattr(kit, "_guard", None)
-    closed = []
-    if guard is not None:
-        guard.acquire()
     try:
-        for handle, entry in list(entries.items()):
-            p = getattr(entry, "path", None)
-            if p and os.path.normcase(os.path.abspath(str(p))) == target:
-                entries.pop(handle, None)
-                closed.append(entry)
-        by_key = getattr(kit, "_by_key", None)
-        if closed and isinstance(by_key, dict):
-            gone = {e.handle for e in closed}
-            for k in [k for k, h in by_key.items() if h in gone]:
-                by_key.pop(k, None)
-    finally:
-        if guard is not None:
-            guard.release()
-    for entry in closed:
-        try:
-            with entry.lock:
-                entry.doc.close()
-        except Exception:  # noqa: BLE001 - closing is housekeeping
-            pass
-    return len(closed)
+        return len(kit.forget(str(path)))
+    except Exception:  # noqa: BLE001 - closing is housekeeping
+        return 0
 
 
 

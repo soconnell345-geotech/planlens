@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- **The plan tools through the host layer, for a host that asks; a
+  mark's stable uid in `remove`; `forget_path` through the toolkit (app
+  BACKLOG PL-27).** `plan_symbols` (a vector plan's symbols, each with its
+  exact centre and its label) and `plan_grid` (page points turned into
+  local easting / northing) were the toolkit's and had no spec in
+  `planlens.review`. They now have one, `planlens.review.specs.PLAN_TOOLS`,
+  each argument shown as the toolkit shows it, with `pdf_page` (1-based)
+  beside `page`, and a host gets them with
+  `ReviewHost(toolkit_options={"plan_tools": True})`, listed after the
+  sheet tools. Off by default: for a host that does not ask, no tool list,
+  spec or result changes; it is refused them by name at the dispatcher, as
+  it is the sheet tools (they used to be served there to any host, though
+  no host was offered them). The toolkit itself is unchanged and serves
+  them to everyone, as before. `annotate_document`'s `remove` takes a
+  mark's `uid` (`p0.nplanlens-...`, as the call that wrote the mark gives
+  it, and unchanged when another mark is removed) wherever it takes an id:
+  as the entry or under `id`; before, a uid was read as words and removed
+  nothing. No spec text changes; an object with a `uid` key is refused, as
+  any other key is, now with "did you mean id". `forget_path` closes a
+  file's documents through `ReviewToolkit.forget` instead of reaching into
+  the toolkit's private entries; it also closes a document opened under
+  that exact name.
+
 ## 0.16.0 — 2026-11-17
 
 - **A drawing set's schedules checked against the marks on its sheets,
