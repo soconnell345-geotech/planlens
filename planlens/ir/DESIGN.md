@@ -132,6 +132,39 @@ a different tally — every layer name seen during ingest, INSERTs and
 unsupported entity types included — and reads 4, 8 and 3 on those three
 sheets rather than following the inheritance. Entities drawn on an explicit layer inside a block keep that layer.
 
+A **MINSERT** (one INSERT placing its block on a row/column grid) is expanded
+into one plain INSERT per grid cell (`planlens.dxf.minsert`), each ingested as
+a single reference with its own copy of the ATTRIBs. Until 2026-11-18 only the
+first cell arrived (`virtual_entities()` resolves no more) and a warning said
+so.
+
+- **In a layout** the grid steps in the reference's own frame, turned by its
+  rotation and not scaled by its own scale — the cells ezdxf's
+  `multi_insert()` and renderer make.
+- **Inside a block** the cells are built from the block definition's MINSERT,
+  in the parent block's frame, and each is moved by the parent's whole
+  transform (`matrix44()`), so a scaled, mirrored or unevenly scaled parent
+  scales, mirrors or stretches the grid too. Expanding the virtual copy ezdxf
+  yields would be wrong: `Insert.transform` moves, scales and mirrors a
+  reference but not its row and column spacing. Should ezdxf keep no
+  definition source, only the first cell is taken, with the old warning.
+- **A spacing of 0** puts every copy in that direction on one place; that
+  direction is walked once (`multi_insert()` loops rows x columns and skips
+  the repeats, about 1e9 steps for a 32767 x 32767 array).
+- **The cap:** cells are counted file-wide against `max_block_entities`, and
+  the expansion stops, with a warning that counts the copies of that array
+  that arrived, once the cells or the walked block entities reach it. An
+  array met after the budget is spent is read as its first cell, as before
+  the expansion existed (its ATTRIBs arrive, like any INSERT's). An array of an empty block walks no block entity, so
+  the entity budget alone would not stop it; 20 arrays of a million cells
+  each ingest in a few seconds.
+
+`planlens.dxf.truth` expands the same cells by the same module, under the same
+cap per space. Its tests check the recorded vertices against positions worked
+out by hand, separately from the ingest's, so the two cannot agree by sharing
+an error. None of the ten validation sheets has a MINSERT, so no corpus figure
+moves.
+
 ### `from_pdf_vector` (PyMuPDF) — confidence 1.0
 Reuses `planlens.pdf.extract_colored_paths` (per-path point lists + color) and
 `planlens.pdf.discover_pdf_content` (page size + text). Each path becomes a Line

@@ -275,12 +275,19 @@ def from_dxf(filepath: str = None, content: bytes = None,
     warning instead of failing. A malformed entity never costs its
     siblings: one bad virtual entity, one bad ATTRIB, or a lazy raise
     from ezdxf's generator, is warned about and stepped over, and the
-    same holds for the top-level model-space walk. Two losses that are
-    ezdxf's rather than ours are reported the same way instead of going
+    same holds for the top-level model-space walk. A loss that is
+    ezdxf's rather than ours is reported the same way instead of going
     silent: an entity ezdxf declines to transform (a non-uniformly scaled
     MULTILEADER, say — omitted from ``virtual_entities()`` WITHOUT
-    raising) and a MINSERT array, of which only the first placement is
-    resolved. Repeated identical warnings are reported once.
+    raising). A MINSERT (one reference placing its block on a row/column
+    grid) is expanded into one INSERT per grid cell, each ingested as a
+    single reference with its ATTRIBs (:mod:`planlens.dxf.minsert`: the
+    grid in the reference's own frame; inside a block, built from the
+    definition's MINSERT and moved by the parent's whole transform, so a
+    scaled or mirrored parent scales or mirrors the grid too). Cells are
+    counted file-wide, and the expansion stops, with a warning, once they
+    or the walked block entities reach ``max_block_entities``. Repeated
+    identical warnings are reported once.
 
     Metadata: ``n_block_entities`` is the number of IR entities the
     explosion CONTRIBUTED, and ``n_block_entities_walked`` (present only
@@ -297,6 +304,7 @@ def from_dxf(filepath: str = None, content: bytes = None,
     except ImportError as exc:
         raise ImportError("ezdxf is required for DXF ingest. Install with: "
                           "pip install ezdxf>=1.4") from exc
+    from planlens.dxf.minsert import minsert_cells
     from planlens.dxf.units import UNIT_FACTORS, detect_units_from_header
 
     if filepath is None and content is None:
@@ -349,6 +357,7 @@ def from_dxf(filepath: str = None, content: bytes = None,
     layers = set()
     n_visited = 0    # block entities pulled from virtual_entities() (work)
     n_ingested = 0   # IR entities those visits actually contributed
+    n_placed = 0     # MINSERT grid cells expanded, file-wide
     depth_warned = budget_warned = False
     warned_once: set = set()
 
@@ -365,8 +374,11 @@ def from_dxf(filepath: str = None, content: bytes = None,
             warnings.append(msg)
 
     def _handle(ent, block: Optional[str] = None, depth: int = 0,
-                inherit_layer: Optional[str] = None):
-        nonlocal n_visited, n_ingested, depth_warned, budget_warned
+                inherit_layer: Optional[str] = None, parent=None):
+        # ``parent``: the INSERT whose explosion yielded ``ent`` (None in
+        # model space); only a nested MINSERT needs it (its grid is rebuilt
+        # in the parent's frame).
+        nonlocal n_visited, n_ingested, n_placed, depth_warned, budget_warned
         etype = ent.dxftype()
         layer = getattr(ent.dxf, "layer", None)
         if inherit_layer is not None and (layer is None or layer == "0"):
@@ -536,16 +548,61 @@ def from_dxf(filepath: str = None, content: bytes = None,
                 # under the depth/entity caps.
                 bname = ent.dxf.get("name", "?")
                 mcount = getattr(ent, "mcount", 1) or 1
-                if mcount > 1:
-                    # MINSERT: ezdxf's virtual_entities() resolves only the
-                    # FIRST copy of the array, so the other placements are
-                    # plotted on paper but absent from the IR. Array
-                    # expansion is not implemented; say so rather than
-                    # under-report the sheet silently.
+                cells = (minsert_cells(ent, parent) if mcount > 1
+                         else None)
+                if mcount > 1 and cells is None:
+                    # A nested MINSERT whose block-definition source ezdxf
+                    # did not keep: its grid cannot be rebuilt in the
+                    # parent's frame, so only the first cell (which the
+                    # virtual copy places correctly) is ingested.
                     _warn_once(f"MINSERT '{bname}' places {mcount} copies "
                                f"in a row/column array; only the first is "
-                               f"ingested (array expansion not "
-                               f"implemented).")
+                               f"ingested (its block source is missing).")
+                if cells is not None:
+                    # MINSERT: one reference placing its block on a
+                    # row/column grid. ezdxf's virtual_entities() resolves
+                    # only the FIRST cell, so each cell is expanded into
+                    # its own plain INSERT (planlens.dxf.minsert: inside a
+                    # block, from the definition's MINSERT moved by the
+                    # parent's whole transform) and handled exactly as a
+                    # single reference. Cells are counted file-wide
+                    # against the same budget as the block entities, and
+                    # the expansion stops once either is spent: an array
+                    # of an empty block walks no block entity, so the
+                    # entity budget alone would not stop it.
+                    it = iter(cells)
+                    n_here = 0   # cells of THIS array expanded
+                    while True:
+                        if (n_placed >= max_block_entities
+                                or n_visited >= max_block_entities):
+                            _warn_once(
+                                f"MINSERT '{bname}' places {mcount} copies;"
+                                f" expansion stopped at the "
+                                f"{max_block_entities}-entity budget after "
+                                f"{n_here} of them; the "
+                                f"remaining copies are omitted.")
+                            break
+                        try:
+                            cell = next(it)
+                        except StopIteration:
+                            break
+                        except Exception as exc:
+                            warnings.append(
+                                f"MINSERT '{bname}' expansion truncated "
+                                f"after {n_placed} copies in the file: "
+                                f"{exc}")
+                            break
+                        n_placed += 1
+                        n_here += 1
+                        _handle(cell, block=block, depth=depth,
+                                inherit_layer=inherit_layer)
+                    if n_here:
+                        return
+                    # The budget was spent before this array's first
+                    # cell: fall through and read it as the single
+                    # reference ezdxf resolves (the first cell), as any
+                    # INSERT met after the budget is read. Its ATTRIBs
+                    # still arrive; the walk below stops at the budget.
                 for attrib in getattr(ent, "attribs", ()) or ():
                     # Per-ATTRIB guard, for the same reason the virtual
                     # entities below get one: one unreadable attribute
@@ -649,7 +706,7 @@ def from_dxf(filepath: str = None, content: bytes = None,
                     before = len(ir.entities)
                     try:
                         _handle(virt, block=top, depth=depth + 1,
-                                inherit_layer=layer)
+                                inherit_layer=layer, parent=ent)
                     except Exception as exc:
                         vt = getattr(virt, "dxftype", lambda: "?")()
                         warnings.append(

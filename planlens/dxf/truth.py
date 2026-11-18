@@ -41,6 +41,8 @@ import math
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+from planlens.dxf.minsert import minsert_cells
+
 __all__ = ["extract_native_annotations"]
 
 
@@ -261,7 +263,8 @@ def _warn_once(state: Dict[str, Any], msg: str) -> None:
 
 def _walk_block(insert, top_name: str, out: Dict[str, List[Dict[str, Any]]],
                 state: Dict[str, Any], max_block_entities: int,
-                depth: int = 0, inherit_layer: Optional[str] = None) -> None:
+                depth: int = 0, inherit_layer: Optional[str] = None,
+                parent=None) -> None:
     """Depth-first walk of one INSERT, collecting block-nested annotations.
 
     ``top_name`` is the OUTERMOST block name, matching the ingest side's
@@ -276,6 +279,48 @@ def _walk_block(insert, top_name: str, out: Dict[str, List[Dict[str, Any]]],
     coordinates.
     """
     bname = insert.dxf.get("name", "") or "?"
+    mcount = getattr(insert, "mcount", 1) or 1
+    cells = minsert_cells(insert, parent) if mcount > 1 else None
+    if mcount > 1 and cells is None:
+        _warn_once(state,
+                   f"MINSERT '{bname}' places {mcount} copies in a "
+                   f"row/column array; only the first is in this truth "
+                   f"record (its block source is missing).")
+    if cells is not None:
+        # MINSERT: the block placed on a row/column grid. ezdxf's
+        # virtual_entities() resolves only the first cell, so each cell is
+        # walked as its own INSERT (``planlens.dxf.minsert``: inside a
+        # block, from the definition's MINSERT moved by the parent's whole
+        # transform), as ``planlens.ir.from_dxf`` expands it, with the same
+        # space-wide cap on the cells.
+        it = iter(cells)
+        n_here = 0   # cells of THIS array walked
+        while True:
+            if (state["placed"] >= max_block_entities
+                    or state["visited"] >= max_block_entities):
+                _warn_once(state,
+                           f"MINSERT '{bname}' places {mcount} copies; "
+                           f"expansion stopped at the {max_block_entities}"
+                           f"-entity budget after {n_here} of them; the "
+                           f"remaining copies are omitted.")
+                break
+            try:
+                cell = next(it)
+            except StopIteration:
+                break
+            except Exception as exc:
+                state["warnings"].append(
+                    f"MINSERT '{bname}' expansion truncated: {exc}")
+                break
+            state["placed"] += 1
+            n_here += 1
+            _walk_block(cell, top_name, out, state, max_block_entities,
+                        depth, inherit_layer=inherit_layer)
+        if n_here:
+            return
+        # The budget was spent before this array's first cell: fall through
+        # and walk it as the single reference ezdxf resolves (the first
+        # cell), as the ingest side does.
     ins_layer = insert.dxf.get("layer", "0") or "0"
     if ins_layer == "0" and inherit_layer is not None:
         ins_layer = inherit_layer
@@ -330,7 +375,7 @@ def _walk_block(insert, top_name: str, out: Dict[str, List[Dict[str, Any]]],
         vt = virt.dxftype()
         if vt == "INSERT":
             _walk_block(virt, top_name, out, state, max_block_entities,
-                        depth + 1, inherit_layer=ins_layer)
+                        depth + 1, inherit_layer=ins_layer, parent=insert)
         elif vt in _BLOCK_PROMOTED:
             rec = _record(virt)
             if rec is not None:
@@ -366,8 +411,9 @@ def _space_annotations(space, max_block_entities: int
         out[bucket].append(rec)
         if e.dxftype() == "INSERT":
             inserts.append(e)
-    state: Dict[str, Any] = {"visited": 0, "warnings": [], "seen": set(),
-                             "depth_warned": False, "budget_warned": False}
+    state: Dict[str, Any] = {"visited": 0, "placed": 0, "warnings": [],
+                             "seen": set(), "depth_warned": False,
+                             "budget_warned": False}
     for ins in inserts:
         _walk_block(ins, ins.dxf.get("name", "") or "?", out, state,
                     max_block_entities)
