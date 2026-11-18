@@ -99,12 +99,19 @@ class ImageSupport:
     refusal for bytes that are not an image; or ``(None, None)`` when it
     cannot be decoded here. ``as_pdf(picture) -> bytes``: a one-page PDF whose
     page is the image at ``page_scale(picture)`` points a pixel.
-    ``shown_size(data) -> (w, h)`` or ``None``: the size a viewer shows."""
+    ``shown_size(data) -> (w, h)`` or ``None``: the size a viewer shows.
+    ``sent_scale(w, h) -> float`` or ``None``: the scale (pixels sent per
+    pixel of the image, 1 or more when every pixel reaches the model) at
+    which the host's looks send a ``w`` x ``h`` pixel view of an image to
+    its vision model; a mark anchored on an image view is judged by it
+    (``marked_copy``, app BACKLOG VIS-26). ``None``: not known, and such a
+    view is judged by its size alone, as a page's is."""
 
     open_image: Callable[[bytes, str], Tuple[Any, Optional[str]]]
     as_pdf: Callable[[Any], bytes]
     page_scale: Callable[[Any], float] = lambda picture: 1.0
     shown_size: Optional[Callable[[bytes], Optional[Tuple[int, int]]]] = None
+    sent_scale: Optional[Callable[[float, float], float]] = None
 
 
 def _default_resolver(source: str):

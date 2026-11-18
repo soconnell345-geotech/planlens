@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **Marks on an image file: its views judged by the scale they were sent
+  at, and a copy of another image passed over (app BACKLOG VIS-26;
+  repairs).** `annotate_document` refused a small mark anchored on any
+  image view wider than 300 pixels, the rule for a page view wider than
+  300 points, though a look at an image is cut from the original and a
+  crop that fits the vision budget reaches the model at full resolution;
+  and its reason spoke of points. A host's `ImageSupport` may now say
+  `sent_scale(w, h)`, the scale its looks send a `w` x `h` pixel view at:
+  a mark on a view sent at 1 or more is placed (handed to the writer as
+  the box its view + image_box name, converted exactly as the writer
+  converts them), and a view sent shrunk is refused as before, its reason
+  in the image's pixels with the scale it went at
+  (`marked_copy.judge_image_views`). With no `sent_scale` the rule is the
+  page's, its reasons in pixels. Second: with append on, a second image
+  under a name that already has a marked copy (two pasted screenshots both
+  called image.png, a re-uploaded photo) had its marks converted by the
+  first image's copy and drawn on that image. A copy is now added to only
+  when its page holds an image of this image's pixels at one scale
+  (`_copy_fits_image`); otherwise the marks go on a new copy of this image
+  under the next free name (`_2`, ...) and the result says why, and
+  `remove` with marks on such a copy writes nothing and says so. A PDF's
+  marks, results and reasons are unchanged; a host without `sent_scale`
+  gets the old decisions.
+
 ## 0.16.0 — 2026-11-17
 
 - **A drawing set's schedules checked against the marks on its sheets,

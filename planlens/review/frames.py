@@ -60,7 +60,9 @@ MIN_LOCATION_ERROR_PT = 12.0
 
 #: A view no wider than this (its longer side, pt) is one a mark may be
 #: placed from — the same limit planlens' writer enforces
-#: (``markup_writer.VIEW_ANCHOR_MAX_PT``).
+#: (``markup_writer.VIEW_ANCHOR_MAX_PT``). A page view's rule: a view of an
+#: IMAGE is in its pixels and is judged by the scale it was sent at
+#: (``marked_copy.judge_image_views``, app BACKLOG VIS-26).
 MARK_VIEW_PT = 300.0
 
 

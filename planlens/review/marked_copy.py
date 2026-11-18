@@ -458,7 +458,7 @@ def _is_our_copy(path: str, signer: str) -> bool:
     return False
 
 
-def _destination(final: str, handle: str, signer: str):
+def _destination(final: str, handle: str, signer: str, image=None):
     """``(path, note)``: where this call's marked copy is written, and what
     the result says when that is not ``final`` (``None`` when it is).
 
@@ -469,8 +469,18 @@ def _destination(final: str, handle: str, signer: str):
     under the default name). The copy then goes to the document's default
     name when ``final`` is the document itself, else to ``final``'s name
     with _2, _3, ... -- the first of those that is free or is a marked copy
-    of this host's, so the same call again adds to the same file."""
-    if not os.path.exists(final) or _is_our_copy(final, signer):
+    of this host's, so the same call again adds to the same file.
+
+    ``image`` (the picture, when marks of an IMAGE file are added to an
+    existing copy) also passes over a copy of this host's that holds
+    another image (:func:`_copy_fits_image`): a second upload under the
+    same name, marked with append on, went onto the first one's copy,
+    converted by that copy's size (app BACKLOG VIS-26)."""
+    def ours(path):
+        return _is_our_copy(path, signer) and (
+            image is None or _copy_fits_image(path, image))
+
+    if not os.path.exists(final) or ours(final):
         return final, None
     name = os.path.basename(final)
     if _same_file(_handle_path(handle), final):
@@ -478,12 +488,18 @@ def _destination(final: str, handle: str, signer: str):
                "written into it")
         stem, ext = os.path.splitext(markup_output_path("", handle))
         path, n = stem + ext, 1
+    elif image is not None and _is_our_copy(final, signer):
+        why = (f"'{name}' is a marked copy of another image (its page is "
+               f"not this {image.width} x {image.height} px image), so it is "
+               "left as it is")
+        stem, ext = os.path.splitext(final)
+        path, n = f"{stem}_2{ext}", 2
     else:
         why = (f"'{name}' is already there and holds no mark this app "
                "wrote, so it is left as it is")
         stem, ext = os.path.splitext(final)
         path, n = f"{stem}_2{ext}", 2
-    while os.path.exists(path) and not _is_our_copy(path, signer):
+    while os.path.exists(path) and not ours(path):
         n += 1
         path = f"{stem}_{n}{ext}"
     return path, (f"{why}: the marked copy was saved as "
@@ -774,6 +790,162 @@ def _page_size_pt(pdf_path: str):
         return float(rect.width), float(rect.height)
 
 
+def _copy_fits_image(pdf_path: str, picture) -> bool:
+    """Whether the marked copy at ``pdf_path`` is a copy of an image the
+    size of ``picture``: its page 0 holds an image of ``picture``'s pixels
+    (as shown, or as stored before an EXIF turn) and is drawn at one scale
+    across and down. A copy of another image under the same name is not
+    (app BACKLOG VIS-26); a copy of this one at another scale is. Only the
+    size can be told: a different image of the same size passes."""
+    import pymupdf
+    w, h = int(picture.width), int(picture.height)
+    try:
+        with pymupdf.open(pdf_path) as doc:
+            page = doc[0]
+            cw, ch = float(page.rect.width), float(page.rect.height)
+            held = {(int(i[2]), int(i[3]))
+                    for i in page.get_images(full=True)}
+    except Exception:  # noqa: BLE001 - not a copy that can be added to
+        return False
+    if w <= 0 or h <= 0 or cw <= 0 or ch <= 0:
+        return False
+    sx, sy = cw / w, ch / h
+    return abs(sx - sy) <= 0.01 * max(sx, sy) and \
+        ((w, h) in held or (h, w) in held)
+
+
+#: The writer's reasons for refusing a ``view`` + ``image_box`` anchor
+#: (``markup_writer._view_anchor_problem``), in points: on an image they
+#: are put in its pixels (:func:`judge_image_views`).
+_WRITER_VIEW_REASONS = ("image_box is the whole ", " pt box was read off a ")
+
+
+def _view_anchor_of(markup):
+    """``(holder, view, image_box)`` for a markup anchored by ``view`` +
+    ``image_box`` (``holder`` the dict that has them: the markup or its
+    ``anchor``), else ``None``. A callout with ``points_at`` is never
+    judged by its view (the writer's rule)."""
+    if not isinstance(markup, dict):
+        return None
+    m = dict(markup)
+    anchor = m.get("anchor") if isinstance(m.get("anchor"), dict) else None
+    if anchor is not None:
+        m = {**anchor, **{k: v for k, v in m.items() if k != "anchor"}}
+    if str(m.get("kind") or "").lower() == "callout" and \
+            m.get("points_at") is not None:
+        return None
+    view, image_box = _nums(m.get("view"), 4), _nums(m.get("image_box"), 4)
+    if not view or not image_box or view[2] <= view[0] or view[3] <= view[1]:
+        return None
+    holder = markup if markup.get("view") is not None else anchor
+    if holder is None or holder.get("image_box") is None:
+        return None
+    return holder, view, image_box
+
+
+def judge_image_views(marks, sent_scale=None):
+    """``(marks, reasons)`` for marks placed on an IMAGE in its pixels: a
+    mark anchored on an image view the writer's rule would refuse for its
+    width is placed after all when that view reached the vision model at
+    full resolution, and ``reasons`` (by index) says in the image's pixels
+    why the others are refused (app BACKLOG VIS-26).
+
+    The writer refuses a small mark read off a view wider than
+    ``VIEW_ANCHOR_MAX_PT`` (300) on its longer side, because a box read off a
+    page view that wide can be off by about a tenth of it. On an image the
+    view is in pixels, and a look at an image is CUT from the original:
+    a crop that fits the host's vision budget is sent at full resolution or
+    larger, and a box read off it is good to a few of the image's pixels,
+    however wide the crop. So an image view is judged by the scale it was
+    sent at (``ImageSupport.sent_scale``): at 1 or more the mark is placed
+    (handed on as the ``bbox`` its view + image_box name, exactly as the
+    writer converts them); below 1, or with no scale from the host, the
+    writer's rule stands. A view of 300 px or less is never refused for its
+    width, as on a page."""
+    from planlens.document.budget import image_box_to_page
+    from planlens.document.markup_writer import (VIEW_ANCHOR_MAX_PT,
+                                                 VIEW_ANCHOR_MIN_FRACTION,
+                                                 WHOLE_VIEW_FRACTION)
+    out = list(marks or [])
+    reasons: Dict[int, str] = {}
+    for i, m in enumerate(out):
+        found = _view_anchor_of(m)
+        if found is None:
+            continue
+        holder, view, image_box = found
+        try:
+            box = image_box_to_page(image_box, view, 1000, 1000,
+                                    units="norm1000")
+        except ValueError:
+            continue                     # the writer says what is wrong
+        kind = str(m.get("kind") or "mark")
+        vw, vh = view[2] - view[0], view[3] - view[1]
+        bw, bh = box[2] - box[0], box[3] - box[1]
+        if bw >= WHOLE_VIEW_FRACTION * vw and bh >= WHOLE_VIEW_FRACTION * vh:
+            reasons[i] = (
+                f"image_box is the whole {vw:.0f} x {vh:.0f} px view, not a "
+                f"thing in it: a {kind} round a whole view does not say "
+                f"which thing it means. Box the thing itself in that view "
+                f"(its own image_box), or zoom on it with render_region and "
+                f"anchor on the zoom's view + the thing's image_box; to mark "
+                f"the whole region on purpose, pass its rect as bbox, in the "
+                f"image's pixels")
+            continue
+        side = max(vw, vh)
+        if side <= VIEW_ANCHOR_MAX_PT or \
+                max(bw, bh) >= VIEW_ANCHOR_MIN_FRACTION * side:
+            continue                     # the writer places it as it is
+        scale = None
+        if sent_scale is not None:
+            try:
+                scale = float(sent_scale(vw, vh))
+            except Exception:  # noqa: BLE001 - judged by its size, then
+                scale = None
+        if scale is not None and scale >= 1.0 - 1e-9:
+            new = {k: v for k, v in holder.items()
+                   if k not in ("view", "image_box")}
+            new["bbox"] = [float(v) for v in box]
+            if holder is m:
+                out[i] = new
+            else:
+                out[i] = {**m, "anchor": new}
+            continue
+        sent = (f", sent to the vision model shrunk to {scale:.2f} of its "
+                f"size," if scale is not None else "")
+        then = ("a zoom small enough to reach the vision model at full "
+                "resolution" if scale is not None else
+                f"a view of {VIEW_ANCHOR_MAX_PT:.0f} px or less")
+        reasons[i] = (
+            f"this {bw:.0f} x {bh:.0f} px box was read off a {vw:.0f} x "
+            f"{vh:.0f} px view of the image{sent} and a box read off a view "
+            f"that wide can be off by about a tenth of it (~{0.1 * side:.0f} "
+            f"px) - more than the {kind} itself, so it would land beside the "
+            f"thing. Zoom on the thing first (render_region on the image "
+            f"with this view + image_box) and anchor on the ZOOM's view + "
+            f"the thing's image_box in it: {then}, in which the thing is "
+            f"legible")
+    return out, reasons
+
+
+def _image_view_reasons(result: Dict[str, Any], reasons: Dict[int, str]
+                        ) -> None:
+    """The writer's skipped rows for image marks refused by their view, in
+    place: their reason said in the image's pixels (:func:`judge_image_views`)."""
+    if not reasons:
+        return
+    for row in result.get("skipped") or ():
+        if not isinstance(row, dict):
+            continue
+        try:
+            index = int(row.get("index"))
+        except (TypeError, ValueError):
+            continue
+        why = str(row.get("reason") or "")
+        if index in reasons and (why.startswith(_WRITER_VIEW_REASONS[0])
+                                 or _WRITER_VIEW_REASONS[1] in why):
+            row["reason"] = reasons[index]
+
+
 def _pdf_page_sizes(handle: str):
     """``page -> (w, h)`` as displayed, in points, of the document a handle
     stands for (``None`` for a page it does not have, or when it is not
@@ -910,10 +1082,16 @@ def _write_marked_copy(handle, markups, output_path, append, author, call,
                                  "page") if marks else None
     if off is not None:
         return off
+    view_reasons: Dict[int, str] = {}
+    if picture is not None and marks:
+        marks, view_reasons = judge_image_views(
+            marks, getattr(_host().images, "sent_scale", None))
     final = markup_output_path(output_path, handle)
     elsewhere = None
     if not remove:
-        final, elsewhere = _destination(final, handle, author)
+        final, elsewhere = _destination(
+            final, handle, author,
+            picture if (picture is not None and marks and append) else None)
     existed = os.path.isfile(final)
     tmp = _temp_beside(final)
     try:
@@ -984,6 +1162,17 @@ def _write_marked_copy(handle, markups, output_path, append, author, call,
                                   f"read: {type(exc).__name__}: {exc}"),
                         "hint": ("rebuild it from the image with "
                                  "append=false")}
+            if not fresh_image and not _copy_fits_image(tmp, picture):
+                # Another image's copy under this name: converting by its
+                # size would put the marks on that image (VIS-26).
+                return {"error": (
+                    f"'{os.path.basename(final)}' is a marked copy of "
+                    f"another image (its page is not this {picture.width} x "
+                    f"{picture.height} px image), so this image's marks "
+                    "cannot go on it; nothing was written"),
+                    "hint": ("give this image's marks another output_path, "
+                             "or rebuild the copy from this image with "
+                             "append=false")}
             sx, sy = cw / picture.width, ch / picture.height
             marks = [_scaled_markup(m, sx, sy) for m in marks]
             frame = {"image_px": [picture.width, picture.height],
@@ -1005,6 +1194,7 @@ def _write_marked_copy(handle, markups, output_path, append, author, call,
             if not isinstance(result, dict) or "error" in result:
                 return result if isinstance(result, dict) else \
                     {"error": str(result)[:500]}
+            _image_view_reasons(result, view_reasons)
             from planlens.review.page_numbers import range_hint
             for row in result.get("skipped") or ():
                 hint = range_hint(str(row.get("reason") or "")) \
@@ -1064,7 +1254,8 @@ __all__ = ["markup_output_path", "forget_path", "WINDOWS_MAX_PATH",
            "markups_with_pages", "AUTHOR_IGNORED_NOTE",
            "markups_signed_by_app", "empty_comments_note", "image_of",
            "mark_position", "marks_off_the_page", "IMAGE_FRAME_NOTE",
-           "IMAGE_FRAME_SCALED_NOTE", "image_frame_result"]
+           "IMAGE_FRAME_SCALED_NOTE", "image_frame_result",
+           "judge_image_views"]
 
 #: Re-exported: closing a conversation's handles on a file before it is
 #: replaced is the toolkit's business (:mod:`planlens.review.conversation`).
