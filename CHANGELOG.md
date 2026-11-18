@@ -16,13 +16,15 @@
   in the image's pixels with the scale it went at
   (`marked_copy.judge_image_views`). With no `sent_scale` the rule is the
   page's, its reasons in pixels. Second: with append on, a second image
-  under a name that already has a marked copy (two pasted screenshots both
-  called image.png, a re-uploaded photo) had its marks converted by the
-  first image's copy and drawn on that image. A copy is now added to only
-  when its page holds an image of this image's pixels at one scale
-  (`_copy_fits_image`); otherwise the marks go on a new copy of this image
-  under the next free name (`_2`, ...) and the result says why, and
-  `remove` with marks on such a copy writes nothing and says so. A PDF's
+  under a name that already has a marked copy (a pasted screenshot and a
+  phone photo of another pixel size, both called image.png) had its marks
+  converted by the first image's copy and drawn on that image. A copy is
+  now added to only when its page holds an image of this image's pixels at
+  one scale (`_copy_fits_image`); otherwise the marks go on a new copy of
+  this image under the next free name (`_2`, ...) and the result says why,
+  and `remove` with marks on such a copy writes nothing and says so. Only
+  the size can be told: a different image of the same pixel size under
+  the same name (two screenshots of one screen) is still added to. A PDF's
   marks, results and reasons are unchanged; a host without `sent_scale`
   gets the old decisions.
 
