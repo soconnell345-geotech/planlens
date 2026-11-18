@@ -544,8 +544,28 @@ Two, as of planlens 0.4.0 (the toolkit's tool list grew to 17 by 0.14.0):
   serves over MCP (`planlens.mcp_server`), generated from the same specs. See
   `planlens/document/DESIGN.md`.
 - **The geotech app's drawing adapter** — the drawing-geometry tools below
-  still live in `GeotechStaffEngineer/funhouse_agent/adapters/drawing_ir_adapter.py`;
-  moving them into `planlens.tools` is the next step on the open list.
+  still live in `GeotechStaffEngineer/funhouse_agent/adapters/drawing_ir_adapter.py`.
+- **`drawing_geometry`** (app BACKLOG DR-44 with PL-13; code in
+  `planlens/document/drawing_geometry.py`) — what a document review needs
+  of that adapter, as ONE toolkit tool over an open document's handle,
+  offered only by a toolkit built with `drawing_tools=True` (and in
+  `planlens.review` only to a host that asks). For one page it runs
+  `from_pdf_vector` and the construct finders (dimensions, leaders with
+  `exclude_dimensions`, bubble callouts, revision clouds and deltas, the
+  likeliest title block) and returns compact rows in the DISPLAYED frame
+  (`frame.from_ir_point`), so an item goes straight to `render_region` or
+  `annotate_document`. Each result says it is measured from the drawn
+  geometry and what the sheet is: a vector drawing, one with no text layer
+  (lettering drawn as lines: values come back empty), or mostly a picture
+  (pictures cover half the page or more). A page with no drawn entity at
+  all is refused with a hint to read it by looking. Lengths stay in PDF
+  points (`measure` with a scale converts). Not ported, on purpose:
+  `digitize_drawing` / `query_drawing` / `get_entities` (the IR's entity
+  ids and raw slices are noise to a reviewer; the finders' rows are what
+  it argues about), `snip_region` (`render_region` is the toolkit's) and
+  `search_drawing_set` (`search_document` over the set; a construct count
+  across pages is a call per page). The page's IR is kept for the next
+  question about it (four pages a toolkit).
 
 That adapter exposes five methods and
 **caches the IR server-side keyed by a `handle`** (a full IR can be large):

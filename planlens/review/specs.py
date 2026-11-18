@@ -12,9 +12,10 @@ neither of its pages' agents changes when it binds this layer:
   ``annotate_document``, no ``author``);
 * ``find_like``, which reads every candidate with the host's look.
 
-Two groups are offered only to a host that asks: the sheet tools
-(:data:`SHEET_TOOLS`) and the plan tools (:data:`PLAN_TOOLS`, BACKLOG
-PL-27), each specified the way the others are.
+Three groups are offered only to a host that asks: the sheet tools
+(:data:`SHEET_TOOLS`), the plan tools (:data:`PLAN_TOOLS`, BACKLOG PL-27)
+and the drawing tools (:data:`DRAWING_TOOLS`, BACKLOG DR-44), each
+specified the way the others are.
 
 Each input schema is written the way the app's agent framework writes the
 schema of the app's tool function (pydantic's JSON schema: a ``title`` per
@@ -78,6 +79,7 @@ DOCUMENT_TOOL_NOTES = {
     "check_schedule_marks": PDF_PAGES_NOTE,
     "plan_symbols": PDF_PAGE_NOTE,
     "plan_grid": PDF_PAGE_NOTE,
+    "drawing_geometry": PDF_PAGE_NOTE,
     "document_markups": PDF_PAGES_NOTE,
     "find_quantities": PDF_PAGES_NOTE,
     "render_page_thumbnails": PDF_PAGES_NOTE,
@@ -163,6 +165,14 @@ SHEET_TOOLS = ("sheet_index", "check_cross_references",
 #: :data:`HOST_TOOLS`.
 PLAN_TOOLS = ("plan_symbols", "plan_grid")
 
+#: The drawing tools (one page's dimensions, leaders, callouts, revision
+#: clouds and title block read from its drawn geometry: a fallback for a CAD
+#: sheet the text and the look have not settled; BACKLOG DR-44): offered
+#: only to a host that asks, with ``ReviewHost(toolkit_options=
+#: {"drawing_tools": True})``, after every other group. Not in
+#: :data:`HOST_TOOLS`.
+DRAWING_TOOLS = ("drawing_geometry",)
+
 # -- the arguments, as the app's tool functions declare them -----------------
 # (name, form, default); a name with no default is required. Forms:
 # "str", "int", "bool", "any" (no type), and "opt_int" / "opt_str" /
@@ -235,6 +245,12 @@ _ARGS: Dict[str, List[Tuple[str, str, Any]]] = {
                   ("on_mirror", "opt_str", None), ("units", "opt_str", None),
                   ("handle", "opt_str", None), ("page", "opt_int", None),
                   ("pdf_page", "opt_int", None)],
+    # The drawing tools: shown and handed on as the plan tools are.
+    "drawing_geometry": [("handle", "str", _REQUIRED),
+                         ("page", "opt_int", None),
+                         ("find", "opt_list", None),
+                         ("bbox", "opt_list", None),
+                         ("pdf_page", "opt_int", None)],
     "find_like": [("attachment_key", "str", _REQUIRED),
                   ("page", "opt_int", None), ("bbox", "opt_list", None),
                   ("text", "str", ""), ("pages", "opt_str", None),
@@ -268,6 +284,10 @@ PLAN_SHOWN_FROM_TOOLKIT = {
                   "on_mirror", "units"),
 }
 
+#: The drawing tools' arguments shown with the toolkit's own schema of them,
+#: as :data:`PLAN_SHOWN_FROM_TOOLKIT`.
+DRAWING_SHOWN_FROM_TOOLKIT = {"drawing_geometry": ("find", "bbox")}
+
 
 def _title(name: str) -> str:
     """An argument's title as pydantic writes it (``pdf_pages`` ->
@@ -297,7 +317,8 @@ def _toolkit_spec(name: str) -> Optional[Dict[str, Any]]:
     """The installed toolkit's spec for ``name``, or ``None``."""
     from planlens.tools import specs as toolkit_specs
     for spec in list(toolkit_specs.TOOL_SPECS) + list(
-            getattr(toolkit_specs, "SHEET_TOOL_SPECS", ())):
+            getattr(toolkit_specs, "SHEET_TOOL_SPECS", ())) + list(
+            getattr(toolkit_specs, "DRAWING_TOOL_SPECS", ())):
         if spec.get("name") == name:
             return spec
     return None
@@ -363,11 +384,13 @@ def _shown(name: str) -> Dict[str, Dict[str, Any]]:
             return {"status": {"anyOf": [
                 {"type": "string", "enum": list(status["enum"])},
                 {"type": "null"}]}}
-    if name in PLAN_SHOWN_FROM_TOOLKIT:
+    from_toolkit = (PLAN_SHOWN_FROM_TOOLKIT.get(name)
+                    or DRAWING_SHOWN_FROM_TOOLKIT.get(name))
+    if from_toolkit:
         spec = _toolkit_spec(name) or {}
         props = (spec.get("parameters") or {}).get("properties") or {}
         return {arg: copy.deepcopy(props[arg])
-                for arg in PLAN_SHOWN_FROM_TOOLKIT[name]
+                for arg in from_toolkit
                 if isinstance(props.get(arg), dict)}
     return {}
 
@@ -454,27 +477,32 @@ def tool_description(name: str) -> str:
 
 
 def host_tool_names(look: bool = True, sheet_tools: bool = False,
-                    plan_tools: bool = False) -> Tuple[str, ...]:
+                    plan_tools: bool = False,
+                    drawing_tools: bool = False) -> Tuple[str, ...]:
     """The host tools to offer: the document tools the installed toolkit
     publishes, the look tools only when the host gave a look, the sheet
-    tools (:data:`SHEET_TOOLS`) only when the host asked for them, and the
+    tools (:data:`SHEET_TOOLS`) only when the host asked for them, the
     plan tools (:data:`PLAN_TOOLS`) after them, only when the host asked
-    for those."""
+    for those, and the drawing tools (:data:`DRAWING_TOOLS`) last, only
+    when the host asked for those."""
     names = DOCUMENT_TOOLS + tuple(n for n in OPTIONAL_DOCUMENT_TOOLS
                                    if _toolkit_spec(n) is not None)
     return (names + (LOOK_TOOLS if look else ())
             + (SHEET_TOOLS if sheet_tools else ())
-            + (PLAN_TOOLS if plan_tools else ()))
+            + (PLAN_TOOLS if plan_tools else ())
+            + (DRAWING_TOOLS if drawing_tools else ()))
 
 
 def host_specs(style: str = "plain", look: bool = True,
                sheet_tools: bool = False,
-               plan_tools: bool = False) -> List[Dict[str, Any]]:
+               plan_tools: bool = False,
+               drawing_tools: bool = False) -> List[Dict[str, Any]]:
     """The host tools' specs: ``plain`` (name / description /
     input_schema), ``anthropic`` (the same) or ``openai``
     (``type=function``)."""
     out = []
-    for name in host_tool_names(look, sheet_tools, plan_tools):
+    for name in host_tool_names(look, sheet_tools, plan_tools,
+                                drawing_tools):
         desc = tool_description(name)
         schema = input_schema(name, desc, sheet_tools=sheet_tools)
         if style in ("plain", "anthropic"):
@@ -491,8 +519,9 @@ def host_specs(style: str = "plain", look: bool = True,
 __all__ = ["DOCUMENT_TOOL_NOTES", "PDF_PAGES_NOTE", "PDF_PAGE_NOTE",
            "IMAGE_FIND_NOTE", "IMAGE_MARKUP_NOTE", "FIND_LIKE_DESCRIPTION",
            "DOCUMENT_TOOLS", "OPTIONAL_DOCUMENT_TOOLS", "LOOK_TOOLS",
-           "HOST_TOOLS", "SHEET_TOOLS", "PLAN_TOOLS",
-           "PLAN_SHOWN_FROM_TOOLKIT", "APP_MARKUP_FIELDS",
+           "HOST_TOOLS", "SHEET_TOOLS", "PLAN_TOOLS", "DRAWING_TOOLS",
+           "PLAN_SHOWN_FROM_TOOLKIT", "DRAWING_SHOWN_FROM_TOOLKIT",
+           "APP_MARKUP_FIELDS",
            "WITHHELD_MARKUP_FIELDS",
            "DESCRIBED_MARKUP_FIELDS", "NO_SHEET_ARGS",
            "annotate_markups_schema", "sheet_args", "host_arg_names",

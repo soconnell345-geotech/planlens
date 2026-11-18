@@ -108,6 +108,31 @@ that spec, so its words cannot drift), every argument is optional but
 `plan_symbols`' handle, and an argument not given is not handed on, so the
 toolkit's defaults apply.
 
+The drawing tool (`drawing_geometry`; app BACKLOG DR-44, see
+`planlens/ir/DESIGN.md` under "LLM surfaces") is offered as the sheet tools
+are: `DRAWING_TOOLS` is a list of its own, a host asks with
+`ReviewHost(toolkit_options={"drawing_tools": True})`, `tool_names()` and
+`specs()` then list it after every other group, and the dispatcher serves
+it to the calling host that asked and refuses it by name to any other. The
+toolkit has an option of its own for it (`drawing_tools`, off by default,
+so a toolkit nobody asked for, and the MCP server, list what they did);
+the conversation's toolkit is built with it on, as with the sheet tools.
+Its spec follows the toolkit's as the plan tools' do
+(`DRAWING_SHOWN_FROM_TOOLKIT`). It is a fallback the agent reaches for,
+known only through its own description: nothing calls it on its own, and
+no system prompt names it.
+
+A DXF's page tools (app BACKLOG DR-19) are a host's choice too: a host
+that asks with `ReviewHost(toolkit_options={"dxf_plots": True})` has a
+DXF's page tools (render, zoom, page map, marks, the drawing tool) look at
+a one-page PDF plot of its model space (`planlens.dxf.plot`), where any
+other host is refused them ("it has no pages here"). `_side_document`
+decides on each call, for the calling host, so the conversation's toolkit
+is built with `dxf_plots` on and is only ever handed a DXF for a host that
+asked. Reading and searching a DXF stay with its own text; its
+`open_document` result gains one `plot` line saying what the plot is. No
+spec changes: the tools' descriptions are the same for every host.
+
 `annotate_document`'s `remove` takes a mark's stable `uid` (the
 annotation's `/NM`, as the call that wrote the mark returns it; it does not
 move when another mark is removed, as the positional id does) wherever it

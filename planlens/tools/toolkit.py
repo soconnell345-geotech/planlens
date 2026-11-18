@@ -449,6 +449,19 @@ class ReviewToolkit:
         (:mod:`planlens.tools.sheet_addresses`). Off by default, so a
         host's tool list and results are what they were until the host
         asks.
+    drawing_tools : bool
+        ``True`` also offers ``drawing_geometry`` (:data:`DRAWING_TOOLS`;
+        BACKLOG DR-44): one page's dimensions, leaders, callouts, revision
+        clouds and title block read from its drawn geometry, a fallback for
+        a CAD sheet the text and the look have not settled. Off by default.
+    dxf_plots : bool
+        ``True`` opens a DXF (by its extension) as a one-page PDF plot of
+        its model space (:func:`planlens.dxf.plot.dxf_to_pdf`; BACKLOG
+        DR-19), so the page tools can look at it; ``open_document`` then
+        says what the plot is (``plot``). Off by default: a DXF is refused
+        as before. A callable is asked at each open (a host layer whose
+        toolkit is shared by hosts that did and did not ask gives one that
+        answers for the calling host).
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -463,7 +476,9 @@ class ReviewToolkit:
                  image_budget: Any = None,
                  image_format: str = "png",
                  look: Optional[Look] = None,
-                 sheet_tools: bool = False):
+                 sheet_tools: bool = False,
+                 drawing_tools: bool = False,
+                 dxf_plots: Any = False):
         from planlens.document.budget import resolve_budget
         if max_chars < 1000:
             raise ValueError("max_chars below 1000 cannot hold a useful result")
@@ -482,6 +497,16 @@ class ReviewToolkit:
         self.look = look
         #: Whether the sheet tools are offered (:data:`OPT_IN_TOOLS`).
         self.sheet_tools = bool(sheet_tools)
+        #: Whether the drawing tools are offered (:data:`DRAWING_TOOLS`).
+        self.drawing_tools = bool(drawing_tools)
+        #: Whether a DXF opens as a PDF plot of its model space.
+        self.dxf_plots = (dxf_plots if callable(dxf_plots)
+                          else bool(dxf_plots))
+        #: Pages read for their drawn geometry, by (handle, page): the
+        #: document they were read from and its DrawingIR (a few, newest
+        #: last), so a second question about a page does not read it again.
+        self._drawn: "OrderedDict[Tuple[str, int], Tuple[Any, Any]]" = \
+            OrderedDict()
         self.max_chars = int(max_chars)
         self.max_open = int(max_open)
         self.text_source_for = text_source_for
@@ -508,15 +533,23 @@ class ReviewToolkit:
     OPT_IN_TOOLS: Tuple[str, ...] = ("sheet_index", "check_cross_references",
                                      "check_schedule_marks")
 
+    #: Tools offered only by a toolkit built with ``drawing_tools=True``
+    #: (:data:`planlens.tools.specs.DRAWING_TOOL_SPECS`).
+    DRAWING_TOOLS: Tuple[str, ...] = ("drawing_geometry",)
+
     def _offered(self, name: str) -> bool:
         if name in self.OPT_IN_TOOLS:
             return self.sheet_tools
+        if name in self.DRAWING_TOOLS:
+            return self.drawing_tools
         return self.look is not None or name not in self.LOOK_TOOLS
 
     @staticmethod
     def _all_specs() -> List[Dict[str, Any]]:
-        from planlens.tools.specs import SHEET_TOOL_SPECS, TOOL_SPECS
-        return list(TOOL_SPECS) + list(SHEET_TOOL_SPECS)
+        from planlens.tools.specs import (DRAWING_TOOL_SPECS,
+                                          SHEET_TOOL_SPECS, TOOL_SPECS)
+        return (list(TOOL_SPECS) + list(SHEET_TOOL_SPECS)
+                + list(DRAWING_TOOL_SPECS))
 
     # -- publication ----------------------------------------------------------
     def specs(self, style: str = "anthropic") -> List[Dict[str, Any]]:
@@ -734,6 +767,16 @@ class ReviewToolkit:
     def open(self, source: str) -> _Entry:
         resolved = self.resolve_source(source)
         key = self._content_key(resolved)
+        in_memory = isinstance(resolved, (bytes, bytearray))
+        from planlens.dxf.plot import is_dxf
+        plots = (self.dxf_plots() if callable(self.dxf_plots)
+                 else self.dxf_plots)
+        plotted = bool(plots) and (
+            is_dxf(source) or (not in_memory and is_dxf(resolved)))
+        if plotted:
+            # a plot is another document than the file it was made from:
+            # an open that does not plot never finds it
+            key += ":dxf-plot"
         with self._guard:
             handle = self._by_key.get(key)
             if handle and handle in self._entries:
@@ -742,12 +785,14 @@ class ReviewToolkit:
             name = os.path.basename(source) or source
             text_source = (self.text_source_for(name, key)
                            if self.text_source_for else None)
-            in_memory = isinstance(resolved, (bytes, bytearray))
             if not (len(resolved) if in_memory
                     else os.path.getsize(resolved)):
                 raise ToolError(
                     f"could not open '{source}': the file is empty (0 bytes)",
                     hint=OPEN_HINTS["empty"])
+            if plotted:
+                resolved = self._dxf_plot(source, resolved, in_memory)
+                in_memory = True
             try:
                 if in_memory:
                     doc = Document(content=bytes(resolved), name=name,
@@ -773,6 +818,9 @@ class ReviewToolkit:
                            path=(None if isinstance(resolved, (bytes, bytearray))
                                  else str(resolved)))
             entry.source = source
+            #: What the document was made from, when it is not the file
+            #: itself (``"dxf"``: a plot of its model space).
+            entry.plotted_from = "dxf" if plotted else None
             self._entries[handle] = entry
             self._by_key[key] = handle
             while len(self._entries) > self.max_open:
@@ -782,6 +830,24 @@ class ReviewToolkit:
                 with old.lock:
                     old.doc.close()
             return entry
+
+    @staticmethod
+    def _dxf_plot(source: str, resolved: Source, in_memory: bool) -> bytes:
+        """The PDF plot of the DXF ``resolved`` (bytes or a path), or a
+        ToolError saying in plain words why there is none."""
+        from planlens.dxf.plot import dxf_to_pdf
+        try:
+            if in_memory:
+                return dxf_to_pdf(content=bytes(resolved))
+            return dxf_to_pdf(filepath=str(resolved))
+        except ValueError as exc:
+            raise ToolError(f"could not plot '{source}': {exc}")
+        except Exception as exc:  # noqa: BLE001 - ezdxf's own errors
+            raise ToolError(
+                f"could not plot '{source}': it is not a DXF ezdxf can read "
+                f"({type(exc).__name__})",
+                hint="ask the user for a PDF plot of the drawing, or read "
+                     "its text with read_document")
 
     def _entry(self, handle: str) -> _Entry:
         with self._guard:
@@ -844,6 +910,7 @@ class ReviewToolkit:
                     entry.doc.close()
             self._entries.clear()
             self._by_key.clear()
+            self._drawn.clear()
 
     # -- rendering (for hosts that hand images to the model themselves) ---------
     def render(self, handle: str, page: int, bbox=None, dpi=None,
@@ -980,6 +1047,9 @@ class ReviewToolkit:
             "n_pages": doc.n_pages,
             "pages_by_kind": {k: compact_ranges(v) for k, v in by_kind.items()},
         }
+        if getattr(entry, "plotted_from", None) == "dxf":
+            from planlens.dxf.plot import PLOT_NOTE
+            out["plot"] = PLOT_NOTE
         # This dict IS the JSON the host receives, so measure everything
         # against the whole limit rather than reserving a flat guess for the
         # parts still to come: the look line below carries the HOST's own
@@ -2515,6 +2585,63 @@ class ReviewToolkit:
             out["truncated"] = "; ".join(
                 f"{n} more {k.replace('_', ' ')}" for k, n in cut.items()
             ) + ": convert the rest in another call"
+        return out
+
+    #: Pages a toolkit keeps read for their drawn geometry.
+    DRAWN_PAGES_KEPT = 4
+
+    def _drawn_ir(self, entry: "_Entry", page: int):
+        """``entry``'s page ``page`` read for its drawn geometry, kept for
+        the next question about it (:attr:`_drawn`)."""
+        from planlens.document.drawing_geometry import page_ir
+        key = (entry.handle, page)
+        with self._guard:
+            hit = self._drawn.get(key)
+            if hit is not None and hit[0] is entry.doc:
+                self._drawn.move_to_end(key)
+                return hit[1]
+        ir = page_ir(entry.doc, page)
+        with self._guard:
+            self._drawn[key] = (entry.doc, ir)
+            self._drawn.move_to_end(key)
+            while len(self._drawn) > self.DRAWN_PAGES_KEPT:
+                self._drawn.popitem(last=False)
+        return ir
+
+    def _tool_drawing_geometry(self, handle: str, page: int,
+                               find: Any = None,
+                               bbox: Any = None) -> Dict[str, Any]:
+        from planlens.document.drawing_geometry import (
+            KINDS, NoDrawnGeometry, drawing_geometry, kinds_asked)
+        entry = self._entry(handle)
+        page = int(page)
+        kinds = kinds_asked(find)
+        region = _floats(bbox, 4) if bbox is not None else None
+        with entry.lock:
+            if not 0 <= page < entry.doc.n_pages:
+                raise ToolError(f"page {page} is out of range",
+                                hint=f"pages run 0-{entry.doc.n_pages - 1}")
+            try:
+                out = drawing_geometry(entry.doc, page, kinds, region,
+                                       ir=self._drawn_ir(entry, page))
+            except NoDrawnGeometry as exc:
+                raise ToolError(str(exc), hint=exc.hint)
+        out = {"handle": handle, **out}
+        budget = self._budget(400)
+        if json_len(out) <= budget:
+            return out
+        # Too long (a dense sheet): each list keeps its likeliest items
+        # (they come most confident first), in an equal share of the room.
+        listed = [k for k in KINDS if out.get(k)]
+        room = max(150, (budget - json_len(
+            {**out, **{k: [] for k in listed}})) // max(1, len(listed)))
+        for kind in listed:
+            items, nxt = fit_items(out[kind], room)
+            if nxt is not None:
+                out[kind] = items
+                out[f"{kind}_truncated"] = (
+                    f"{out['counts'][kind] - len(items)} more: narrow with "
+                    "bbox or find")
         return out
 
     def _tool_measure(self, handle: str, page: int, bbox: Any = None,
