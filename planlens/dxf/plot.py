@@ -38,6 +38,11 @@ PLOT_NOTE = ("a PDF plot of the DXF's model space made here (one page, page "
              "not the drawing's")
 
 
+class PlotUnavailable(ValueError):
+    """The plot cannot be made in this install (a package the drawing
+    add-on needs is missing): nothing is wrong with the DXF."""
+
+
 def dxf_to_pdf(filepath: Optional[str] = None,
                content: Optional[bytes] = None,
                margin_mm: float = MARGIN_MM,
@@ -46,12 +51,22 @@ def dxf_to_pdf(filepath: Optional[str] = None,
 
     Give ``filepath`` or ``content`` (the file's bytes, ASCII or binary).
     ezdxf's recover mode reads it, so a file with small structural faults
-    still plots. Raises ValueError when the model space has nothing to draw.
+    still plots. Raises ValueError when the model space has nothing to draw,
+    and :class:`PlotUnavailable` (a ValueError) when this install cannot
+    plot at all (ezdxf's drawing add-on needs Pillow).
     """
     from ezdxf import recover
-    from ezdxf.addons.drawing import Frontend, RenderContext, layout
-    from ezdxf.addons.drawing.config import BackgroundPolicy, Configuration
-    from ezdxf.addons.drawing.pymupdf import PyMuPdfBackend
+    try:
+        from ezdxf.addons.drawing import Frontend, RenderContext, layout
+        from ezdxf.addons.drawing.config import (BackgroundPolicy,
+                                                 Configuration)
+        from ezdxf.addons.drawing.pymupdf import PyMuPdfBackend
+    except ImportError as exc:
+        # ezdxf's drawing add-on imports Pillow, which planlens does not
+        # require: say so, rather than call the file unreadable
+        raise PlotUnavailable(
+            "plotting a DXF needs the Pillow package (ezdxf's drawing "
+            f"add-on imports it), which is not installed here ({exc})")
 
     if (filepath is None) == (content is None):
         raise ValueError("give filepath or content")
@@ -80,4 +95,5 @@ def is_dxf(name: object) -> bool:
     return str(name or "").strip().lower().endswith(".dxf")
 
 
-__all__ = ["MARGIN_MM", "MAX_SIDE_MM", "PLOT_NOTE", "dxf_to_pdf", "is_dxf"]
+__all__ = ["MARGIN_MM", "MAX_SIDE_MM", "PLOT_NOTE", "PlotUnavailable",
+           "dxf_to_pdf", "is_dxf"]

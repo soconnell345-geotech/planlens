@@ -3,10 +3,19 @@
 Every DXF here is made up and drawn by the test with ezdxf.
 """
 
+import importlib.util
+
 import pytest
 
 ezdxf = pytest.importorskip("ezdxf")
 pymupdf = pytest.importorskip("pymupdf")
+
+#: ezdxf's drawing add-on imports Pillow, which planlens does not require:
+#: the tests that make a plot are skipped where it is not installed
+#: (``test_dr19_plot_bounds.py`` covers what is said then).
+needs_pillow = pytest.mark.skipif(
+    importlib.util.find_spec("PIL") is None,
+    reason="plotting a DXF needs Pillow (ezdxf's drawing add-on)")
 
 from planlens.dxf.plot import (  # noqa: E402
     MARGIN_MM, MAX_SIDE_MM, dxf_to_pdf, is_dxf)
@@ -41,6 +50,7 @@ def _union(page):
     return out
 
 
+@needs_pillow
 def test_the_plot_is_one_page_fitted_inside_its_margin(tmp_path):
     pdf = dxf_to_pdf(filepath=_dxf(tmp_path / "plan.dxf"))
     with pymupdf.open(stream=pdf, filetype="pdf") as doc:
@@ -61,6 +71,7 @@ def test_the_plot_is_one_page_fitted_inside_its_margin(tmp_path):
         assert min(pix.samples) < 128
 
 
+@needs_pillow
 def test_bytes_plot_as_the_file_does(tmp_path):
     path = _dxf(tmp_path / "plan.dxf")
     with open(path, "rb") as fh:
@@ -71,6 +82,7 @@ def test_bytes_plot_as_the_file_does(tmp_path):
     assert len(a[0].get_drawings()) == len(b[0].get_drawings())
 
 
+@needs_pillow
 def test_a_large_drawing_is_scaled_to_fit_the_largest_page(tmp_path):
     pdf = dxf_to_pdf(filepath=_dxf(tmp_path / "site.dxf", width=200000.0,
                                    height=80000.0, text=False))
@@ -81,6 +93,7 @@ def test_a_large_drawing_is_scaled_to_fit_the_largest_page(tmp_path):
         assert page.get_drawings()
 
 
+@needs_pillow
 def test_nothing_to_plot_and_not_a_dxf(tmp_path):
     empty = ezdxf.new()
     empty.saveas(str(tmp_path / "empty.dxf"))

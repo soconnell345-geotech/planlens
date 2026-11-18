@@ -6,10 +6,19 @@ Every other toolkit and host is answered as before.
 
 import json
 
+import importlib.util
+
 import pytest
 
 ezdxf = pytest.importorskip("ezdxf")
 pymupdf = pytest.importorskip("pymupdf")
+
+#: ezdxf's drawing add-on imports Pillow, which planlens does not require:
+#: the tests that make a plot are skipped where it is not installed
+#: (``test_dr19_plot_bounds.py`` covers what is said then).
+needs_pillow = pytest.mark.skipif(
+    importlib.util.find_spec("PIL") is None,
+    reason="plotting a DXF needs Pillow (ezdxf's drawing add-on)")
 
 from planlens import review  # noqa: E402
 from planlens.dxf.plot import PLOT_NOTE  # noqa: E402
@@ -40,6 +49,7 @@ def test_a_toolkit_that_did_not_ask_refuses_a_dxf_as_before(tmp_path):
     assert out["error"].startswith(f"could not open '{path}' as a PDF")
 
 
+@needs_pillow
 def test_a_toolkit_that_asks_opens_a_plot_the_page_tools_read(tmp_path):
     path, data = _dxf_bytes(tmp_path)
     kit = ReviewToolkit(dxf_plots=True)
@@ -90,6 +100,7 @@ def test_a_host_that_did_not_ask_is_answered_as_before(tmp_path):
     assert refused["error"].startswith("'site.dxf' is a DXF drawing")
 
 
+@needs_pillow
 def test_a_host_that_asks_gets_the_page_tools_on_a_plot(tmp_path):
     _path, data = _dxf_bytes(tmp_path)
     att = {"site.dxf": data}
