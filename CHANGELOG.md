@@ -16,7 +16,10 @@
   layer). Where the index took a number from the PDF's page label and
   not from a reading of the sheet (a scan), its `sheet_pages` row says
   so (`from`). `sheets` on a Word, Excel or DXF file is refused: those
-  have no sheet index. Without the
+  have no sheet index. In the toolkit's specs `page` is then no longer
+  required where `sheet` may stand for it, and the host layer's
+  `find_like` takes neither `sheets` nor `sheet`
+  (`planlens.review.specs.NO_SHEET_ARGS`). Without the
   sheet tools every spec and result is what it was
   (`planlens/tools/sheet_addresses.py`;
   `tools/tests/test_pl37_sheet_addresses.py`,
@@ -67,7 +70,12 @@
   conversation's hosts share gives one that answers for the calling host,
   and a plot is kept under a key of its own, so a host that did not ask
   is never handed a plot, neither through a name its resolver maps to a
-  DXF nor one another host opened. Off by default at both levels: a
+  DXF nor one another host opened. The host layer's `find_like` is
+  not one of those page tools: it reads the file's own bytes and fails to
+  open a DXF for every host, as in 0.16.0. Marks on a plot go on a new
+  PDF: `annotate_document` refuses an `output_path` that is the DXF the
+  plot was made from, and `ReviewToolkit.forget(path)` (so
+  `forget_path`) closes the plot made from that file. Off by default at both levels: a
   toolkit or host that does not ask is answered as before (a test
   compares the open result with and without it).
 - **The drawing-geometry layer as a tool an agent can reach for (app
@@ -211,6 +219,20 @@
   the table's own lines in those bands are not compared), and two pages
   where a line of text has no place on the page. Rows and ids are
   unchanged. Off by default.
+- **New public names not named above.** `planlens.tools`:
+  `DRAWING_TOOL_SPECS`, `ReviewToolkit.DRAWING_TOOLS`,
+  `toolkit.pages_as_given` (the page argument as the caller gave it, for a
+  refusal's words). `planlens.review.specs`: `DRAWING_TOOLS`,
+  `PLAN_SHOWN_FROM_TOOLKIT`, `DRAWING_SHOWN_FROM_TOOLKIT`, `NO_SHEET_ARGS`,
+  `sheet_args`, `host_arg_names`; `input_schema` takes `sheet_tools`, and
+  `host_tool_names` / `host_specs` take `plan_tools` and `drawing_tools`
+  (all `False` unless given). `planlens.document`: the modules
+  `drawing_geometry` and `continued_tables`, `roles.CAPTION_MAX_WORDS`, and
+  `roles.outline_from(..., captions_on_every_page=False)`.
+  `planlens.dxf.minsert.minsert_cells`. Nothing that 0.16.0 published was
+  removed or renamed, and no call that worked needs a new argument (the
+  release review compared every public name and signature of the two
+  trees).
 - **Repair: a box a vision answer writes in page units is no longer
   converted as if it were pixels (app BACKLOG VIS-24).** A box with a page
   unit written right after it is the model's own estimate in the page's
