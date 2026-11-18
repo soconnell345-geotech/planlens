@@ -1817,6 +1817,29 @@ get a share of the limit, and what does not fit is counted
 (`not_indexed_left_out`, `notes_left_out`), so the result fits any limit
 and the rows page on.
 
+**Sheet numbers as addresses** (unreleased, app BACKLOG PL-37;
+`planlens/tools/sheet_addresses.py`). With the sheet tools served, every
+toolkit tool that takes `pages` also takes `sheets` ("S-201" or
+"S-201, A-101", or a list), and every one that takes `page` also takes
+`sheet`; `page` is then not required where `sheet` may stand for it. The
+toolkit turns them into the pages the index reads those numbers on before
+the tool runs, and the result says which (`sheet_pages`: sheet and page,
+added only while it fits the limit). The rule is the index's own
+`normalize_number`: case and spaces aside, the number must be the number
+read. Refused, with words, never guessed: a number the index does not hold
+(the refusal lists the numbers it holds, says how many sheets were not
+indexed and where, and names a number of the same letters and digits
+printed otherwise, "S201 -> S-201", without taking it); a number read on
+more than one page (its pages, both ways of counting); any number at all
+where the index holds none (a set of scans); `pages` given beside it that
+names other pages; and two numbers in `sheet`. A toolkit without the sheet
+tools is specified and answers byte for byte as before: no such argument
+in its specs, and a call that gives one is refused as an unknown argument.
+In the host layer the calling host decides, as for the sheet tools
+themselves (`sheets_at_open`); `find_like` there takes no sheet number (it
+reads an attachment's bytes, with no handle whose index could say where a
+sheet is), nor does a markup's `page` in `annotate_document`.
+
 **What it does not do, and where it will be wrong.**
 - It has been run only on made-up sheets (planlens' fixture and the app's
   coordination set). No figure here says how it does on real drawing sets.

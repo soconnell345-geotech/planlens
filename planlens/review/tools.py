@@ -113,7 +113,7 @@ def _document_args(name: str, a: Dict[str, Any]) -> Dict[str, Any]:
     if name in _specs.PLAN_TOOLS:
         # what was given, no more: the toolkit's defaults apply to the rest
         # (pdf_page is turned into page by the dispatcher)
-        return {arg: a[arg] for arg, _f, _d in _specs._ARGS[name]
+        return {arg: a[arg] for arg in _specs.host_arg_names(name, True)
                 if a.get(arg) not in (None, "")}
     if name == "document_structure":
         return {"handle": a.get("handle"), "offset": a.get("offset", 0)}
@@ -157,6 +157,9 @@ def _document_args(name: str, a: Dict[str, Any]) -> Dict[str, Any]:
             args["status"] = a["status"]
     if given("pages"):
         args["pages"] = a["pages"]
+    if a.get("sheets") not in (None, "", [], ()):
+        # only a host that asked for the sheet tools gets this far with it
+        args["sheets"] = a["sheets"]
     return _with_pdf_pages(args, a.get("pdf_pages"))
 
 
@@ -172,8 +175,8 @@ def call(name: str, arguments: Optional[Dict[str, Any]] = None,
         with using(host):
             return call(name, arguments, attachments, max_chars)
     a = dict(arguments or {})
-    unknown = sorted(set(a) - {arg for arg, _f, _d in
-                               _specs._ARGS.get(name, ())})
+    unknown = sorted(set(a) - set(_specs.host_arg_names(
+        name, sheet_tools=_sheet_tools(_host()))))
     if name not in tool_names():
         return json.dumps({"error": f"unknown tool '{name}'",
                            "hint": f"available tools: {list(tool_names())}"})

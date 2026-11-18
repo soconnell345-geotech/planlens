@@ -53,21 +53,27 @@ def test_a_host_that_asks_is_offered_them_after_the_others(gt):
         BEFORE + specs.LOOK_TOOLS + SHEET_TOOLS
     shown = {s["name"]: s for s in review.tool_specs()}
     assert list(shown) == list(BEFORE + SHEET_TOOLS)
-    # the tools every host has are specified word for word as before
-    assert {n: s for n, s in shown.items() if n not in SHEET_TOOLS} == plain
+    # the tools every host has are specified word for word as before, but
+    # for the sheet numbers taken beside pages (PL-37,
+    # test_pl37_sheet_addresses_host.py)
+    for n, s in shown.items():
+        if n not in SHEET_TOOLS:
+            s = json.loads(json.dumps(s))
+            s["input_schema"]["properties"].pop("sheets", None)
+            assert s == plain[n]
     index = shown["sheet_index"]["input_schema"]
     assert index["required"] == ["handle"]
     assert list(index["properties"]) == ["handle", "offset"]
     check = shown["check_cross_references"]["input_schema"]
     assert check["required"] == ["handle"]
     assert list(check["properties"]) == ["handle", "pages", "status",
-                                         "offset", "pdf_pages"]
+                                         "offset", "pdf_pages", "sheets"]
     assert "title blocks" in shown["sheet_index"]["description"]
     assert "unresolved" in shown["check_cross_references"]["description"]
     marks = shown["check_schedule_marks"]["input_schema"]
     assert marks["required"] == ["handle"]
     assert list(marks["properties"]) == ["handle", "pages", "status",
-                                         "offset", "pdf_pages"]
+                                         "offset", "pdf_pages", "sheets"]
     assert "no_row" in shown["check_schedule_marks"]["description"]
     openai = review.tool_specs("openai")
     assert openai[-1]["function"]["name"] == "check_schedule_marks"

@@ -73,8 +73,13 @@ def test_the_sheet_tools_are_offered_only_when_asked_for(gt):
     assert plain.sheet_tools is False
     assert plain.tool_names == published
     assert asked.tool_names == published + SHEET_TOOLS
-    for style in ("anthropic", "openai", "plain"):
-        assert asked.specs(style)[:len(published)] == plain.specs(style)
+    # the published tools as before, but for the sheet numbers taken where
+    # a page is (PL-37, test_pl37_sheet_addresses.py)
+    from planlens.tools.sheet_addresses import with_sheet_args
+    assert asked.specs("plain")[:len(published)] == \
+        [with_sheet_args(s) for s in plain.specs("plain")]
+    assert [s["input_schema"] for s in asked.specs()[:len(published)]] == \
+        [with_sheet_args(s)["parameters"] for s in plain.specs("plain")]
     assert [s["name"] for s in asked.specs()[-3:]] == SHEET_TOOLS
     for spec in asked.specs()[-3:]:
         assert spec["input_schema"]["required"] == ["handle"]

@@ -37,6 +37,7 @@ the binding to its agent.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -160,7 +161,8 @@ def _refused_opt_in(name: str) -> Optional[str]:
 
 
 def _call_kit(kit, name: str, arguments: Dict[str, Any],
-              max_chars: Optional[int]) -> str:
+              max_chars: Optional[int],
+              as_given: Optional[Dict[str, Any]] = None) -> str:
     """``kit.call_json``, with ``open_document`` adding the sheet index and
     the schedule check only for a CALLING host that asked for the sheet
     tools: the conversation's toolkit is shared (built with them), so the
@@ -170,7 +172,14 @@ def _call_kit(kit, name: str, arguments: Dict[str, Any],
         from planlens.tools.toolkit import sheets_at_open
     except ImportError:                       # an older planlens.tools
         return kit.call_json(name, arguments, max_chars=max_chars)
-    with sheets_at_open(_asked_for_sheet_tools(_host())):
+    try:
+        from planlens.tools.toolkit import pages_as_given
+    except ImportError:                       # an older planlens.tools
+        pages_as_given = contextlib.nullcontext
+    # ``as_given``: the 1-based page arguments the caller gave, so a refusal
+    # that names a page argument names that one (PL-37)
+    with sheets_at_open(_asked_for_sheet_tools(_host())), \
+            pages_as_given(as_given):
         return kit.call_json(name, arguments, max_chars=max_chars)
 
 
@@ -434,6 +443,10 @@ def dispatch_document_tool(name: str, arguments: Dict[str, Any],
         if name not in space.kit.tool_names:
             return _unknown_tool(name)
         arguments = dict(arguments or {})
+        as_given = {page_arg: (pdf_arg, arguments[pdf_arg])
+                    for pdf_arg, page_arg in (("pdf_pages", "pages"),
+                                              ("pdf_page", "page"))
+                    if arguments.get(pdf_arg) not in (None, "", [], ())}
         one_based, refused = _one_based_pages(arguments)
         if refused is not None:
             return refused
@@ -447,7 +460,8 @@ def dispatch_document_tool(name: str, arguments: Dict[str, Any],
         tally = [0.0]
         lock_token = _LOCK_WAIT.set(tally)
         try:
-            out = _call_kit(space.kit, name, arguments, max_chars)
+            out = _call_kit(space.kit, name, arguments, max_chars,
+                            as_given)
         finally:
             _LOCK_WAIT.reset(lock_token)
             _report_lock_wait(name, tally[0])
@@ -1282,6 +1296,20 @@ def _side_document(name: str, arguments: Dict[str, Any],
             "error": f"'{shown}' is {what}: it has no pages here, so "
                      f"{name} does not apply to it.",
             "hint": hint}, ensure_ascii=False)
+    given = arguments.get("sheets")
+    if given not in (None, "", [], ()) and _asked_for_sheet_tools(_host()):
+        # PL-37: a sheet number is refused, never dropped; and a workbook's
+        # worksheets are not the sheets a sheet index holds. A host that
+        # did not ask is answered as before.
+        return json.dumps({
+            "error": f"sheets {given!r}: '{shown}' is read as text, with no "
+                     f"pages and no sheet index, so nothing in it is found "
+                     f"by a printed sheet number (a workbook's worksheets "
+                     f"are not sheets here)",
+            "hint": f"leave sheets out: read_document(handle='{shown}', "
+                    f"start_line=...) reads it by line and "
+                    f"search_document(handle='{shown}', pattern=...) finds "
+                    f"lines in it"}, ensure_ascii=False)
     try:
         read = _side_read(source)
     except Exception as exc:  # noqa: BLE001 - ToolError / OfficeReadError

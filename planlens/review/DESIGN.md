@@ -87,7 +87,11 @@ and a host that did not is answered "unknown tool" with its own tool names,
 exactly as each is offered them. Any name the toolkit does not have is
 answered the same way, with the calling host's list, never the toolkit's.
 The conversation's toolkit is built with them on, so the order of the
-calls does not matter.
+calls does not matter. A host that asked is also offered `sheets` beside
+`pages` (and `sheet` beside `page` on the plan tools) after its other
+arguments (`specs.sheet_args`, app BACKLOG PL-37): printed sheet numbers,
+turned into pages by the toolkit's sheet index; every other host is
+offered, and refused, them as before (`specs.host_arg_names`).
 
 The plan tools (`plan_symbols`, `plan_grid`; see
 `planlens/document/DESIGN.md` on plan locations) are offered the same way

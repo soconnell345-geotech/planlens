@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Sheet numbers where a page is taken, for a host that asks for the
+  sheet tools (app BACKLOG PL-37).** With `sheet_tools=True` (or, in the
+  host layer, `ReviewHost(toolkit_options={"sheet_tools": True})`), a tool
+  that takes `pages` also takes `sheets` ("S-201, A-101") and one that
+  takes `page` also takes `sheet`: the toolkit finds the pages the sheet
+  index reads those numbers on, and the result says which
+  (`sheet_pages`). A number the index holds on more than one page, or not
+  at all, is refused with words that say so (naming a near form such as
+  "S201 -> S-201" without taking it); nothing is guessed. Without the
+  sheet tools every spec and result is what it was
+  (`planlens/tools/sheet_addresses.py`;
+  `tools/tests/test_pl37_sheet_addresses.py`,
+  `review/tests/test_pl37_sheet_addresses_host.py`).
 - **The page map's sheet number follows the sheet index once it is made
   (app BACKLOG PL-41).** Read on its own, a page took a labelled number
   anywhere in its title-block area, so a reference-drawings table listing
