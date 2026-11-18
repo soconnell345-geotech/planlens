@@ -571,13 +571,15 @@ def from_dxf(filepath: str = None, content: bytes = None,
                     # of an empty block walks no block entity, so the
                     # entity budget alone would not stop it.
                     it = iter(cells)
+                    n_here = 0   # cells of THIS array expanded
                     while True:
                         if (n_placed >= max_block_entities
                                 or n_visited >= max_block_entities):
                             _warn_once(
                                 f"MINSERT '{bname}' places {mcount} copies;"
                                 f" expansion stopped at the "
-                                f"{max_block_entities}-entity budget; the "
+                                f"{max_block_entities}-entity budget after "
+                                f"{n_here} of them; the "
                                 f"remaining copies are omitted.")
                             break
                         try:
@@ -591,9 +593,16 @@ def from_dxf(filepath: str = None, content: bytes = None,
                                 f"{exc}")
                             break
                         n_placed += 1
+                        n_here += 1
                         _handle(cell, block=block, depth=depth,
                                 inherit_layer=inherit_layer)
-                    return
+                    if n_here:
+                        return
+                    # The budget was spent before this array's first
+                    # cell: fall through and read it as the single
+                    # reference ezdxf resolves (the first cell), as any
+                    # INSERT met after the budget is read. Its ATTRIBs
+                    # still arrive; the walk below stops at the budget.
                 for attrib in getattr(ent, "attribs", ()) or ():
                     # Per-ATTRIB guard, for the same reason the virtual
                     # entities below get one: one unreadable attribute

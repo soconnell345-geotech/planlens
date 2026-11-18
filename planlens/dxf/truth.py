@@ -294,14 +294,15 @@ def _walk_block(insert, top_name: str, out: Dict[str, List[Dict[str, Any]]],
         # transform), as ``planlens.ir.from_dxf`` expands it, with the same
         # space-wide cap on the cells.
         it = iter(cells)
+        n_here = 0   # cells of THIS array walked
         while True:
             if (state["placed"] >= max_block_entities
                     or state["visited"] >= max_block_entities):
                 _warn_once(state,
                            f"MINSERT '{bname}' places {mcount} copies; "
                            f"expansion stopped at the {max_block_entities}"
-                           f"-entity budget; the remaining copies are "
-                           f"omitted.")
+                           f"-entity budget after {n_here} of them; the "
+                           f"remaining copies are omitted.")
                 break
             try:
                 cell = next(it)
@@ -312,9 +313,14 @@ def _walk_block(insert, top_name: str, out: Dict[str, List[Dict[str, Any]]],
                     f"MINSERT '{bname}' expansion truncated: {exc}")
                 break
             state["placed"] += 1
+            n_here += 1
             _walk_block(cell, top_name, out, state, max_block_entities,
                         depth, inherit_layer=inherit_layer)
-        return
+        if n_here:
+            return
+        # The budget was spent before this array's first cell: fall through
+        # and walk it as the single reference ezdxf resolves (the first
+        # cell), as the ingest side does.
     ins_layer = insert.dxf.get("layer", "0") or "0"
     if ins_layer == "0" and inherit_layer is not None:
         ins_layer = inherit_layer

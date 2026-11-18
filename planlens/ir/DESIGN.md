@@ -152,8 +152,10 @@ so.
   direction is walked once (`multi_insert()` loops rows x columns and skips
   the repeats, about 1e9 steps for a 32767 x 32767 array).
 - **The cap:** cells are counted file-wide against `max_block_entities`, and
-  the expansion stops, with a warning, once the cells or the walked block
-  entities reach it. An array of an empty block walks no block entity, so
+  the expansion stops, with a warning that counts the copies of that array
+  that arrived, once the cells or the walked block entities reach it. An
+  array met after the budget is spent is read as its first cell, as before
+  the expansion existed (its ATTRIBs arrive, like any INSERT's). An array of an empty block walks no block entity, so
   the entity budget alone would not stop it; 20 arrays of a million cells
   each ingest in a few seconds.
 
