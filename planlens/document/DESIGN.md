@@ -97,7 +97,27 @@ against `ir_to_page_point` on a rotated page.
   there are enough of them the page is marked **`text_reliable = False`** —
   see "An unreliable text layer" below.
 - Order is content-stream order: reading order for word-processor output,
-  drafting order for CAD plots. No reading-order reconstruction yet.
+  drafting order for CAD plots. No reading-order reconstruction by default.
+- **A page whose order runs across its columns says so (PL-09).** Some
+  writers draw a page set in columns row by row: left line 1, right line 1,
+  left line 2. `reading_order.order_runs_across_columns` finds it and the
+  page carries the warning "reading order not reconstructed: the text is
+  set in N columns and the file draws its lines across them ..."; the
+  lines are unchanged. Columns are measured on lines of prose only (20
+  characters and four words, horizontal): a gap at least 0.6 of a line
+  height wide that no more than a fifth of them cross, four lines a side,
+  the sides beside each other (half the shorter height overlapping), each
+  column's lines sharing a left or a right edge (three fifths of them,
+  within 3 pt). The order runs across when consecutive prose lines sit in
+  different columns ON THE SAME ROW at least four times and for a quarter
+  of the column lines; a page drawn column by column changes column only
+  at the foot of one, never on a row. A table read row by row (short
+  cells), side headings beside their paragraphs and notes scattered over a
+  drawing (no shared edge) carry no warning.
+  `reading_order.column_order(lines)` is the new reading, for a host that
+  asks: the same lines (ids unchanged), each column top to bottom, a line
+  over the columns a break between the runs above and below it. Nothing
+  calls it by default.
 
 ## Markups
 
@@ -2114,8 +2134,10 @@ noise that rule costs. And the rows of short marks drawn nowhere.
 - RapidOCR (`planlens.ocr`) as a text source (it currently emits IR TextItems).
 - The drawing tools (digitize / query / snip / search a drawing set) as
   planlens tools — the app's drawing adapter still owns them.
-- Headings from the PDF text layer; multi-column reading order; figure
-  and caption detection; tables spanning pages.
+- Headings from the PDF text layer; figure and caption detection; tables
+  spanning pages. Multi-column reading order is said where the file's
+  order runs across the columns, and read by `column_order` for a host
+  that asks (PL-09); the page a tool shows keeps the file's order.
 - A `dcp_log` that survives a scan (see "Page roles and work items"), and
   roles for the in-situ tests the vocabulary has no word for (pressuremeter,
   vane, dilatometer), which are answered `other` today.

@@ -71,6 +71,17 @@
   file's documents through `ReviewToolkit.forget` instead of reaching into
   the toolkit's private entries; it also closes a document opened under
   that exact name.
+- **A page set in columns whose file draws the lines across them says so
+  (app BACKLOG PL-09).** Lines come in the order the file draws them. Some
+  writers draw a page of two or three columns row by row, so its lines
+  alternated between the columns and nothing said so. Such a page now
+  carries the warning "reading order not reconstructed: the text is set in
+  N columns and the file draws its lines across them ...", in
+  `PageContent.warnings` and so on the page a tool shows. The lines are
+  unchanged, and a page drawn column by column, a table read row by row
+  or notes scattered over a drawing carry no warning.
+  `planlens.document.reading_order.column_order(lines)` reads such a page
+  column by column for a host that asks; nothing calls it by default.
 
 ## 0.16.0 — 2026-11-17
 

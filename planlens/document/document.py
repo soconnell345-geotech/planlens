@@ -41,6 +41,9 @@ from planlens.document.model import (
     TextBlock, TextLine,
 )
 from planlens.document.pdf_text import MAX_UNMAPPED_FRACTION, extract_text
+from planlens.document.reading_order import (
+    across_columns_warning, order_runs_across_columns,
+)
 from planlens.document.scale import page_viewports
 from planlens.document.search_text import find_spans, fold, readings
 from planlens.document.structure import (
@@ -797,6 +800,11 @@ class Document:
             warnings.append(
                 f"{stats['n_unmapped_chars']} characters use a font with no "
                 f"Unicode map and read as U+FFFD — OCR this page for them")
+        n_columns = order_runs_across_columns(lines)
+        if n_columns:
+            # The lines stay as the file draws them; the page says that this
+            # order shuffles its columns together (PL-09).
+            warnings.append(across_columns_warning(n_columns))
         table_list = []
         if src_tables is not None:
             table_list = list(src_tables)
