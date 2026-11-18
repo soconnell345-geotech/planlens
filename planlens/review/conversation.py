@@ -201,9 +201,12 @@ def _new_toolkit(folder: Optional[str]):
     kw["sheet_tools"] = True
     # and the drawing tools, each call deciding the same way
     kw["drawing_tools"] = True
-    # and a DXF's plot: only a calling host that asked gets a DXF past
-    # :func:`_side_document` to the toolkit
-    kw["dxf_plots"] = True
+    # and a DXF's plot, asked of the CALLING host at each open: a file is
+    # a DXF to :func:`_side_document` by the name the model gave and to the
+    # toolkit by the path it resolves to as well, so a host that did not
+    # ask could reach the toolkit with one (a name its resolver maps to a
+    # .dxf path) and must still be answered as before
+    kw["dxf_plots"] = lambda: _asked_for_dxf_plots(_host())
     # the plan tools are the toolkit's own for every toolkit; asking for
     # them is this layer's option, not the toolkit's
     kw.pop("plan_tools", None)

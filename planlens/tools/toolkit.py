@@ -428,7 +428,9 @@ class ReviewToolkit:
         its model space (:func:`planlens.dxf.plot.dxf_to_pdf`; BACKLOG
         DR-19), so the page tools can look at it; ``open_document`` then
         says what the plot is (``plot``). Off by default: a DXF is refused
-        as before.
+        as before. A callable is asked at each open (a host layer whose
+        toolkit is shared by hosts that did and did not ask gives one that
+        answers for the calling host).
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -445,7 +447,7 @@ class ReviewToolkit:
                  look: Optional[Look] = None,
                  sheet_tools: bool = False,
                  drawing_tools: bool = False,
-                 dxf_plots: bool = False):
+                 dxf_plots: Any = False):
         from planlens.document.budget import resolve_budget
         if max_chars < 1000:
             raise ValueError("max_chars below 1000 cannot hold a useful result")
@@ -467,7 +469,8 @@ class ReviewToolkit:
         #: Whether the drawing tools are offered (:data:`DRAWING_TOOLS`).
         self.drawing_tools = bool(drawing_tools)
         #: Whether a DXF opens as a PDF plot of its model space.
-        self.dxf_plots = bool(dxf_plots)
+        self.dxf_plots = (dxf_plots if callable(dxf_plots)
+                          else bool(dxf_plots))
         #: Pages read for their drawn geometry, by (handle, page): the
         #: document they were read from and its DrawingIR (a few, newest
         #: last), so a second question about a page does not read it again.
@@ -603,6 +606,16 @@ class ReviewToolkit:
     def open(self, source: str) -> _Entry:
         resolved = self.resolve_source(source)
         key = self._content_key(resolved)
+        in_memory = isinstance(resolved, (bytes, bytearray))
+        from planlens.dxf.plot import is_dxf
+        plots = (self.dxf_plots() if callable(self.dxf_plots)
+                 else self.dxf_plots)
+        plotted = bool(plots) and (
+            is_dxf(source) or (not in_memory and is_dxf(resolved)))
+        if plotted:
+            # a plot is another document than the file it was made from:
+            # an open that does not plot never finds it
+            key += ":dxf-plot"
         with self._guard:
             handle = self._by_key.get(key)
             if handle and handle in self._entries:
@@ -611,15 +624,11 @@ class ReviewToolkit:
             name = os.path.basename(source) or source
             text_source = (self.text_source_for(name, key)
                            if self.text_source_for else None)
-            in_memory = isinstance(resolved, (bytes, bytearray))
             if not (len(resolved) if in_memory
                     else os.path.getsize(resolved)):
                 raise ToolError(
                     f"could not open '{source}': the file is empty (0 bytes)",
                     hint=OPEN_HINTS["empty"])
-            from planlens.dxf.plot import is_dxf
-            plotted = self.dxf_plots and (
-                is_dxf(source) or (not in_memory and is_dxf(resolved)))
             if plotted:
                 resolved = self._dxf_plot(source, resolved, in_memory)
                 in_memory = True
