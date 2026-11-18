@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **The schedule-mark check's four known limits settled (app BACKLOG
+  PL-43).** The check still runs only for a host that asks for the sheet
+  tools; for one that does, it now says nothing definite the text cannot
+  settle. (1) A row is no longer `no_mark` where the schedule's marks
+  found are read only from the hidden text a CAD program keeps with
+  lettering drawn as lines (a tag drawn as lines without it is not read):
+  it is `cannot_tell`, naming the sheets its other marks are on; and a
+  readable sheet with no text outside its title block (its drawing
+  lettered as lines with nothing kept) is taken as unread, like a sheet
+  whose drawing is an image (`ScheduleMarks.unlettered`). (2) A mark with
+  no row is `may_be_on_unread_sheet` wherever a sheet's drawing is not
+  read, not only beside the schedule's pages: a schedule can continue
+  away from its other parts. (3) A row whose mark is one or two
+  characters, drawn alone on no sheet, is `cannot_tell` (it was never
+  looked for); such a mark with no row is still not looked for, since
+  every grid letter would be one. (4) On a sheet showing fewer than two
+  of a schedule's plain-number marks, a number of the form in the
+  lettering the marks have on the sheets that settle it (one lettering,
+  same discipline) is `cannot_tell`, where nothing was said before (a
+  floor whose doors the schedule leaves out). The tool's description says
+  so, which changes the sheet tools' spec text for a host that asks for
+  them only. Measured on made-up sets only; DESIGN says what a first run
+  on a real set should look at.
+
 ## 0.16.0 — 2026-11-17
 
 - **A drawing set's schedules checked against the marks on its sheets,
