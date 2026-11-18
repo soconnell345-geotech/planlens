@@ -15,6 +15,10 @@
   The page map never makes the index itself: without the sheet tools no
   result changes (checked byte for byte against 0.16.0 on 22 made-up
   documents).
+- **OpenCV is bounded below 6 (app BACKLOG PL-16):**
+  `opencv-python-headless>=4.8,<6`. OpenCV 5 arrived through the unbounded
+  pin and the suite passed on it afterwards (5.0.0.93, 2026-10-12); 6 is
+  untested, so taking it is now a decision rather than a discovery.
 
 ## 0.16.0 — 2026-11-17
 

@@ -151,6 +151,12 @@ class TestDependencies:
         # unbounded pin would install a version this server cannot run on.
         assert project["optional-dependencies"]["mcp"] == ["mcp>=2,<3"]
 
+    def test_opencv_is_bounded_below_the_next_major(self):
+        # OpenCV 5 arrived through an unbounded pin and was checked after
+        # the fact; 6 is untested, so taking it is a decision (PL-16).
+        assert "opencv-python-headless>=4.8,<6" in self._project()[
+            "dependencies"]
+
     def test_the_ocr_engine_stays_optional(self):
         # It hard-requires the GUI OpenCV build, which owns the same `cv2`
         # namespace as the headless build core installs.

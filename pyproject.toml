@@ -46,23 +46,25 @@ dependencies = [
     # 0.4.0: it was the `raster` extra, and an install without it read a
     # scanned sheet as an empty drawing.
     #
-    # NO UPPER BOUND, and OpenCV 5 has already walked through the gap: a
-    # Databricks install on 2026-09-11 resolved 5.0.0.93 and nobody decided
-    # that -- it was found by reading an install log. VERIFIED SAFE: the full
-    # suite (792 passed / 1 skipped) was run against OpenCV 5.0.0, and the cv2
-    # surface used here is small and long-stable (imdecode, cvtColor, Canny,
-    # HoughLinesP, HoughCircles, findContours, approxPolyDP, threshold,
-    # medianBlur, rotate); findContours is already unpacked
-    # version-agnostically in ir/raster.py. If you tighten this to ">=4.8,<6"
-    # so the NEXT major is a decision rather than a discovery, that is a
-    # deliberate release, not a drive-by. Triage guide: the app repo's
+    # BOUNDED BELOW 6 (app BACKLOG PL-16), so the next major is a decision
+    # rather than a discovery. It had no upper bound, and OpenCV 5 walked
+    # through the gap: a Databricks install on 2026-09-11 resolved 5.0.0.93
+    # and nobody decided that -- it was found by reading an install log.
+    # OpenCV 5 is VERIFIED SAFE: the full suite (792 passed / 1 skipped) was
+    # run against OpenCV 5.0.0, and again at 0.13.0 on 2026-10-12 against
+    # 5.0.0.93 (1,658 passed / 2 skipped); the cv2 surface used here is
+    # small and long-stable (imdecode, cvtColor, Canny, HoughLinesP,
+    # HoughCircles, findContours, approxPolyDP, threshold, medianBlur,
+    # rotate), and findContours is unpacked version-agnostically in
+    # ir/raster.py. Raising the bound to admit 6 is a deliberate release:
+    # run the suite on it first. Triage guide: the app repo's
     # docs/DATABRICKS_INSTALL.md section 7.
     #
     # The HEADLESS build is deliberate, and the reason `ocr` stays an extra:
     # every rapidocr distribution hard-requires the full GUI opencv-python,
     # which owns the same `cv2` namespace. See the `ocr` note below and the
     # README's "Install" section for the headless --no-deps recipe.
-    "opencv-python-headless>=4.8",
+    "opencv-python-headless>=4.8,<6",
     # Approximate (fuzzy) search over the same candidates the exact search
     # uses. Core since 0.4.0: pure C++ extension, no models, no runtime
     # downloads, ~1 MB. >=3.9 rather than the newest, because 3.9 is the last
