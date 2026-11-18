@@ -254,7 +254,8 @@ recovered with 9 points of margin on the worst (88.9), every absent word still
 silent with 10 points of margin (nothing scored above 70), and a median of 5
 unrelated hits ranked below the answer.
 
-A `min_score` of 0 (outside the 50 to 100 the tool schemas state) is read as
+A `min_score` of 0 (outside the 50 to 100 that the toolkit's and the markup's
+schemas state; the host's search schema gives only the default) is read as
 this default by a markup's quote and by the search of a Word, Excel or DXF
 file, as it always was, and each now says so (a markup's `adjustments`, the
 search's `min_score_note`; app BACKLOG PL-26). A PDF's own search takes the

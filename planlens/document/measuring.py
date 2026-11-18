@@ -1030,8 +1030,8 @@ def _measure_curve(ps, facts, window, centre, pad, at, named, warnings,
         raise ValueError("curve needs at={axis: value}, the axis value to "
                          "read the curve at; every value in at is null")
     if len(given) > 1:
-        raise ValueError(f"at takes ONE axis and its value, {{axis: value}}; "
-                         f"it was given {len(given)} "
+        raise ValueError(f"at takes ONE axis and its value, {{axis: value}}, "
+                         f"e.g. {{'x': 0.3}}; it was given {len(given)} "
                          f"({', '.join(map(str, given))}): measure once for "
                          f"each")
     key, val = next(iter(given.items()))
