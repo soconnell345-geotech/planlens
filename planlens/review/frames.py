@@ -13,6 +13,9 @@ level and the text given to the model (planlens already owns
   size SENT, into boxes on a 0-999 grid over the image, and
   :func:`image_box_to_page` turns a view and a 0-999 box back into a box on
   the page. :func:`px_box_to_page` is the exact conversion with no grid.
+  A box with a page unit written after it (``[..] pt``) is the model's own
+  estimate in the page's units: it is left as written and not read as a
+  place.
 * **How far to trust a location.** A box is only as good as the view it was
   read off: off by up to about a tenth of a whole sheet, a few points from a
   zoom (:func:`location_error`, :func:`precision_note`); a zoom on a box is
@@ -128,6 +131,21 @@ _BOX = re.compile(
     rf"(?P<b>{_NUM})\s*,\s*(?P<c>{_NUM})\s*,\s*(?P<d>{_NUM})\s*[\])]"
     rf"(?P<post>\s*(?:px|pixels?)\b)?", re.IGNORECASE)
 
+#: A page unit written right after a box (app BACKLOG VIS-24): ``[..] pt``,
+#: ``[..] points``, ``[..] in PDF points``, ``[..] PDF-view pt``, ``[..]
+#: (page coordinates)``. Such a box is the vision model's own estimate in
+#: the page's units, neither a pixel box nor a 0-999 box: it is left as
+#: written (:func:`boxes_to_grid`) and not read as a place
+#: (:func:`answer_boxes`). Not a size ("pt lettering") or the verb ("points
+#: to").
+_PAGE_UNIT_AFTER = re.compile(
+    r"\s*[)\]}]?\s*\(?\s*(?:in\s+)?"
+    r"(?:(?:(?:pdf|page)(?:[\s-]+[a-z]+)?[\s-]+)?(?:pt|pts|points)\b"
+    r"|(?:pdf|page)[\s-]+(?:units|co-?ordinates|coords|space)\b)"
+    r"(?!\s*(?:font|type|text|letter|lettering|tall|high|size|thick|line|"
+    r"to|towards?|into|away|up|down|north|south|east|west)\b)",
+    re.IGNORECASE)
+
 #: A box value over this cannot be on the 0-999 grid.
 _GRID_MAX = 999.5
 
@@ -205,8 +223,13 @@ def boxes_to_grid(text: str, size: Optional[Sequence[int]],
     ``turn``: the image was sent turned that many degrees clockwise
     (``size`` is its size as sent); each pixel box is turned back, so the
     0-999 box is on the view as the page shows it.
+    A box with a page unit written right after it (``[..] pt``, ``[..] in
+    PDF points``; :data:`_PAGE_UNIT_AFTER`) is left exactly as written,
+    tagged or not: it is the model's own estimate in the page's units, and
+    no conversion from pixels applies to it (app BACKLOG VIS-24).
     Returns the text and ``{"converted": n, "grid": m}`` — the pixel boxes
-    rewritten and the untagged boxes left as grid boxes."""
+    rewritten and the untagged boxes left as grid boxes — with
+    ``"page_units"``: k added when k > 0 such boxes were left."""
     counts = {"converted": 0, "grid": 0}
     if not text or not size:
         return text, counts
@@ -228,6 +251,9 @@ def boxes_to_grid(text: str, size: Optional[Sequence[int]],
     def rewrite(m) -> str:
         if not _is_box(m):
             return m.group(0)
+        if _PAGE_UNIT_AFTER.match(m.string, m.end()):
+            counts["page_units"] = counts.get("page_units", 0) + 1
+            return m.group(0)
         vals = _box_values(m)
         tagged = bool(m.group("pre") or m.group("post"))
         if tagged or (not tagged_only and in_pixels and pixel_shaped(vals)):
@@ -243,25 +269,33 @@ def boxes_note(counts: Dict[str, int], size: Sequence[int],
                turn: int = 0, what: str = "page") -> Optional[str]:
     """What the agent is told about the boxes in an answer, or ``None`` when
     it gave none. ``what`` names the thing looked at (``page``, or
-    ``image`` for an image file)."""
+    ``image`` for an image file). Boxes left as written for the page unit
+    after them (``counts["page_units"]``) are named first."""
     w, h = (int(v) for v in size)
     quarter = int(turn or 0) % 360
+    units = int(counts.get("page_units") or 0)
+    own = (f"{units} box(es) with a page unit written after them (such as "
+           f"pt) were left as the vision call wrote them: its own estimate "
+           f"in page units, not converted from pixels and not on the 0-999 "
+           f"grid" if units else "")
+    lead = f"{own}; " if units else ""
+    other = "other " if units else ""
     if counts.get("converted"):
         left = counts.get("grid") or 0
         turned = (f" (sent turned {quarter} degrees clockwise; each box was "
                   f"turned back, so it is on this view as the {what} shows "
                   f"it)" if quarter else "")
-        return (f"the boxes in this analysis are on the 0-999 grid over this "
-                f"view's image, converted in code from the vision call's "
-                f"pixel boxes on the {w} x {h} px image it was sent{turned}: "
-                f"pass one as image_box with this view"
+        return (f"{lead}the {other}boxes in this analysis are on the 0-999 "
+                f"grid over this view's image, converted in code from the "
+                f"vision call's pixel boxes on the {w} x {h} px image it was "
+                f"sent{turned}: pass one as image_box with this view"
                 + (f" ({left} bracketed list(s) that were not pixel boxes "
                    f"were left as written)" if left else ""))
     if counts.get("grid"):
-        return ("the vision call gave its boxes without units; they are "
-                "taken as 0-999 grid boxes over this view's image — zoom "
-                "before relying on one")
-    return None
+        return (f"{lead}the vision call gave its {other}boxes without units; "
+                "they are taken as 0-999 grid boxes over this view's image "
+                "— zoom before relying on one")
+    return own or None
 
 
 def location_error(view: Sequence[float]) -> Tuple[float, float]:
@@ -375,13 +409,17 @@ def answer_boxes(text: str, view: Sequence[float]
     """``(label, page box)`` for every thing-sized 0-999 box in an answer
     on ``view`` — the label is the words just before the box on its line
     (or the line's words, when none) — in PDF points. Region-sized boxes
-    (:data:`REGION_GRID`) and anything that is not a box are left out."""
+    (:data:`REGION_GRID`), boxes with a page unit written after them (the
+    model's own page numbers, :data:`_PAGE_UNIT_AFTER`) and anything that
+    is not a box are left out."""
     out = []
     for line in str(text or "").splitlines():
         prev = 0
         for m in _GRID_BOX_RE.finditer(line):
             vals = [float(v) for v in m.groups()]
             before, prev = line[prev:m.start()], m.end()
+            if _PAGE_UNIT_AFTER.match(line, m.end()):
+                continue
             x0, y0, x1, y1 = vals
             if not (all(0 <= v <= 999 for v in vals) and x1 > x0 and y1 > y0):
                 continue
