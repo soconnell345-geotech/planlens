@@ -309,3 +309,53 @@ def test_a_box_restricts_the_frame_search_and_reads_the_same():
                        near=list(fx.readings[0].box_pt))
     assert len(near.frames) <= len(find_scales(whole, 0,
                                                values=vals).frames)
+
+
+# -- arguments read as given, or refused (BACKLOG PL-26) -----------------------
+
+def test_an_edge_side_reads_in_any_case_and_left_out_is_the_top():
+    """"Bottom" reads the bottom edge, as "bottom" does (it used to read the
+    top); a side left out reads the top, as before."""
+    fx = build_plan(PlanVariant("m_edge_side"))
+    doc = fx.open()
+    box = list(fx.readings[0].box_pt)
+    top = measure(doc, 0, where=box, kind="edge", side="top", pad=2)
+    bottom = measure(doc, 0, where=box, kind="edge", side="bottom", pad=2)
+    assert bottom["snapped_to"]["at_pt"][1] > top["snapped_to"]["at_pt"][1]
+    assert measure(doc, 0, where=box, kind="edge", side=" Bottom ",
+                   pad=2) == bottom
+    assert measure(doc, 0, where=box, kind="edge", side=None, pad=2) == top
+    assert measure(doc, 0, where=box, kind="edge", pad=2) == top
+
+
+def test_an_unknown_edge_side_is_refused_naming_the_four():
+    fx = build_plan(PlanVariant("m_edge_bad"))
+    doc = fx.open()
+    box = list(fx.readings[0].box_pt)
+    with pytest.raises(ValueError,
+                       match="'top', 'bottom', 'left', 'right'.*'lower'"):
+        measure(doc, 0, where=box, kind="edge", side="lower", pad=2)
+    # side means nothing to another kind, and is not looked at there
+    assert measure(doc, 0, where=box, kind="line", side="lower", pad=2) == \
+        measure(doc, 0, where=box, kind="line", pad=2)
+
+
+def test_a_curve_reads_one_axis_value_and_refuses_two():
+    fx = build_plot(PlotVariant("m_at_keys", "log_y"))
+    doc = fx.open()
+    vals = _values(fx, doc)
+    rd = next(r for r in fx.readings if r.kind == "curve")
+    k, v = next(iter(rd.at.items()))
+    axis = k.split(".")[-1]
+    one = measure(doc, 0, where=list(rd.box_pt), kind="curve",
+                  at={axis: v}, pad=3, values=vals)
+    other = "y" if axis != "y" else "x"
+    # a key left null (a filled-in form of the call) is not a second value
+    assert measure(doc, 0, where=list(rd.box_pt), kind="curve",
+                   at={other: None, axis: v}, pad=3, values=vals) == one
+    with pytest.raises(ValueError, match="ONE axis"):
+        measure(doc, 0, where=list(rd.box_pt), kind="curve",
+                at={axis: v, other: 1.0}, pad=3, values=vals)
+    with pytest.raises(ValueError, match="every value in at is null"):
+        measure(doc, 0, where=list(rd.box_pt), kind="curve",
+                at={axis: None}, pad=3, values=vals)

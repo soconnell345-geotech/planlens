@@ -410,6 +410,14 @@ class MarkupSpec:
             notes.append("label_reads was ignored: it says which way a "
                          "label reads, and this markup has no label")
             reads = None
+        if (raw.get("quote") and "min_score" in raw
+                and raw["min_score"] is not None and not raw["min_score"]):
+            # A score of 0 has always been read as the default; the caller
+            # is now told (BACKLOG PL-26).
+            notes.append(f"min_score {raw['min_score']!r} was read as the "
+                         f"default, {DEFAULT_FUZZY_MIN_SCORE}: it is the "
+                         f"lowest fuzzy score (50 to 100) the quote may "
+                         f"match at when it is not on the page exactly")
         return cls(
             kind=kind,
             page=page,

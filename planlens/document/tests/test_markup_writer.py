@@ -837,3 +837,22 @@ def test_a_label_goes_where_it_covers_no_lettering(tmp_path, rot):
     assert _ink_fraction(_ink_grid(page, lb), lb) == 0.0
     assert _gap(lb, row.bbox) <= LABEL_GAP + 1.0
     doc.close()
+
+
+# -- a fuzzy score of 0 (BACKLOG PL-26) ----------------------------------------
+
+def test_a_quote_min_score_of_zero_is_read_as_the_default_and_said():
+    spec = MarkupSpec.from_dict({"kind": "highlight", "page": 0,
+                                 "comment": "x", "quote": "PILE TIP",
+                                 "min_score": 0})
+    assert spec.min_score == 80
+    assert any("min_score 0 was read as the default, 80" in n
+               for n in spec.adjustments)
+    given = MarkupSpec.from_dict({"kind": "highlight", "page": 0,
+                                  "comment": "x", "quote": "PILE TIP",
+                                  "min_score": 90})
+    assert given.min_score == 90 and not given.adjustments
+    # no quote, no fuzzy match: nothing to say
+    boxed = MarkupSpec.from_dict({"kind": "box", "page": 0, "comment": "x",
+                                  "bbox": [1, 1, 5, 5], "min_score": 0})
+    assert boxed.min_score == 80 and not boxed.adjustments
