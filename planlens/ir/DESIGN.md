@@ -134,7 +134,12 @@ sheets rather than following the inheritance. Entities drawn on an explicit laye
 
 A **MINSERT** (one INSERT placing its block on a row/column grid) is expanded
 into one plain INSERT per grid cell (`planlens.dxf.minsert`), each ingested as
-a single reference with its own copy of the ATTRIBs. Until 2026-11-18 only the
+a single reference with its own copy of the ATTRIBs. An ATTRIB's points are in
+the ATTRIB's own OCS, which need not be the reference's (a reference extruded
+(0, 0, -1) can carry an ATTRIB extruded (0, 0, 1)): where the two extrusions
+differ the grid step goes through the WCS, which `multi_insert()` does not do,
+so the attribute follows each cell where it would land mirrored about the
+first; with equal extrusions the step is added as it stands. Until 2026-11-18 only the
 first cell arrived (`virtual_entities()` resolves no more) and a warning said
 so.
 
@@ -155,7 +160,9 @@ so.
   the expansion stops, with a warning that counts the copies of that array
   that arrived, once the cells or the walked block entities reach it. An
   array met after the budget is spent is read as its first cell, as before
-  the expansion existed (its ATTRIBs arrive, like any INSERT's). An array of an empty block walks no block entity, so
+  the expansion existed (its ATTRIBs arrive, like any INSERT's; no cell is
+  copied, so the cap on work holds), in the ingest and in
+  `planlens.dxf.truth` alike. An array of an empty block walks no block entity, so
   the entity budget alone would not stop it; 20 arrays of a million cells
   each ingest in a few seconds.
 
@@ -559,7 +566,25 @@ Two, as of planlens 0.4.0 (the toolkit's tool list grew to 17 by 0.14.0):
   (lettering drawn as lines: values come back empty), or mostly a picture
   (pictures cover half the page or more). A page with no drawn entity at
   all is refused with a hint to read it by looking. Lengths stay in PDF
-  points (`measure` with a scale converts). Not ported, on purpose:
+  points (`measure` with a scale converts). A dimension's `value` and a
+  leader's `text` are the text-layer text the finder found NEAREST the
+  dimension line's middle or the leader's tail, within a reach sized off
+  the sheet's typical line, which on a sheet of long lines is far: a
+  dimension lettered in strokes can come back with a note 150 pt away as
+  its value. So each row that has a text carries the finder's own
+  `text_distance`, rounded to 0.1 pt, as `value_offset_pt` (a dimension)
+  or `text_offset_pt` (a leader), and when any row has one a note
+  (`TIED_TEXT_NOTE`) says the text is the nearest one and that one set
+  much farther off than the lettering is tall is likely another note. No
+  threshold is set here: where to stop calling a text the value is the
+  finder's design (`planlens.ir.queries`). A kind asked for that comes
+  back empty is named in a note (`NONE_FOUND_NOTE`: "none found
+  (dimensions, title block) does not show the sheet has none ..."): a
+  dimension or a leader is known by a filled arrowhead sized against the
+  sheet's typical line length, so dimensions ended with tick marks or
+  open arrows, very short ones, and any on a sheet of mostly short
+  strokes are not found, and the note says to look at a render before
+  saying there is none. Not ported, on purpose:
   `digitize_drawing` / `query_drawing` / `get_entities` (the IR's entity
   ids and raw slices are noise to a reviewer; the finders' rows are what
   it argues about), `snip_region` (`render_region` is the toolkit's) and

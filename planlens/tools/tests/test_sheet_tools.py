@@ -86,6 +86,12 @@ def test_the_sheet_tools_are_offered_only_when_asked_for(gt):
         assert "handle" in spec["input_schema"]["properties"]
     assert asked.specs("openai")[-1]["function"]["name"] == \
         "check_schedule_marks"
+    # the openai style wraps each tool's plain definition, whole
+    openai = asked.specs("openai")
+    assert len(openai) == len(asked.specs("plain"))
+    for i, spec in enumerate(asked.specs("plain")):
+        assert openai[i]["type"] == "function"
+        assert openai[i]["function"] == spec, spec["name"]
 
 
 def test_a_toolkit_that_did_not_ask_refuses_them_and_answers_as_before(gt):

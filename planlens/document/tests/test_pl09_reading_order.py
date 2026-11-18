@@ -1,7 +1,8 @@
 """PL-09: a page set in columns whose file draws the lines ROW by row says so
-in its warnings (a repair: the lines handed are unchanged), and
-``column_order`` reads such a page column by column for a host that asks.
-Made-up pages and wording only."""
+in its warnings for a host that asks (``Document(..., column_warning=True)``,
+off by default; the lines handed are unchanged), and ``column_order`` reads
+such a page column by column for a host that asks. Made-up pages and wording
+only."""
 
 import pytest
 
@@ -59,11 +60,11 @@ def _texts(lines):
     return [ln.text.split()[0].upper() for ln in lines]
 
 
-# -- the repair: the page says its order runs across the columns -------------
+# -- for a host that asks: the page says its order runs across the columns --
 
 @pytest.mark.parametrize("n_cols", [2, 3])
 def test_a_page_drawn_row_by_row_says_so(n_cols):
-    with Document(content=_columns(n_cols)) as doc:
+    with Document(content=_columns(n_cols), column_warning=True) as doc:
         pc = doc.page(0)
     notes = [w for w in pc.warnings if w.startswith(ACROSS)]
     assert len(notes) == 1
@@ -77,7 +78,7 @@ def test_a_page_drawn_row_by_row_says_so(n_cols):
 
 def test_the_note_reaches_the_page_a_tool_renders():
     from planlens.tools.formatting import render_page
-    with Document(content=_columns(2)) as doc:
+    with Document(content=_columns(2), column_warning=True) as doc:
         rows = render_page(doc.page(0), doc.summary(0), include_tables=False,
                            include_markups=False, with_locations=False)
     assert any(r.startswith("! " + ACROSS) for r in rows)
@@ -85,7 +86,8 @@ def test_the_note_reaches_the_page_a_tool_renders():
 
 @pytest.mark.parametrize("n_cols", [2, 3])
 def test_a_page_drawn_column_by_column_is_as_it_was(n_cols):
-    with Document(content=_columns(n_cols, across=False)) as doc:
+    with Document(content=_columns(n_cols, across=False),
+                  column_warning=True) as doc:
         pc = doc.page(0)
         assert column_gutters(pc.lines)          # it IS set in columns
     assert not any(w.startswith(ACROSS) for w in pc.warnings)
@@ -96,7 +98,7 @@ def test_one_column_of_prose_says_nothing():
     def draw(page):
         for r in range(30):
             page.insert_text((72, 80 + 14 * r), _prose(r, 14), fontsize=9)
-    with Document(content=_pdf(draw)) as doc:
+    with Document(content=_pdf(draw), column_warning=True) as doc:
         pc = doc.page(0)
         assert column_gutters(pc.lines) == []
     assert pc.warnings == []
@@ -109,7 +111,7 @@ def test_a_table_drawn_row_by_row_says_nothing():
             for c, x in enumerate((72, 200, 330, 460)):
                 page.insert_text((x, 80 + 14 * r), f"B-{r}{c} 4.{c} m",
                                  fontsize=9)
-    with Document(content=_pdf(draw)) as doc:
+    with Document(content=_pdf(draw), column_warning=True) as doc:
         pc = doc.page(0)
     assert not any(w.startswith(ACROSS) for w in pc.warnings)
 
@@ -125,7 +127,7 @@ def test_side_headings_beside_their_paragraphs_say_nothing():
                 page.insert_text((230, y + 12 * r), _prose(s + r, 10),
                                  fontsize=8)
             y += 12 * 8
-    with Document(content=_pdf(draw)) as doc:
+    with Document(content=_pdf(draw), column_warning=True) as doc:
         pc = doc.page(0)
     assert not any(w.startswith(ACROSS) for w in pc.warnings)
 
@@ -143,7 +145,7 @@ def test_callouts_scattered_over_a_drawing_say_nothing():
     draw(page)
     data = doc.tobytes()
     doc.close()
-    with Document(content=data) as d:
+    with Document(content=data, column_warning=True) as d:
         pc = d.page(0)
     assert not any(w.startswith(ACROSS) for w in pc.warnings)
 

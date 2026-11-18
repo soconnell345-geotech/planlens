@@ -30,7 +30,7 @@ def _warned(draw) -> bool:
     draw(doc.new_page(width=612, height=792))
     data = doc.tobytes()
     doc.close()
-    with Document(content=data) as d:
+    with Document(content=data, column_warning=True) as d:
         return any(w.startswith(ACROSS) for w in d.page(0).warnings)
 
 

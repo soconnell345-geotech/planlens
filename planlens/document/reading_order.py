@@ -8,10 +8,11 @@ second line of the left. Read in that order the page is two texts shuffled
 together, and nothing said so (PL-09).
 
 :func:`order_runs_across_columns` finds that case, and the document layer
-says so in the page's warnings: a repair, not a new reading, because the lines
-it hands are unchanged. :func:`column_order` is the new reading, for a host
-that asks for it: the same lines, column by column. Nothing calls it by
-default.
+says so in the page's warnings for a host that asks
+(``Document(..., column_warning=True)``, off by default: the check is not
+certain, see ``DESIGN.md``); the lines it hands are unchanged either way.
+:func:`column_order` is the new reading, for a host that asks for it: the
+same lines, column by column. Nothing calls either by default.
 
 What counts as a column is measured on lines of prose only (long enough to be
 words, horizontal as displayed): a vertical gap that no more than a fifth of

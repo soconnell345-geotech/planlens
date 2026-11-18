@@ -30,15 +30,32 @@
   rotation. Inside a block the cells are built from the definition's
   MINSERT and moved by the parent's whole transform, so a scaled or
   mirrored parent scales or mirrors the grid too (ezdxf's own transform
-  leaves the spacing alone). Cells are counted file-wide against
-  `max_block_entities`, with a warning when the cap stops the expansion.
-  `planlens.dxf.truth` expands the same cells. A DXF without a MINSERT
-  ingests exactly as before.
+  leaves the spacing alone). An ATTRIB whose extrusion differs from its
+  reference's is stepped through the WCS, so it follows each cell where
+  adding the grid step as it stood would mirror it. Cells are counted
+  file-wide against `max_block_entities`; when the cap stops the
+  expansion a warning counts the copies of that array that arrived, and
+  an array met after the budget is spent is read as its first cell (the
+  single reference ezdxf resolves, as before the expansion existed), so
+  its ATTRIBs still arrive. `planlens.dxf.truth` expands the same cells,
+  with the same fallback. A DXF without a MINSERT ingests exactly as
+  before.
 - **A DXF can be looked at: a plot of its model space (app BACKLOG
   DR-19).** `planlens.dxf.plot.dxf_to_pdf` draws a DXF's model space onto
   one PDF page with ezdxf's drawing add-on (ezdxf was already a
   dependency): black on white, scaled to fit inside an A0-sized page, with
-  a margin. `ReviewToolkit(dxf_plots=True)` opens a DXF as that plot, so
+  a margin; a drawing whose longer side is under `MIN_SIDE_MM` (297, A4's
+  long side) less the margins is scaled up to it, so a detail two units
+  wide is not a speck. The plot is bounded: a file over `MAX_FILE_MB`
+  (16), a drawing of more than `MAX_ENTITIES` (50,000) entities with
+  blocks expanded, or a plot not drawn and written within `MAX_SECONDS`
+  (30) is refused (`PlotTooLarge`, a ValueError) in words that say which
+  and what to do instead. ezdxf's drawing add-on imports Pillow, which
+  planlens does not require: without it `dxf_to_pdf` raises
+  `PlotUnavailable` (a ValueError) naming Pillow, where it used to read as
+  a DXF that cannot be read, and the tests that make a plot are skipped.
+  The toolkit hands each of these on as "could not plot ...".
+  `ReviewToolkit(dxf_plots=True)` opens a DXF as that plot, so
   the page tools (render, zoom, page map, marks) work on it, and
   `open_document` says what the plot is (`plot`: model space only, its
   lettering drawn as shapes, its scale the fit to the page). In
@@ -46,9 +63,13 @@
   `ReviewHost(toolkit_options={"dxf_plots": True})` gets the page tools on
   a DXF instead of the "no pages here" refusal; reading and searching a
   DXF still read its own text, and its open result gains the `plot` line.
-  Off by default at both levels: a toolkit or host that does not ask is
-  answered as before (a test compares the open result with and without
-  it).
+  `dxf_plots` also takes a callable, asked at each open: the toolkit a
+  conversation's hosts share gives one that answers for the calling host,
+  and a plot is kept under a key of its own, so a host that did not ask
+  is never handed a plot, neither through a name its resolver maps to a
+  DXF nor one another host opened. Off by default at both levels: a
+  toolkit or host that does not ask is answered as before (a test
+  compares the open result with and without it).
 - **The drawing-geometry layer as a tool an agent can reach for (app
   BACKLOG DR-44, with PL-13).** `drawing_geometry(handle, page, find,
   bbox)` reads one page's drafting constructs from its drawn geometry
@@ -56,6 +77,13 @@
   span, leaders with their note and the point their arrow touches, callout
   bubbles, revision clouds and deltas, and the title block, each with the
   finder's confidence, in the displayed-page frame the other tools use.
+  A dimension's value and a leader's text are the text-layer text nearest
+  it, not a reading of it, so each row that has one says how far off that
+  text is (`value_offset_pt`, `text_offset_pt`, in PDF points) and a note
+  says a far one is likely another note; no distance is refused. A kind
+  asked for that comes back empty is named in a note as "none found",
+  which does not show the sheet has none (the finders know a dimension or
+  a leader by a filled arrowhead), with a word to look at a render first.
   Every result says what it is measured from and what the sheet is (a
   vector drawing, one whose lettering is drawn as lines, or mostly a
   picture); a page with no drawn geometry (a scan) is refused in plain
@@ -144,16 +172,23 @@
   read as the default 80 by a markup's quote and by the search of a Word,
   Excel or DXF file, and each now says so. A call with valid arguments
   returns what it did.
-- **A page set in columns whose file draws the lines across them says so
-  (app BACKLOG PL-09).** Lines come in the order the file draws them. Some
-  writers draw a page of two or three columns row by row, so its lines
-  alternated between the columns and nothing said so. Such a page now
-  carries the warning "reading order not reconstructed: the text is set in
-  N columns and the file draws its lines across them ...", in
-  `PageContent.warnings` and so on the page a tool shows. The lines are
-  unchanged, and a page drawn column by column, a table read row by row
-  (ruled or not), a form, an index, a list set in two columns or notes
-  scattered over a drawing carry no warning.
+- **A page set in columns whose file draws the lines across them says so,
+  for a host that asks (app BACKLOG PL-09).** Lines come in the order the
+  file draws them. Some writers draw a page of two or three columns row by
+  row, so its lines alternate between the columns and nothing says so.
+  `Document(..., column_warning=True)` puts on such a page the warning
+  "reading order not reconstructed: the text is set in N columns and the
+  file draws its lines across them ...", in `PageContent.warnings` and so
+  on the page a tool shows. The lines are unchanged, and a page drawn
+  column by column, a table read row by row (ruled or not), a form, an
+  index, a list set in two columns or notes scattered over a drawing carry
+  no warning: every column must read as running text (most lines as wide
+  as the column, a fair share opening with a small letter), and a row of
+  dot leaders is not prose. Off by default, and unset the check is not run and every
+  page is what it was: the check cannot be made certain (a table with no
+  rules whose cells read as running text still warns), and it has not been
+  run over real pages or put in front of a model. `ReviewToolkit` and
+  `ReviewHost` open their documents without it.
   `planlens.document.reading_order.column_order(lines)` reads such a page
   column by column for a host that asks; nothing calls it by default.
 - **Captions on pages that are not figures, for a host that asks (app
@@ -170,7 +205,12 @@
   on that page, not repeated here"), when they share their columns and
   edges, nothing of the body comes between them, the running header and
   footer are the same and the second repeats the column titles or says it is
-  continued. Rows and ids are unchanged. Off by default.
+  continued. Left unlinked: the one-page logs of two borings on one form,
+  wherever the page prints the boring's number outside the grid (above
+  the table, beside it, or in the page's head or foot; page numbers and
+  the table's own lines in those bands are not compared), and two pages
+  where a line of text has no place on the page. Rows and ids are
+  unchanged. Off by default.
 - **Repair: a box a vision answer writes in page units is no longer
   converted as if it were pixels (app BACKLOG VIS-24).** A box with a page
   unit written right after it is the model's own estimate in the page's

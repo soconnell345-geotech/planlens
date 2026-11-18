@@ -127,11 +127,37 @@ that asks with `ReviewHost(toolkit_options={"dxf_plots": True})` has a
 DXF's page tools (render, zoom, page map, marks, the drawing tool) look at
 a one-page PDF plot of its model space (`planlens.dxf.plot`), where any
 other host is refused them ("it has no pages here"). `_side_document`
-decides on each call, for the calling host, so the conversation's toolkit
-is built with `dxf_plots` on and is only ever handed a DXF for a host that
-asked. Reading and searching a DXF stay with its own text; its
-`open_document` result gains one `plot` line saying what the plot is. No
-spec changes: the tools' descriptions are the same for every host.
+decides on each call, for the calling host. It knows a DXF by the name the
+model gave; the toolkit knows one also by the path that name resolves to,
+so a host that did not ask could still reach the shared toolkit with a
+DXF (a name its resolver maps to a `.dxf` path). The conversation's
+toolkit is therefore not built with `dxf_plots` on: it is given a
+callable (`ReviewToolkit(dxf_plots=...)` takes one, asked at each open)
+that answers for the CALLING host, and a plot is kept under a key of its
+own (the file's content key with `:dxf-plot`), so an open that does not
+plot never finds one another host opened. A host that did not ask is
+answered as the toolkit answers any file that is not a PDF or an image
+("could not open '...' as a PDF or image").
+Reading and searching a DXF stay with its own text; its `open_document`
+result gains one `plot` line saying what the plot is. No spec changes: the
+tools' descriptions are the same for every host.
+
+The plot itself (`planlens.dxf.plot.dxf_to_pdf`) is made inside the
+toolkit's `open`, under the toolkit's lock, so it is bounded: a file over
+`MAX_FILE_MB` (16), more than `MAX_ENTITIES` (50,000) entities drawn with
+blocks expanded (an INSERT counts, and so does each entity it brings), or
+drawing and writing that pass `MAX_SECONDS` (30; checked between entities
+and between the shapes the PDF writer writes, so one very heavy entity
+overruns by its own length) raise `PlotTooLarge`. The page is at most
+`MAX_SIDE_MM` (1189, A0's long side) a side; ezdxf plots one drawing unit
+to the millimetre and only scales down, so a drawing whose longer side is
+under `MIN_SIDE_MM` (297) less the two margins is scaled up to that. An
+install without Pillow (ezdxf's drawing add-on imports it; planlens does
+not require it) raises `PlotUnavailable`, which names Pillow. Both are
+ValueErrors, and the toolkit answers each as "could not plot '<name>':
+..." with the reason; any other failure is answered as a DXF ezdxf cannot
+read. The tests that make a plot are skipped where Pillow is not
+installed.
 
 `annotate_document`'s `remove` takes a mark's stable `uid` (the
 annotation's `/NM`, as the call that wrote the mark returns it; it does not
