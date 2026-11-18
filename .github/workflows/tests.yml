@@ -43,20 +43,23 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install the package, the MCP extra and pytest
+      - name: Install the package, the MCP extra, Pillow and pytest
         # The OCR extra is left out on purpose: every rapidocr distribution
         # requires the full opencv-python, which shares a namespace with
         # the headless build the package depends on (README "Install").
         # The tests that need it skip.
+        # Pillow is not a requirement of the package, but a host that
+        # plots a DXF or marks an image file has it: without it here the
+        # tests of both skipped, so no run had ever exercised them.
         run: |
           pip install --upgrade pip
           pip install -e ".[mcp]"
-          pip install pytest
+          pip install pytest "Pillow>=8"
 
       - name: What is installed
         run: |
           python -c "import planlens; print('planlens', planlens.__version__)"
-          pip list 2>/dev/null | grep -i -E "^(numpy|opencv|pymupdf|ezdxf|rapidfuzz|mcp|pytest) "
+          pip list 2>/dev/null | grep -i -E "^(numpy|opencv|pymupdf|ezdxf|rapidfuzz|mcp|pillow|pytest) "
           lscpu | grep -E "Model name|^CPU\(s\)"
 
       - name: Run tests
