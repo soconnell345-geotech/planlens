@@ -237,6 +237,9 @@ def drawing_geometry(document, page: int, find: Any = None,
     for a ``find`` it does not take."""
     kinds = kinds_asked(find)
     page = int(page)
+    if region is not None:                    # corners in either order
+        x0, y0, x1, y1 = (float(v) for v in region)
+        region = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
     fpage = document._doc[page]
     if ir is None:
         ir = page_ir(document, page)
@@ -267,6 +270,8 @@ def drawing_geometry(document, page: int, find: Any = None,
     if "dimensions" in kinds:
         notes.append("length_pt is the drawn length in PDF points, not "
                      "converted; measure with a scale converts it")
+    # what the reading itself warned of (layers a viewer hides, left out)
+    notes.extend(str(w)[:240] for w in list(ir.warnings)[:3])
     out["notes"] = notes
     return out
 

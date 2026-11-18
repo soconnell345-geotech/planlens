@@ -136,6 +136,10 @@ def test_bbox_keeps_the_items_that_touch_it(tmp_path):
     out = kit.call(NAME, {"handle": h, "page": 0, "find": ["dimensions"],
                           "bbox": [560, 150, 640, 500]})
     assert [d["value"] for d in out["dimensions"]] == ["3.5 m"]
+    # the same box given corner to corner the other way
+    out = kit.call(NAME, {"handle": h, "page": 0, "find": ["dimensions"],
+                          "bbox": [640, 500, 560, 150]})
+    assert [d["value"] for d in out["dimensions"]] == ["3.5 m"]
     out = kit.call(NAME, {"handle": h, "page": 0, "bbox": [0, 0, 50, 50]})
     assert all(n == 0 for n in out["counts"].values())
     bad = kit.call(NAME, {"handle": h, "page": 0, "bbox": [1, 2]})
