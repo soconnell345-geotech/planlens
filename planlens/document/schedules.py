@@ -47,9 +47,11 @@ and F10 fit, FCU-3-4 fits FCU-1-1); letters after the digits stand for any
 letters. A mark with no letter before its digits ("101", "204B") is a plain
 number: room numbers, dimensions and detail numbers share that form, so it
 is handled apart (below). A mark of one or two characters with no digit, or
-no letter ("A", "3", "12") is not looked for: grid lines, view numbers,
-keynotes and circuits read the same, and the schedule says how many rows
-that left out.
+no letter ("A", "3", "12") is not looked for as a mark with no row, nor
+counted found where it is drawn: grid lines, view numbers, keynotes and
+circuits read the same. The schedule says how many rows that leaves
+(``rows_not_looked_for``), and a row of one drawn alone on no sheet is
+``cannot_tell``.
 
 WHAT IS SAID. Each item is one fact about this file, with the sheet and the
 page (0-based ``page``, 1-based ``pdf_page``) and the schedule:
@@ -58,24 +60,30 @@ page (0-based ``page``, 1-based ``pdf_page``) and the schedule:
   and no schedule of that form has a row for it;
 * ``no_mark``: a row of a schedule titled SCHEDULE whose mark is drawn on
   no sheet, as a piece of text of its own, outside the schedules, and named
-  in no note or range, where at least half the schedule's rows are found;
-* ``may_be_on_unread_sheet``: a row not found where some sheets could not
-  be read (no text layer, or one that does not read as the sheet does) or
-  have their drawing in an image; and a mark with no row where an unread
-  sheet sits beside one of its schedule's pages (a part of the schedule
-  may be there). The item names those pages. A mark with no row stays
-  ``no_row`` where the unread sheets are away from its schedule, and says
-  so;
+  in no note or range, where at least half the schedule's rows are found,
+  every sheet's drawing is read, and none of the schedule's rows found is
+  read only from hidden CAD text;
+* ``may_be_on_unread_sheet``: a row not found where some sheets' drawing is
+  not read: they could not be read (no text layer, or one that does not
+  read as the sheet does), have their drawing in an image, or have no text
+  outside their title block (their drawing lettered as lines with no text
+  kept); and a mark with no row where there is such a sheet, beside the
+  schedule's pages or away from them (a part of the schedule may be
+  there). The item names those pages;
 * ``cannot_tell``: the text does not settle it; the ``why`` says what was
   seen (a row's mark found only inside a note or a range; a row of a table
   with no SCHEDULE title, which may be a list whose entries need not all be
   drawn; a row of a schedule fewer than half of whose rows are found in
-  the sheets' text, as where its marks are drawn as lines; a mark named
-  only in a note; a plain number whose lettering does not settle it, or
-  settled only by which lettering stands alone; more marks of a form with
-  no row than the form's rows found, so something else shares the form; a
-  mark with no row where a cell of its schedule's mark column could not be
-  read as marks).
+  the sheets' text, as where its marks are drawn as lines; a row of a
+  schedule whose rows found are read only from the hidden text a CAD
+  program keeps with lettering drawn as lines, since a mark drawn as lines
+  without it is not read; a row of one or two characters drawn alone on no
+  sheet; a mark named only in a note; a plain number whose lettering does
+  not settle it, or settled only by which lettering stands alone, or
+  borrowed from other sheets; more marks of a form with no row than the
+  form's rows found, so something else shares the form; a mark with no
+  row where a cell of its schedule's mark column could not be read as
+  marks).
 
 A mark counts as drawn where a piece of text is that mark and nothing else,
 on any sheet, in any reading direction, outside every schedule, not in a
@@ -100,13 +108,19 @@ too); where none or several stand alone, each number of the form in those
 letterings with no row is ``cannot_tell``.
 A row whose number is found
 on a sheet only in another lettering than the schedule's other marks there
-is ``cannot_tell``. Sheets that show fewer than two of a schedule's marks
-are not searched for its plain numbers.
+is ``cannot_tell``. On a sheet that shows fewer than two of a schedule's
+marks, a number of the form is looked for only in the lettering the marks
+have on the sheets that settle it (all one lettering, none left open), on
+a sheet of their discipline, and only as ``cannot_tell``: that sheet does
+not confirm the lettering (a floor whose doors the schedule leaves out
+reads the same as room numbers or dimensions lettered alike).
 
 It reads what the text layer holds. A sheet with no usable text has no
 schedule and no marks here; the result lists those sheets; a row that could
-be drawn on one is never called missing, nor a mark's row where an unread
-sheet sits beside its schedule's pages.
+be drawn on one is never called missing, nor a mark's row (a part of its
+schedule may be there, beside its other pages or away from them). A
+readable sheet with no text outside its title block, and one whose drawing
+is an image, are taken the same way.
 """
 
 from __future__ import annotations
@@ -119,7 +133,8 @@ from statistics import median
 from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from planlens.document.crossrefs import _direction, _page_runs
-from planlens.document.sheets import SheetIndex, SheetRow, normalize_number
+from planlens.document.sheets import (SheetIndex, SheetRow, _in_band,
+                                      discipline, normalize_number)
 
 BBox = Tuple[float, float, float, float]
 
@@ -181,6 +196,12 @@ FOUND_SHARE = 0.5
 #: A readable sheet this much covered by images has its drawing in an
 #: image: marks drawn there are not in its text.
 PICTURED = 0.5
+#: A readable sheet with fewer characters of text than this outside its
+#: title block (hidden CAD text counted) has its drawing lettered as lines
+#: with no text kept, if lettered at all: marks drawn there are not in its
+#: text. The toolkit's ``FIELD_TEXT_MIN_CHARS`` (PL-39) is the same measure
+#: for a text search (which does not count hidden CAD text).
+FIELD_CHARS = 10
 
 
 def _clean(text: str) -> str:
@@ -604,7 +625,9 @@ class Schedule:
     parts: List[Tuple[int, BBox]] = field(default_factory=list)
     #: Each part's sheet number (``None`` where its sheet has none).
     sheets: List[Optional[str]] = field(default_factory=list)
-    #: The rows found drawn on a sheet, and the rows not looked for.
+    #: The rows found drawn on a sheet, and the rows not looked for (marks
+    #: of one or two characters: never counted found, and one drawn alone
+    #: on no sheet is ``cannot_tell``).
     rows_found: int = 0
     rows_not_looked_for: int = 0
     #: Cells of its mark column that could not be read as marks.
@@ -761,6 +784,10 @@ class ScheduleMarks:
     notes: List[str] = field(default_factory=list)
     #: Readable sheets whose drawing is an image: marks there are not read.
     pictured: List[int] = field(default_factory=list)
+    #: Readable sheets with (next to) no text outside their title block:
+    #: their drawing is lettered as lines with no text kept, if at all, so
+    #: marks there are not read (PL-43).
+    unlettered: List[int] = field(default_factory=list)
 
     def counts(self) -> Dict[str, int]:
         out = {"schedules": len(self.schedules),
@@ -889,6 +916,8 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
     from planlens.document.annotations import drop_cad_text_already_in_layer
     from planlens.document.document import _image_coverage
     pages: Dict[int, List[Any]] = {}
+    #: the lines read from hidden CAD text (their lettering drawn as lines)
+    copied: set = set()
     for row in index.rows:
         if not row.readable:
             continue
@@ -901,7 +930,9 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
             # ("AutoCAD SHX Text"), its glyphs drawn as lines
             cad = list(doc._page_annots(row.page)[1])
             if cad:
-                lines += drop_cad_text_already_in_layer(cad, lines)[0]
+                kept = drop_cad_text_already_in_layer(cad, lines)[0]
+                copied.update(id(ln) for ln in kept)
+                lines += kept
         except Exception:                             # noqa: BLE001
             pass
         if lines:
@@ -909,6 +940,15 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
         try:
             if _image_coverage(doc._doc[row.page]) >= PICTURED:
                 out.pictured.append(row.page)
+            else:
+                summary = doc.summary(row.page)
+                w, h = float(summary.width), float(summary.height)
+                field_chars = sum(len(_clean(ln.text)) for ln in lines
+                                  if not _in_band(ln.bbox, w, h))
+                if field_chars < FIELD_CHARS:
+                    # its drawing is lettered as lines with no text kept,
+                    # if at all: a mark drawn there is not read (PL-43)
+                    out.unlettered.append(row.page)
         except Exception:                             # noqa: BLE001
             pass
     if refs is None:
@@ -993,12 +1033,42 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
     blind = sorted(r.page for r in out.unread)
     blind_text = _page_runs(blind)
     pictured = sorted(out.pictured)
+    unlettered = sorted(out.unlettered)
+    #: every sheet whose drawing is not read: a mark or a part of a
+    #: schedule there is not seen
+    closed = sorted(set(blind) | set(pictured) | set(unlettered))
     names = out.names()
     items: List[MarkItem] = []
 
     def on_sheet(seen: _Seen) -> str:
         return (f"{seen.sheet} (page {seen.page})" if seen.sheet
                 else f"page {seen.page}")
+
+    def closed_text() -> List[str]:
+        """The sheets whose drawing is not read, by why, for an item."""
+        why = []
+        if blind:
+            why.append(f"{len(blind)} sheet(s) could not be read (page(s) "
+                       f"{blind_text})")
+        if pictured:
+            why.append(f"{len(pictured)} sheet(s) have their drawing in an "
+                       f"image, whose marks are not read (page(s) "
+                       f"{_page_runs(pictured)})")
+        if unlettered:
+            why.append(f"{len(unlettered)} sheet(s) have no text outside "
+                       f"their title block, so their drawing is lettered as "
+                       f"lines if at all, and not read (page(s) "
+                       f"{_page_runs(unlettered)})")
+        return why
+
+    def sheets_text(pages_: Sequence[int], most: int = 4) -> str:
+        labels = []
+        for p in sorted(set(pages_)):
+            label = number_of.get(p) or f"page {p}"
+            if label not in labels:
+                labels.append(label)
+        return ", ".join(labels[:most]) + (
+            f" and {len(labels) - most} more" if len(labels) > most else "")
 
     tallies: Dict[Tuple[FrozenSet[int], int], Counter] = {}
 
@@ -1040,13 +1110,24 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
         return None, sorted(strong), False
 
     # -- each row: is its mark drawn on a sheet? ---------------------------
+    any_copies = False
     for sid, s in enumerate(out.schedules):
         missing: List[MarkItem] = []
         told = 0
+        #: rows found only in hidden CAD text, and the pages rows are found
+        copies = 0
+        found_on: List[int] = []
         for row in s.rows:
             mark = row.mark
             if too_short(mark):
+                # not counted found (a grid line or a keynote reads the
+                # same), but one drawn alone on no sheet is told (PL-43)
                 s.rows_not_looked_for += 1
+                if not alone.get(mark):
+                    missing.append(MarkItem(
+                        CANNOT_TELL, SIDE_ROW, [sid], "", mark=mark,
+                        page=row.page, sheet=number_of.get(row.page),
+                        bbox=row.bbox))
                 continue
             drawn = alone.get(mark, [])
             unlike: List[Tuple[_Seen, Tuple, Tuple]] = []
@@ -1063,6 +1144,9 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
                 drawn = kept
             if drawn:
                 s.rows_found += 1
+                found_on.extend(seen.page for seen in drawn)
+                if all(id(seen.line) in copied for seen in drawn):
+                    copies += 1
                 continue
             item = MarkItem(CANNOT_TELL, SIDE_ROW, [sid], "", mark=mark,
                             page=row.page, sheet=number_of.get(row.page),
@@ -1091,25 +1175,22 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
             items.append(item)
         looked = len(s.rows) - s.rows_not_looked_for
         thin = looked >= 2 and s.rows_found + told < FOUND_SHARE * looked
+        where = (f" where its other marks are found ({sheets_text(found_on)})"
+                 if found_on else "")
+        any_copies = any_copies or bool(copies and missing)
         for item in missing:
             mark = item.mark
-            if blind and not pictured:
+            if blind and not (pictured or unlettered):
                 item.status = MAYBE_UNREAD
                 item.why = (
                     f"row {mark} is drawn on none of the sheets that could "
                     f"be read; {len(blind)} sheet(s) could not be read "
                     f"(page(s) {blind_text}) and may show it")
-            elif blind or pictured:
+            elif closed:
                 item.status = MAYBE_UNREAD
-                why = []
-                if blind:
-                    why.append(f"{len(blind)} sheet(s) could not be read "
-                               f"(page(s) {blind_text})")
-                why.append(f"{len(pictured)} sheet(s) have their drawing "
-                           f"in an image, whose marks are not read (page(s) "
-                           f"{_page_runs(pictured)})")
                 item.why = (f"row {mark} is drawn in the text of no sheet; "
-                            + " and ".join(why) + ", and may show it")
+                            + " and ".join(closed_text()) + ", and may show "
+                            "it")
             elif s.title is None:
                 item.why = (
                     f"row {mark} is drawn on no sheet, but the table it is "
@@ -1121,6 +1202,25 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
                     f"{s.rows_found + told} of the {looked} rows of this "
                     f"schedule are found in the sheets' text: its marks may "
                     f"be drawn as lines or in an image; view a plan")
+            elif copies:
+                # its marks are drawn as lines, read from the text a CAD
+                # program keeps hidden with them; a sheet plotted without
+                # it, or a tag exploded, leaves the lines only (PL-43)
+                item.why = (
+                    f"row {mark} is drawn on no sheet as a mark of its own, "
+                    f"but {copies} of this schedule's {s.rows_found} rows "
+                    f"found are drawn as lines, read only from the hidden "
+                    f"text a CAD program keeps with them: a mark drawn as "
+                    f"lines without that text is not read, so the text does "
+                    f"not tell whether it is drawn; view the plans{where}")
+            elif too_short(mark):
+                item.why = (
+                    f"row {mark} is drawn alone on no sheet; but a mark of "
+                    f"one or two characters is not counted found where it "
+                    f"is drawn (a grid line, keynote or view number reads "
+                    f"the same), so the text does not show that this "
+                    f"schedule's marks are drawn as text at all; view a "
+                    f"plan")
             else:
                 item.status = NO_MARK
                 item.why = (
@@ -1171,26 +1271,34 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
     def no_row(token: str, seen: _Seen, sids, why: str) -> MarkItem:
         """A mark drawn with no row: ``no_row``, unless a cell of the
         schedule's mark column could not be read (its row may be there:
-        ``cannot_tell``) or an unread sheet sits beside one of the
-        schedule's pages (a part of it may be there: ``may_be``)."""
+        ``cannot_tell``) or a sheet's drawing is not read, beside the
+        schedule's pages or away from them (a part of the schedule may be
+        there: ``may_be``; PL-43)."""
         status, tail = NO_ROW, ""
         cells = [c for sid in sorted(sids)
                  for c in out.schedules[sid].unread_cells]
-        near = sorted({p for p in blind for sid in sids
+        near = sorted({p for p in closed for sid in sids
                        for q in out.schedules[sid].pages if abs(p - q) <= 1})
         if cells:
             status = CANNOT_TELL
             tail = (f"; but a cell of the schedule's mark column could not "
                     f"be read as marks (\"{cells[0][:40]}\"), and its row "
                     f"may be there: view it")
-        elif near:
+        elif near and near == closed == blind:
             status = MAYBE_UNREAD
             tail = (f"; page(s) {_page_runs(near)} could not be read and "
                     f"sit beside the schedule's pages: a part of the "
                     f"schedule there would not be seen")
-        elif blind:
-            tail = (f"; {len(blind)} sheet(s) could not be read (page(s) "
-                    f"{blind_text}), none beside the schedule's pages")
+        elif closed:
+            # a schedule continues on a sheet away from its other parts as
+            # well as beside them; the text cannot say none is there
+            status = MAYBE_UNREAD
+            beside = (f"; page(s) {_page_runs(near)} sit beside the "
+                      f"schedule's pages" if near else "")
+            tail = (f"; but " + " and ".join(closed_text()) + beside
+                    + ": a part of the schedule there would not be seen, "
+                    "so whether it has a row the text does not tell; view "
+                    "them")
         return MarkItem(status, SIDE_MARK, sorted(sids), why + tail,
                         mark=token, page=seen.page, sheet=seen.sheet,
                         bbox=seen.bbox)
@@ -1233,13 +1341,92 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
             f"and has no row; it is named in a line of text on "
             f"{on_sheet(seen)} (\"{seen.text[:70]}\"), not drawn as a mark",
             mark=token, page=seen.page, sheet=seen.sheet, bbox=seen.bbox))
+    lent: Dict[FrozenSet[int], Optional[Tuple[Tuple, List[int]]]] = {}
+
+    def borrowed(sids) -> Optional[Tuple[Tuple, List[int]]]:
+        """``(lettering, pages)`` of the plain-number marks of ``sids``
+        where every sheet that settles their lettering settles the same
+        one, and no sheet leaves it open; else ``None``."""
+        if sids not in lent:
+            keys: Dict[Tuple, List[int]] = {}
+            open_somewhere = False
+            on = sorted({seen.page for sid in sids
+                         for m in out.schedules[sid].marks if plain(m)
+                         for seen in alone.get(m, ())})
+            for p in on:
+                key, open_keys, _tie = settle(counts_on(sids, p))
+                if key is not None:
+                    keys.setdefault(key, []).append(p)
+                elif open_keys:
+                    open_somewhere = True
+            lent[sids] = (next(iter(keys.items()))
+                          if len(keys) == 1 and not open_somewhere else None)
+        return lent[sids]
+
+    def lend_to(sids, page, held: Counter
+                ) -> Optional[Tuple[Tuple, List[int]]]:
+        """The lettering a sheet showing fewer than two of the marks of
+        ``sids`` borrows from the sheets that settle it: only on a sheet
+        of their discipline, and not where its one mark is lettered
+        otherwise (PL-43)."""
+        got = borrowed(sids)
+        number = number_of.get(page)
+        if got is None or not number:
+            return None
+        key, from_pages = got
+        theirs = {discipline(number_of[p]) for p in from_pages
+                  if number_of.get(p)}
+        if discipline(number) not in theirs:
+            return None
+        if any(k != key for k in held):
+            return None
+        return got
+
     for (sids, page), found in sorted(lettered.items(),
                                       key=lambda kv: (kv[0][1],
                                                       sorted(kv[0][0]))):
         held = counts_on(sids, page)
         key, open_keys, tie = settle(held)
         if key is None and not open_keys:
-            continue                       # nothing sets the lettering here
+            # fewer than two of the schedule's marks here set no lettering;
+            # one the marks have on every sheet that settles it is borrowed,
+            # and what it finds is never more than cannot_tell (PL-43)
+            got = lend_to(sids, page, held)
+            if got is None:
+                continue
+            key, from_pages = got
+            alike = [(t, seen) for t, seen in found
+                     if letterings.of(seen) == key]
+            if not alike:
+                continue
+            where = on_sheet(alike[0][1])
+            lettering = (f"the lettering this schedule's marks have on "
+                         f"{sheets_text(from_pages)} "
+                         f"({_lettering_text(key)})")
+            short_of = (f"{where} shows fewer than two of the schedule's "
+                        f"marks, so it does not confirm that lettering here")
+            tokens = sorted({t for t, _s in alike})
+            if len(alike) <= 3:
+                for token, seen in alike:
+                    items.append(MarkItem(
+                        CANNOT_TELL, SIDE_MARK, sorted(sids),
+                        f"{token} is drawn in {lettering} and has no row "
+                        f"(its rows: {rows_text(sids)}); but {short_of}: "
+                        f"it may be a mark the schedule misses or another "
+                        f"number lettered alike; view it",
+                        mark=token, page=seen.page, sheet=seen.sheet,
+                        bbox=seen.bbox))
+            else:
+                items.append(MarkItem(
+                    CANNOT_TELL, SIDE_MARK, sorted(sids),
+                    f"{len(tokens)} numbers of the form {forms_of(sids)} "
+                    f"on {where} are in {lettering} and have no row; but "
+                    f"{short_of}: they may be marks the schedule misses (a "
+                    f"floor it leaves out) or other numbers lettered alike; "
+                    f"view the sheet",
+                    page=alike[0][1].page, sheet=alike[0][1].sheet,
+                    marks=tokens[:6], n_marks=len(tokens)))
+            continue
         wanted = [key] if key is not None else open_keys
         alike = [(t, seen) for t, seen in found
                  if letterings.of(seen) in wanted]
@@ -1315,27 +1502,44 @@ def schedule_marks(doc, index: SheetIndex, refs=None) -> ScheduleMarks:
     if any(plain(m) for s in out.schedules for m in s.marks):
         out.notes.append(
             "a plain number (no letter before its digits) is a schedule's "
-            "mark only by its lettering: it is looked for only on sheets "
-            "that show two or more of that schedule's marks in one "
-            "lettering, and room numbers, dimensions and detail numbers of "
-            "that form in that lettering make it cannot_tell")
+            "mark only by its lettering: it is looked for in the lettering "
+            "of that schedule's marks on a sheet that shows two or more of "
+            "them in one lettering, and room numbers, dimensions and detail "
+            "numbers of that form in that lettering make it cannot_tell; on "
+            "another sheet of the same discipline, one in the lettering the "
+            "marks have on the sheets that settle it is cannot_tell")
     if any(s.rows_not_looked_for for s in out.schedules):
         out.notes.append(
-            "marks of one or two characters with no digit or no letter are "
-            "not looked for (grid lines, view numbers, keynotes and "
-            "circuits read the same): see rows_not_looked_for")
+            "a mark of one or two characters with no digit or no letter is "
+            "not looked for as a mark with no row, nor counted found where "
+            "it is drawn (grid lines, view numbers, keynotes and circuits "
+            "read the same); a row of one drawn alone on no sheet is "
+            "cannot_tell: see rows_not_looked_for")
     if out.unread:
         out.notes.append(
             f"{len(out.unread)} sheet(s) could not be read (page(s) "
             f"{blind_text}): a schedule or a mark on them is not in this "
             f"check, so a row not found is {MAYBE_UNREAD}, and so is a mark "
-            f"with no row where an unread sheet sits beside its schedule's "
-            f"pages")
+            f"with no row (a part of its schedule may be there)")
     if pictured:
         out.notes.append(
             f"{len(pictured)} sheet(s) have their drawing in an image "
             f"(page(s) {_page_runs(pictured)}): a mark drawn in the image is "
-            f"not read, so a row not found is {MAYBE_UNREAD}")
+            f"not read, so a row not found is {MAYBE_UNREAD}, and so is a "
+            f"mark with no row")
+    if unlettered:
+        out.notes.append(
+            f"{len(unlettered)} sheet(s) have no text outside their title "
+            f"block (page(s) {_page_runs(unlettered)}): their drawing is "
+            f"lettered as lines if at all, and a mark drawn there is not "
+            f"read, so a row not found is {MAYBE_UNREAD}, and so is a mark "
+            f"with no row")
+    if any_copies:
+        out.notes.append(
+            "where a schedule's marks found are drawn as lines and read "
+            "only from the hidden text a CAD program keeps with them, a row "
+            "not found is cannot_tell: a mark drawn as lines without that "
+            "text is not read")
     if any(s.unread_cells for s in out.schedules):
         out.notes.append(
             "a schedule's mark column has a cell that could not be read as "

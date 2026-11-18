@@ -85,8 +85,11 @@ def test_tags_kept_as_hidden_cad_text_are_read():
 def test_tags_drawn_as_lines_leave_the_rows_open():
     """No text and no hidden text for the tags: the schedule's rows are
     found nowhere, which says the plan was not read, not that every row is
-    missing."""
-    pdf = _sheets(_hidden([None, None, None]), _fans)
+    missing. (The plan has a note in text, so the sheet itself is read.)"""
+    def plan(s):
+        s.centred(700, 300, "ROOF PLAN NOTES: VERIFY ON SITE", 8)
+        _hidden([None, None, None])(s)
+    pdf = _sheets(plan, _fans)
     result = _result(pdf)
     assert _items(result) == [("EF-1", CANNOT_TELL), ("EF-2", CANNOT_TELL),
                               ("EF-3", CANNOT_TELL)]
@@ -194,8 +197,12 @@ def test_the_marks_a_cell_holds():
 
 def test_an_untitled_table_s_rows_drawn_nowhere_cannot_be_told():
     """A table headed TAG with no SCHEDULE title: a tag drawn with no entry
-    is a finding; an entry drawn nowhere may be a list's."""
-    pdf = _sheets(_tags(["P-1", "P-2", "P-4"]),
+    is a finding; an entry drawn nowhere may be a list's. (A note in text:
+    a plan whose only text is three tags may be lettered as lines.)"""
+    def plan(s):
+        s.centred(700, 300, "FINISH NOTES: VERIFY ON SITE", 8)
+        _tags(["P-1", "P-2", "P-4"])(s)
+    pdf = _sheets(plan,
                   lambda s: table(s, 150, 220, None,
                                   ("TAG", "COLOUR", "FINISH"),
                                   [("P-1", "WHITE", "EGG"),
@@ -268,21 +275,32 @@ def test_a_lone_number_where_doors_are_numbered_as_rooms_cannot_be_told():
 
 # -- 7: a scanned sheet away from the schedule -------------------------------
 
-def test_a_mark_with_no_row_stays_definite_unless_a_scan_sits_beside():
-    pdf = _sheets(_tags(["W-1", "W-2", "W-4"]),
+def test_a_mark_with_no_row_is_left_open_by_a_scan_beside_or_away():
+    """PL-43 limit 2: a schedule can continue on a sheet away from its
+    other parts, so a scan anywhere leaves a mark with no row open (it was
+    ``no_row`` with the scan away before); with every sheet read it is
+    ``no_row``."""
+    def noted(s):
+        s.centred(700, 300, "GENERAL NOTES: VERIFY ON SITE", 8)
+    pdf = _sheets(lambda s: (noted(s), _tags(["W-1", "W-2", "W-4"])(s)),
                   lambda s: table(s, 150, 220, "WINDOW SCHEDULE",
                                   ("MARK", "WIDTH", "HEIGHT"),
                                   [("W-1", "900", "1200"),
                                    ("W-2", "900", "1200")], (90, 60, 60)),
-                  lambda s: None, lambda s: None)
+                  noted, noted)
+    read = _result(pdf)
+    assert _items(read) == [("W-4", NO_ROW)]
     far = _result(_as_image(pdf, [3]))
     item = next(i for i in far.items if i.mark == "W-4")
-    assert item.status == NO_ROW
-    assert item.why.endswith("1 sheet(s) could not be read (page(s) 3), "
-                             "none beside the schedule's pages")
+    assert item.status == MAYBE_UNREAD
+    assert item.why.endswith(
+        "; but 1 sheet(s) could not be read (page(s) 3): a part of the "
+        "schedule there would not be seen, so whether it has a row the "
+        "text does not tell; view them")
     near = _result(_as_image(pdf, [2]))
     item = next(i for i in near.items if i.mark == "W-4")
     assert item.status == MAYBE_UNREAD
+    assert "sit beside the schedule's pages" in item.why
 
 
 # -- 4: the lettering test, fast and the same --------------------------------
