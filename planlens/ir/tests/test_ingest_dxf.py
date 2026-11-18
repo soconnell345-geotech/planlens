@@ -593,22 +593,99 @@ class TestEzdxfSideLossesAreReported:
                             announcing)
         assert from_dxf(blocks_dxf).warnings == []
 
-    def test_minsert_array_reports_its_missing_copies(self, tmp_path):
+    def test_minsert_array_ingests_every_placement(self, tmp_path):
+        # A MINSERT places its block on a row/column grid. ezdxf's
+        # virtual_entities() resolves only the first placement, so this
+        # sheet used to arrive with 1 of its 12 cells (and a warning).
+        # The grid runs in the reference's own frame: turned 90 degrees,
+        # columns step up the page and rows step left.
         import ezdxf
         doc = ezdxf.new("R2010")
         doc.header["$INSUNITS"] = 6
         blk = doc.blocks.new("CELL")
         blk.add_line((0, 0), (1, 0))
-        ins = doc.modelspace().add_blockref("CELL", (0, 0))
+        ins = doc.modelspace().add_blockref(
+            "CELL", (10, 20), dxfattribs={"rotation": 90})
         ins.dxf.row_count, ins.dxf.column_count = 3, 4
-        ins.dxf.row_spacing = ins.dxf.column_spacing = 5.0
+        ins.dxf.row_spacing, ins.dxf.column_spacing = 5.0, 7.0
         path = str(tmp_path / "minsert.dxf")
         doc.saveas(path)
         ir = from_dxf(path)
-        # Array expansion is NOT implemented (out of scope); the point is
-        # that 1 of 12 placements is stated, not assumed.
+        lines = _by_type(ir, Line)
+        got = sorted((round(ln.start[0], 6), round(ln.start[1], 6),
+                      round(ln.end[0], 6), round(ln.end[1], 6))
+                     for ln in lines)
+        want = sorted((10.0 - 5 * r, 20.0 + 7 * c, 10.0 - 5 * r,
+                       21.0 + 7 * c) for r in range(3) for c in range(4))
+        assert got == want
+        assert all((ln.style or "").startswith("block:CELL") for ln in lines)
+        assert ir.warnings == []
+        assert ir.metadata["n_block_entities"] == 12
+
+    def test_minsert_attribs_follow_each_placement(self, tmp_path):
+        import ezdxf
+        doc = ezdxf.new("R2010")
+        doc.header["$INSUNITS"] = 6
+        blk = doc.blocks.new("TAGGED")
+        blk.add_line((0, 0), (1, 0))
+        ins = doc.modelspace().add_blockref("TAGGED", (0, 0))
+        ins.add_attrib("ID", "X-1", (0.5, 0.5))
+        ins.dxf.row_count, ins.dxf.column_count = 1, 3
+        ins.dxf.row_spacing, ins.dxf.column_spacing = 1.0, 10.0
+        path = str(tmp_path / "minsert_attrib.dxf")
+        doc.saveas(path)
+        ir = from_dxf(path)
+        tags = [t for t in _by_type(ir, TextItem) if t.content == "X-1"]
+        assert sorted(round(t.position[0], 6) for t in tags) == [
+            0.5, 10.5, 20.5]
+        assert len(_by_type(ir, Line)) == 3
+
+    def test_minsert_placements_are_capped(self, tmp_path):
+        # A million placements of an empty block: no block entity is ever
+        # walked, so the entity budget alone would not stop the loop. The
+        # placements are capped at the budget's size and the cap is said.
+        import ezdxf
+        doc = ezdxf.new("R2010")
+        doc.header["$INSUNITS"] = 6
+        doc.blocks.new("EMPTY")
+        doc.modelspace().add_line((0, 0), (1, 0))
+        ins = doc.modelspace().add_blockref("EMPTY", (0, 0))
+        ins.dxf.row_count = ins.dxf.column_count = 1000
+        ins.dxf.row_spacing = ins.dxf.column_spacing = 1.0
+        path = str(tmp_path / "minsert_bomb.dxf")
+        doc.saveas(path)
+        ir = from_dxf(path, max_block_entities=20)
+        assert any("MINSERT 'EMPTY' places 1000000 copies" in w
+                   and "stopped after 20" in w for w in ir.warnings)
         assert len(_by_type(ir, Line)) == 1
-        assert any("MINSERT" in w and "12 copies" in w for w in ir.warnings)
+
+    def test_truth_walks_every_minsert_placement_as_ingest_does(
+            self, tmp_path):
+        # The ground-truth extractor and the ingest must keep agreeing
+        # entity-for-entity on block-nested annotations, arrays included.
+        import ezdxf
+        from planlens.dxf.truth import extract_native_annotations
+        from planlens.ir.results import Leader
+        doc = ezdxf.new("R2018", setup=True)
+        doc.header["$INSUNITS"] = 6
+        blk = doc.blocks.new("NOTE")
+        blk.add_leader(vertices=[(1, 1), (3, 3)])
+        ins = doc.modelspace().add_blockref("NOTE", (100, 100))
+        ins.dxf.row_count, ins.dxf.column_count = 1, 2
+        ins.dxf.row_spacing, ins.dxf.column_spacing = 1.0, 50.0
+        path = str(tmp_path / "minsert_leader.dxf")
+        doc.saveas(path)
+        ir = from_dxf(path)
+        t = extract_native_annotations(path)
+        assert "warnings" not in t
+        ir_tips = sorted((round(ld.vertices[0][0], 4),
+                          round(ld.vertices[0][1], 4))
+                         for ld in _by_type(ir, Leader))
+        truth_tips = sorted(tuple(ld["vertices"][0])
+                            for ld in t["spaces"]["model"]["leaders"])
+        assert ir_tips == truth_tips == [(101.0, 101.0), (151.0, 101.0)]
+        assert all(ld["block"] == "NOTE"
+                   for ld in t["spaces"]["model"]["leaders"])
 
     def test_a_bad_attrib_costs_only_itself(self, monkeypatch, blocks_dxf):
         # The F9 try-scope defect, one loop over: the ATTRIB loop sat

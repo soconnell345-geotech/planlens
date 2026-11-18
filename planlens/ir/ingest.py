@@ -275,12 +275,15 @@ def from_dxf(filepath: str = None, content: bytes = None,
     warning instead of failing. A malformed entity never costs its
     siblings: one bad virtual entity, one bad ATTRIB, or a lazy raise
     from ezdxf's generator, is warned about and stepped over, and the
-    same holds for the top-level model-space walk. Two losses that are
-    ezdxf's rather than ours are reported the same way instead of going
+    same holds for the top-level model-space walk. A loss that is
+    ezdxf's rather than ours is reported the same way instead of going
     silent: an entity ezdxf declines to transform (a non-uniformly scaled
     MULTILEADER, say — omitted from ``virtual_entities()`` WITHOUT
-    raising) and a MINSERT array, of which only the first placement is
-    resolved. Repeated identical warnings are reported once.
+    raising). A MINSERT (one reference placing its block on a row/column
+    grid) is expanded into one placement per grid cell, each ingested as
+    a single INSERT with its ATTRIBs; the number of placements is capped
+    at ``max_block_entities``. Repeated identical warnings are reported
+    once.
 
     Metadata: ``n_block_entities`` is the number of IR entities the
     explosion CONTRIBUTED, and ``n_block_entities_walked`` (present only
@@ -537,15 +540,29 @@ def from_dxf(filepath: str = None, content: bytes = None,
                 bname = ent.dxf.get("name", "?")
                 mcount = getattr(ent, "mcount", 1) or 1
                 if mcount > 1:
-                    # MINSERT: ezdxf's virtual_entities() resolves only the
-                    # FIRST copy of the array, so the other placements are
-                    # plotted on paper but absent from the IR. Array
-                    # expansion is not implemented; say so rather than
-                    # under-report the sheet silently.
-                    _warn_once(f"MINSERT '{bname}' places {mcount} copies "
-                               f"in a row/column array; only the first is "
-                               f"ingested (array expansion not "
-                               f"implemented).")
+                    # MINSERT: one reference placing its block on a
+                    # row/column grid. ezdxf's virtual_entities() resolves
+                    # only the FIRST placement, so each one is expanded
+                    # into its own plain INSERT (ezdxf's multi_insert():
+                    # the grid offset in the reference's OCS, turned by its
+                    # rotation, its ATTRIBs moved with it — the placements
+                    # ezdxf's own renderer draws) and handled exactly as a
+                    # single reference. The placements count against the
+                    # entity budget's size, so an array of millions of
+                    # copies of an empty block cannot walk unbounded.
+                    n_copies = 0
+                    for placement in ent.multi_insert():
+                        if n_copies >= max_block_entities:
+                            _warn_once(
+                                f"MINSERT '{bname}' places {mcount} copies;"
+                                f" expansion stopped after "
+                                f"{max_block_entities} (the block-entity "
+                                f"budget); the rest are omitted.")
+                            break
+                        n_copies += 1
+                        _handle(placement, block=block, depth=depth,
+                                inherit_layer=inherit_layer)
+                    return
                 for attrib in getattr(ent, "attribs", ()) or ():
                     # Per-ATTRIB guard, for the same reason the virtual
                     # entities below get one: one unreadable attribute

@@ -132,6 +132,18 @@ a different tally — every layer name seen during ingest, INSERTs and
 unsupported entity types included — and reads 4, 8 and 3 on those three
 sheets rather than following the inheritance. Entities drawn on an explicit layer inside a block keep that layer.
 
+A **MINSERT** (one INSERT placing its block on a row/column grid) is expanded
+into one placement per grid cell with ezdxf's `multi_insert()`: the grid steps
+in the reference's own frame, turned by its rotation and not scaled, and each
+placement carries its own copy of the ATTRIBs — the placements ezdxf's renderer
+draws. Each is then ingested as a single INSERT. Until 2026-11-18 only the
+first cell arrived (`virtual_entities()` resolves no more) and a warning said
+so. The placements are capped at `max_block_entities`, because an array of an
+empty block walks no block entity and the entity budget alone would not stop
+it. `planlens.dxf.truth` walks the same placements, so the two surfaces still
+agree on block-nested annotations. None of the ten validation sheets has a
+MINSERT, so no corpus figure moves.
+
 ### `from_pdf_vector` (PyMuPDF) — confidence 1.0
 Reuses `planlens.pdf.extract_colored_paths` (per-path point lists + color) and
 `planlens.pdf.discover_pdf_content` (page size + text). Each path becomes a Line

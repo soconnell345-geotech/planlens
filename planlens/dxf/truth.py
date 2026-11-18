@@ -276,6 +276,26 @@ def _walk_block(insert, top_name: str, out: Dict[str, List[Dict[str, Any]]],
     coordinates.
     """
     bname = insert.dxf.get("name", "") or "?"
+    mcount = getattr(insert, "mcount", 1) or 1
+    if mcount > 1:
+        # MINSERT: the block placed on a row/column grid. ezdxf's
+        # virtual_entities() resolves only the first placement, so each
+        # grid cell is walked as its own INSERT (ezdxf's multi_insert()),
+        # exactly as ``planlens.ir.from_dxf`` expands it, with the same
+        # cap on the number of placements.
+        n_copies = 0
+        for placement in insert.multi_insert():
+            if n_copies >= max_block_entities:
+                _warn_once(state,
+                           f"MINSERT '{bname}' places {mcount} copies; "
+                           f"expansion stopped after {max_block_entities}"
+                           f" (the block-entity budget); the rest are "
+                           f"omitted.")
+                break
+            n_copies += 1
+            _walk_block(placement, top_name, out, state, max_block_entities,
+                        depth, inherit_layer=inherit_layer)
+        return
     ins_layer = insert.dxf.get("layer", "0") or "0"
     if ins_layer == "0" and inherit_layer is not None:
         ins_layer = inherit_layer
