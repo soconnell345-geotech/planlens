@@ -1319,8 +1319,9 @@ def name_marks_by_words(pdf_bytes: bytes, remove: Any, signer: str
     returned in ``refused`` (rows shaped like the remover's ``not_removed``)
     — never handed on, since the remover, matching comments only, would
     take the one mark whose COMMENT says them although another's label
-    does too. Ids, and entries without words, are left for the remover."""
-    from planlens.review.marked_copy import _MARKUP_ID
+    does too. Ids, a mark's stable uid (BACKLOG PL-27), and entries without
+    words, are left for the remover."""
+    from planlens.review.marked_copy import _MARKUP_ID, _MARKUP_UID
 
     entries = ([remove] if isinstance(remove, (str, dict))
                else list(remove or []))
@@ -1333,7 +1334,9 @@ def name_marks_by_words(pdf_bytes: bytes, remove: Any, signer: str
         else:
             want = str(raw or "")
         want = want.strip()
-        if not want or _MARKUP_ID.match(want):
+        if not want or _MARKUP_ID.match(want) or (
+                _MARKUP_UID.match(want)
+                and any(r["m"].uid == want for r in rows)):
             out.append(raw)
             continue
         low = want.lower()
