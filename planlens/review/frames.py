@@ -136,15 +136,18 @@ _BOX = re.compile(
 #: (page coordinates)``. Such a box is the vision model's own estimate in
 #: the page's units, neither a pixel box nor a 0-999 box: it is left as
 #: written (:func:`boxes_to_grid`) and not read as a place
-#: (:func:`answer_boxes`). Not a size ("pt lettering") or the verb ("points
-#: to").
+#: (:func:`answer_boxes`). A bare "points" is the unit only before
+#: punctuation or the end of a line: "points right to the boring" is the
+#: verb. Not a size ("pt lettering").
 _PAGE_UNIT_AFTER = re.compile(
-    r"\s*[)\]}]?\s*\(?\s*(?:in\s+)?"
-    r"(?:(?:(?:pdf|page)(?:[\s-]+[a-z]+)?[\s-]+)?(?:pt|pts|points)\b"
-    r"|(?:pdf|page)[\s-]+(?:units|co-?ordinates|coords|space)\b)"
-    r"(?!\s*(?:font|type|text|letter|lettering|tall|high|size|thick|line|"
-    r"to|towards?|into|away|up|down|north|south|east|west)\b)",
-    re.IGNORECASE)
+    r"\s*[)\]}]?\s*\(?\s*"
+    r"(?:(?:in\s+)?(?:(?:pdf|page)(?:[\s-]+[a-z]+)?[\s-]+)?(?:pt|pts)\b"
+    r"|(?:in\s+)?(?:pdf|page)(?:[\s-]+[a-z]+)?[\s-]+points\b"
+    r"|in\s+points\b"
+    r"|points(?=[ \t]*(?:[^\w\s]|\r?\n|$))"
+    r"|(?:in\s+)?(?:pdf|page)[\s-]+(?:units|co-?ordinates|coords|space)\b)"
+    r"(?!\s*(?:font|type|text|letter|lettering|tall|high|size|thick|"
+    r"line)\b)", re.IGNORECASE)
 
 #: A box value over this cannot be on the 0-999 grid.
 _GRID_MAX = 999.5

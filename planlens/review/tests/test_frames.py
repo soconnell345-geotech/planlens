@@ -147,6 +147,35 @@ def test_a_box_followed_by_pixels_nothing_or_a_size_converts(tail):
     assert counts == {"converted": 2, "grid": 0}
 
 
+#: The verb "points" after a pixel box (made-up answers).
+VERBS = ["points right to the boring.", "points at the pump.",
+         "points upward.", "points northeast.", "points left.",
+         "points roughly north."]
+
+
+@pytest.mark.parametrize("verb", VERBS)
+def test_the_verb_points_is_not_a_page_unit(verb):
+    text, counts = vision_view.boxes_to_grid(
+        f"Leader px=[1024, 663, 1034, 673] {verb}", (2048, 1326))
+    assert text == f"Leader [500, 500, 504, 507] {verb}"
+    assert counts == {"converted": 1, "grid": 0}
+    found = vision_view.answer_boxes(text, [0.0, 0.0, 1000.0, 1000.0])
+    assert [label for label, _box in found] == ["Leader"]
+
+
+@pytest.mark.parametrize("unit", [" points.", " points,", " points",
+                                  " points\nNext line.", " pt", " pts",
+                                  " PDF points", " page points",
+                                  " in points"])
+def test_a_page_unit_after_a_box_still_holds(unit):
+    box = f"B [300, 200, 320, 220]{unit}"
+    text, counts = vision_view.boxes_to_grid(f"{PX}; {box}", (2048, 1326))
+    assert text == f"{PX_GRID}; {box}"
+    assert counts == {"converted": 1, "grid": 0, "page_units": 1}
+    found = vision_view.answer_boxes(text, [0.0, 0.0, 1000.0, 1000.0])
+    assert [label for label, _box in found] == ["A"]
+
+
 def test_a_box_in_page_units_is_not_read_as_a_place():
     view = [0.0, 0.0, 1000.0, 1000.0]
     found = vision_view.answer_boxes(
