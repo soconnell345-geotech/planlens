@@ -32,6 +32,14 @@ MARGIN_MM = 10.0
 #: drawing is scaled to fit inside it.
 MAX_SIDE_MM = 1189.0
 
+#: The least the drawing's longer side is plotted at, in millimetres (A4's
+#: long side, less the margins). ezdxf plots one drawing unit to the
+#: millimetre and only ever scales DOWN to fit, so a detail two units wide
+#: (a drawing in metres) was a 2 mm speck on a 22 mm page of margin, its
+#: line weights wider than its shapes: a smaller drawing is scaled up to
+#: this.
+MIN_SIDE_MM = 297.0
+
 #: The bounds of a plot (review of DR-44). A plot is made while its
 #: conversation's toolkit is locked, so it must end: measured 2026-11-18
 #: with ezdxf 1.4.5 and PyMuPDF 2.1, 100,000 lines took 64 s and 390 MB,
@@ -174,7 +182,12 @@ def dxf_to_pdf(filepath: Optional[str] = None,
                        margins=layout.Margins.all(float(margin_mm)),
                        max_width=float(max_side_mm),
                        max_height=float(max_side_mm))
-    return backend.get_pdf_bytes(page)
+    # scaled UP to fit too: a small drawing fills the smallest page
+    size = backend.player().bbox().size
+    longer = max(float(size.x), float(size.y))
+    least = MIN_SIDE_MM - 2.0 * float(margin_mm)
+    scale = least / longer if 0.0 < longer < least else 1.0
+    return backend.get_pdf_bytes(page, settings=layout.Settings(scale=scale))
 
 
 def is_dxf(name: object) -> bool:
@@ -183,6 +196,6 @@ def is_dxf(name: object) -> bool:
     return str(name or "").strip().lower().endswith(".dxf")
 
 
-__all__ = ["MARGIN_MM", "MAX_SIDE_MM", "MAX_FILE_MB", "MAX_ENTITIES",
+__all__ = ["MARGIN_MM", "MAX_SIDE_MM", "MIN_SIDE_MM", "MAX_FILE_MB", "MAX_ENTITIES",
            "MAX_SECONDS", "NOT_PLOTTED", "PLOT_NOTE", "PlotUnavailable",
            "PlotTooLarge", "dxf_to_pdf", "is_dxf"]
