@@ -10,7 +10,13 @@
   index reads those numbers on, and the result says which
   (`sheet_pages`). A number the index holds on more than one page, or not
   at all, is refused with words that say so (naming a near form such as
-  "S201 -> S-201" without taking it); nothing is guessed. Without the
+  "S201 -> S-201" without taking it); nothing is guessed. A page
+  argument given beside a sheet number that names other pages is
+  refused in the caller's own words (`pdf_pages`, 1-based, in the host
+  layer). Where the index took a number from the PDF's page label and
+  not from a reading of the sheet (a scan), its `sheet_pages` row says
+  so (`from`). `sheets` on a Word, Excel or DXF file is refused: those
+  have no sheet index. Without the
   sheet tools every spec and result is what it was
   (`planlens/tools/sheet_addresses.py`;
   `tools/tests/test_pl37_sheet_addresses.py`,
