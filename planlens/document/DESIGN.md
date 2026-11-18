@@ -21,6 +21,8 @@ document/
   annotations.py  review markups + hidden CAD text
   markup_writer.py  the other direction: review comments ONTO a copy
   tables.py       find_tables wrapper
+  continued_tables.py  a table that runs on to the next page (host's switch)
+  reading_order.py  columns of prose, and an order that runs across them
   scale.py        the measurement calibration the PDF itself stores (/VP, /Measure)
   scales.py       the Scale primitive: a fitted map from a position on the page
                   to a quantity, with its +/-
@@ -534,6 +536,26 @@ the whole process, so character boxes hug their glyphs ("A-1" read
 (two ruled tables side by side read as one). Tables are read on the ruling
 lines alone (`use_layout=False`) with the corrections on for the read, then
 the setting found is put back.
+
+**A table that runs on to the next page, for a host that asks (PL-09).**
+Read page by page, a table printed over two pages is two tables, the second
+with its column titles on the page before. `Document(...,
+continued_tables=True)` (off by default) puts a note on each:
+"continues on page N as table pN.tbl0" on the earlier, "continues table
+pM.tblK from page M: its first row repeats that table's column titles" (or
+"the column titles are on that page, not repeated here") on the later.
+Rows, ids and boxes are unchanged; only `notes` gains a line.
+`continued_tables.table_continuation(earlier, later)` is the rule, on two
+pages' contents: the last table of one page and the first of the next have
+the same column count and left and right edges (6 pt); nothing of the
+body (outside the 8 % bands) is printed below the first or above the
+second, except a line saying "continued" or a line printed above the first
+too (its caption); the running header is the same on both pages, page
+numbers aside, so two borings' one-page logs on one form are not linked;
+and the second repeats the first's first row or says it is continued.
+Two pages that merely share a ruled form are not linked unless one says
+so. The neighbours are read with their tables once and kept
+(`Document._unlinked`).
 
 ## Page map
 
@@ -2152,9 +2174,11 @@ noise that rule costs. And the rows of short marks drawn nowhere.
 - RapidOCR (`planlens.ocr`) as a text source (it currently emits IR TextItems).
 - The drawing tools (digitize / query / snip / search a drawing set) as
   planlens tools — the app's drawing adapter still owns them.
-- Headings from the PDF text layer; figure detection; tables spanning
-  pages. Captions on pages that are not figures are read for a host that
-  asks (`captions_on_every_page`, PL-09). Multi-column reading order is said where the file's
+- Headings from the PDF text layer; figure detection; joining a table
+  printed over two pages into one. Such a table's two parts are linked by
+  a note, and captions on pages that are not figures are read, for a host
+  that asks (`continued_tables`, `captions_on_every_page`, PL-09).
+  Multi-column reading order is said where the file's
   order runs across the columns, and read by `column_order` for a host
   that asks (PL-09); the page a tool shows keeps the file's order.
 - A `dcp_log` that survives a scan (see "Page roles and work items"), and

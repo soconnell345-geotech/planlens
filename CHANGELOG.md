@@ -89,6 +89,14 @@
   of tables can be placed; a sentence such as "Table 3 summarizes the
   results" is not read. With it a table entry is placed only on a table's
   caption. Off by default: the outline is unchanged unless a host asks.
+- **A table that runs on to the next page is linked, for a host that asks
+  (app BACKLOG PL-09).** `Document(..., continued_tables=True)` notes on
+  the last table of a page and the first of the next that one continues
+  the other ("continues table p3.tbl1 from page 3: the column titles are
+  on that page, not repeated here"), when they share their columns and
+  edges, nothing of the body comes between them, the running header is
+  the same and the second repeats the column titles or says it is
+  continued. Rows and ids are unchanged. Off by default.
 
 ## 0.16.0 — 2026-11-17
 
