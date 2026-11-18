@@ -17,7 +17,9 @@ def minsert_cells(insert, parent=None) -> Optional[Iterator]:
 
     The grid steps in the reference's own frame (its OCS), turned by the
     reference's rotation and not scaled by it; each cell carries its own
-    copy of the ATTRIBs, moved with it. These are the placements ezdxf's
+    copy of the ATTRIBs, moved with it (an ATTRIB whose extrusion differs
+    from the reference's is stepped through the WCS, which ``multi_insert``
+    does not do). These are the placements ezdxf's
     ``Insert.multi_insert()`` makes, but a direction whose spacing is 0 is
     walked once rather than looped over (``multi_insert`` loops rows x
     columns and skips the repeats, so a 30000 x 30000 array with one zero
@@ -53,6 +55,7 @@ def _cells(source, m) -> Iterator:
     rows = int(dxf.row_count) if row_sp else 1
     cols = int(dxf.column_count) if col_sp else 1
     rotation = dxf.rotation
+    ocs, extrusion = source.ocs(), Vec3(dxf.extrusion)
     for row in range(rows):
         for col in range(cols):
             offset = Vec3(col * col_sp, row * row_sp)
@@ -65,10 +68,17 @@ def _cells(source, m) -> Iterator:
                          "column_spacing"):
                 cdxf.discard(name)
             for attrib in cell.attribs:
-                attrib.dxf.insert = Vec3(attrib.dxf.insert) + offset
+                # An ATTRIB's points are in the ATTRIB's own OCS, which
+                # need not be the reference's (a reference extruded
+                # (0, 0, -1) can carry an ATTRIB extruded (0, 0, 1)), so
+                # the step goes through the WCS.
+                step = offset
+                if not Vec3(attrib.dxf.extrusion).isclose(extrusion):
+                    step = attrib.ocs().from_wcs(ocs.to_wcs(offset))
+                attrib.dxf.insert = Vec3(attrib.dxf.insert) + step
                 if attrib.dxf.hasattr("align_point"):
                     attrib.dxf.align_point = (Vec3(attrib.dxf.align_point)
-                                              + offset)
+                                              + step)
             if m is not None:
                 cell.transform(m)
             yield cell
