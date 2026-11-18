@@ -194,6 +194,19 @@ def test_column_order_breaks_at_a_line_over_the_columns():
                    + ["LOW0"] * 6 + ["LOW1"] * 6)
 
 
+def test_a_line_with_no_box_is_left_where_it_cannot_be_placed():
+    """A text source may give a line no box: it neither breaks the check
+    nor is placed in a column; ``column_order`` keeps it after the rest."""
+    from planlens.document.model import TextLine
+    boxless = TextLine(id="p0.x0", page=0, bbox=None,
+                       text="a made-up line from a text source with no box")
+    with Document(content=_columns(2, rows=6)) as doc:
+        lines = list(doc.page(0, tables=False).lines)
+    mixed = lines[:3] + [boxless] + lines[3:]
+    assert order_runs_across_columns(mixed) == 2
+    assert column_order(mixed)[-1] is boxless
+
+
 def test_column_order_leaves_one_column_alone():
     def draw(page):
         for r in range(12):

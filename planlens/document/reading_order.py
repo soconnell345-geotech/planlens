@@ -64,6 +64,10 @@ MAX_COLUMNS = 4
 
 
 def _horizontal(line) -> bool:
+    """Horizontal as displayed, with a box (a text source may give a line
+    none, which then keeps its place after the rest)."""
+    if getattr(line, "bbox", None) is None:
+        return False
     rot = float(getattr(line, "rotation", 0.0) or 0.0) % 360.0
     return rot < 1.0 or rot > 359.0
 
@@ -202,7 +206,8 @@ def column_order(lines: Sequence) -> List:
     A line that crosses a gap (a heading over the columns) is a break: the
     columns above it are read first, each top to bottom, then the line, then
     the columns below it. Lines that are not horizontal keep their order,
-    after the rest. With one column the order given is returned unchanged.
+    after the rest, as do lines with no box. With one column the order
+    given is returned unchanged.
     Line ids are not renumbered, so a citation still names the same line.
     """
     gutters = column_gutters(lines)
