@@ -1826,7 +1826,7 @@ and the rows page on.
   here. Whether a detail suits the place it is called from is not
   attempted.
 
-## Schedules and the marks on the sheets (0.16.0, app BACKLOG PL-42; limits settled in PL-43, unreleased)
+## Schedules and the marks on the sheets (0.16.0, app BACKLOG PL-42; three limits settled and one narrowed in PL-43, unreleased)
 
 **Why.** A schedule (doors, windows, equipment, panels, footings) lists
 marks; the plans draw them. A mark drawn with no row, or a row drawn
@@ -1894,8 +1894,9 @@ not drawn, but it is named, which keeps a row out of `no_mark`.
   of that form has its row.
 - `no_mark`: a row of a schedule titled SCHEDULE whose mark is drawn on no
   sheet and named nowhere, where at least half the schedule's rows are
-  found in the sheets' text, every sheet's drawing is read, and none of
-  its rows found is read only from hidden CAD text.
+  found in the sheets' text, every sheet's drawing is read, and, where its
+  rows found are read only from hidden CAD text, every sheet that could
+  show the mark carries such text (limit 1 below).
 - `may_be_on_unread_sheet`: a row not found where some sheets' drawing is
   not read: no usable text, the drawing in an image (image cover of half
   the sheet or more), or no text outside the title block (fewer than 10
@@ -1910,7 +1911,8 @@ not drawn, but it is named, which keeps a row out of `no_mark`.
   list whose entries need not all be drawn); a row of a schedule fewer
   than half of whose rows are found in the sheets' text (its marks may be
   drawn as lines or in an image: absence is not established); a row of a
-  schedule whose rows found are read only from hidden CAD text; a row of
+  schedule whose rows found are read only from hidden CAD text, where a
+  sheet that could show it carries none (sheets plotted apart); a row of
   one or two characters drawn alone on no sheet; a plain number in a
   lettering borrowed from other sheets; a mark with no row where a cell of
   its schedule's mark column could not be read.
@@ -1941,7 +1943,10 @@ letters) and not contradicted by the one mark the sheet may show, is
 `cannot_tell`, never `no_row`, with the same grouping (more than three:
 one item for the sheet). The sheet itself does not confirm the lettering:
 a floor whose doors the schedule leaves out and a sheet of dimensions in
-the doors' lettering read the same.
+the doors' lettering read the same. A number already told from a sheet
+whose own marks settle the lettering is not told again from a sheet that
+borrows it (a door with no row, tagged on its plan and alone on an
+enlarged plan, is one item, from the plan): one mark, one item.
 
 **Families.** Wall types, window marks and keynote tags can share a form
 (`W-1`). Where three or more different marks of a form have no row and
@@ -1978,29 +1983,46 @@ repeats); this one says none, and finds every planted item. On 8 dense
 sheets of 4,000 text lines the check took 16 s and now takes 0.6 s (the
 word over or under a number is looked up by bisection on the page's word
 boxes, worked out once). No figure here says how it does on real drawing
-sets. PL-43's four settled limits are each shown on a made-up set
-(`tests/test_schedules_limits.py`; the scan away from the schedule in
-`tests/test_schedules_hard_cases.py`), each failing on 0.16.0; the
-fixture's truth is unchanged.
+sets. PL-43's three settled limits and the narrowed one are each shown
+on a made-up set (`tests/test_schedules_limits.py`; the scan away from
+the schedule in `tests/test_schedules_hard_cases.py`), each failing on
+0.16.0, beside the sets where 0.16.0's `no_mark` rightly stays. planlens'
+fixture's truth is unchanged, and so are the app's coordination sets'
+(still the planted items only, after the review's fix of the borrowed
+lettering: the door with no row tagged on A-101 and alone on the enlarged
+plan A-401 is one `no_row`, from A-101).
 
-**The four limits of 0.16.0, settled (PL-43).** The rule for each is the
-one the check already followed: never a definite item where the text
-cannot settle it, and never a looser search that finds new false marks.
-1. *A few marks drawn as lines gave `no_mark`.* The text cannot tell a
-   mark drawn as lines from one not drawn, so a definite `no_mark` stands
-   only where the set gives no sign that its lettering is outside its
-   text. Two signs are read. A sheet with no text outside its title block
-   has its drawing lettered as lines (or not at all), so its marks are
-   not read: it is taken as unread (`may_be_on_unread_sheet`, the sheet
-   named), as an image sheet is; this is the common way a few marks are
-   lines (one plan plotted with its lettering as strokes). And where a
-   schedule's rows found are read only from hidden CAD text (lettering
-   drawn as lines, with the hidden copy a CAD program keeps), a row not
-   found is `cannot_tell`, naming the sheets its other marks are on:
-   whether the copy was kept is a matter of how each sheet was plotted (a
-   set assembled from sheets plotted apart), which the text cannot
-   confirm. Where the marks found are set in a font, the text is the
-   lettering, and a row not found stays `no_mark`.
+**The four limits of 0.16.0: three settled, one narrowed (PL-43).** The
+rule for each is the one the check already followed: never a definite
+item where the text cannot settle it, and never a looser search that
+finds new false marks.
+1. *A few marks drawn as lines gave `no_mark`.* Narrowed, not settled.
+   The text cannot tell a mark drawn as lines from one not drawn, so a
+   definite `no_mark` stands only where the set gives no sign that a
+   sheet's lettering is outside its text. Two signs are read. A sheet
+   with no text outside its title block has its drawing lettered as lines
+   (or not at all), so its marks are not read: it is taken as unread
+   (`may_be_on_unread_sheet`, the sheet named), as an image sheet is;
+   this is the common way a few marks are lines (one plan plotted with
+   its lettering as strokes). And where a schedule's rows found are read
+   only from hidden CAD text (lettering drawn as lines, with the hidden
+   copy a CAD program keeps), the copy is there or not as each sheet was
+   plotted. The rule: a row not found is `cannot_tell` where a read
+   sheet that could show its mark carries no hidden CAD text while the
+   sheets its rows are found on do (sheets plotted apart). A sheet could
+   show the mark where its sheet number has the discipline letters of a
+   sheet the schedule's rows are found on (the test a borrowed lettering
+   uses, limit 4), or where no number is read for it, or for any of those
+   sheets. A sheet carries hidden CAD text where it has any of the CAD
+   program's hidden annotations, even ones that only repeat its text
+   layer. The why names the sheets that carry none. Where every sheet
+   that could show the mark carries hidden CAD text, the set was plotted
+   whole with it, a mark drawn as lines there is read, and a row not
+   found stays `no_mark`, as for a set lettered in a font. What it leaves:
+   a tag drawn as lines with no hidden text of its own (exploded, or
+   pasted as lines) on a sheet whose other marks are read, in a font or
+   from their hidden text, is not seen, and its row is `no_mark` as in
+   0.16.0 (see Not seen below).
 2. *A part of a schedule on an unread page away from its other pages gave
    `no_row`.* A schedule can continue away from its other parts, and
    nothing in the text says an unread page holds none of it. A mark with
@@ -2025,11 +2047,15 @@ cannot settle it, and never a looser search that finds new false marks.
   image, are not seen: their rows come back `cannot_tell` or
   `may_be_on_unread_sheet`, never `no_mark`, where the set shows it (fewer
   than half the rows found, an image sheet, a sheet with no text outside
-  its title block, marks read from hidden CAD text). Not seen: in a set
-  whose marks are set in a font and whose every sheet has text in its
-  field, one tag drawn as lines (exploded, or pasted as lines), and a
-  plan whose tags are lines while its notes are text; their rows are
-  `no_mark`. A turned schedule is not read; a table with no SCHEDULE title
+  its title block, marks read from hidden CAD text while a sheet that
+  could show them carries none). Not seen: in a set whose marks are set
+  in a font and whose every sheet has text in its field, one tag drawn as
+  lines (exploded, or pasted as lines), and a plan whose tags are lines
+  while its notes are text; in a set whose every sheet of the marks'
+  discipline carries hidden CAD text, one tag drawn as lines without its
+  own; their rows are `no_mark`. The other way, a sheet of that
+  discipline lettered only in a font (a notes sheet, say) carries no
+  hidden CAD text, and holds such rows at `cannot_tell`. A turned schedule is not read; a table with no SCHEDULE title
   and no mark heading is not a schedule here.
 - A made-up sheet whose only field text is two or three tags counts as
   having no text outside its title block; a real plan has far more.
@@ -2051,8 +2077,9 @@ cannot settle it, and never a looser search that finds new false marks.
 is a limit the text did not show. The `unlettered` sheets in the notes:
 whether each really has its lettering as lines (a sparse elevation or a
 photo sheet would wrongly hold back every definite item). Whether the
-set's marks are read from hidden CAD text, and so how many rows come back
-`cannot_tell` for that reason. How many `may_be_on_unread_sheet` items one
+set's marks are read from hidden CAD text, which sheets of their
+discipline carry none, and so how many rows come back `cannot_tell` for
+that reason. How many `may_be_on_unread_sheet` items one
 scanned sheet makes. How many borrowed-lettering `cannot_tell` items come
 from sheets with no such marks (dimensions lettered as the tags): the
 noise that rule costs. And the rows of short marks drawn nowhere.
