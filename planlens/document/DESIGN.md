@@ -534,7 +534,8 @@ prose 1.5-6, dividers and drawings 0.1-0.7), `n_images`, `ruling_h/v`,
 `rotated_text_fraction`, the `header` and `footer` band text (top and bottom
 8 %), the page number PRINTED on the page (`printed_page`, `printed_of`), a
 `sheet` number ("S-101"; since PL-37 read in the title-block bands by the
-sheet index's rules for one sheet, below) and, apart from it, the sheet
+sheet index's rules for one sheet, below; since PL-41 the index's own
+number once the index has been made) and, apart from it, the sheet
 count ("1 of 7"; `evidence["sheet_count"]`, a page-map row's
 `sheet_count`), `scales` on drawing sheets, a
 `divider_title` (APPENDIX / ATTACHMENT / ITEM / cover ... on a page under 60
@@ -1652,6 +1653,30 @@ needs the set), on a sheet in the title-block bands and the header band
 (elsewhere in the header and footer bands, as before), and keeps a
 count apart (`sheet_count`). The index stays the better reading of a set:
 its slot finds numbers that carry no label.
+
+**The page map follows the index once it is made (PL-41).** Read alone, a
+page takes a labelled number anywhere in its title-block area, so a
+reference-drawings table listing "DWG NO." over C-101 on a sheet whose
+title block prints S-201A, unlabelled, in the corner gave the page map
+C-101; the index, reading the set, finds S-201A by its place.
+`Document.sheet_index()`, the first time it is made, gives every page it
+numbered from the title block (slot, second slot, label or size) its
+number on the page map (`Document._sheets_from_index`); where the page's
+own reading was another number, that is kept as
+`evidence["sheet_read_alone"]` (shown by `document_page_map` with
+`with_evidence`), and the drawing segments' titles and `sheets` are read
+again. A number the index took from the PDF's page label changes nothing:
+it is the file's word, not a reading of the sheet, and the row carries
+the label already. A page the index gave no number keeps its own reading
+(a number printed only in the header band, which the index does not
+read). The page map never makes the index; only a host that asked for the
+sheet tools does (`open_document` brings it), so without them every
+result is as before. Checked on made-up documents only: 22 of them (the
+PL-41 set, the 20 fixture sets, the synthetic submittal) give the same
+bytes as 0.16.0 without the sheet tools, and with them only the PL-41 set
+changes. A toolkit shared by hosts that did and did not ask holds one
+`Document` per file, so once one host has made the index, the other's
+page map follows it too.
 
 **The number.** Nothing knows a layout. `sheet_index(doc)` collects every
 piece of text shaped like a sheet number (`A-101`, `S-201A`, `A5.01`,
