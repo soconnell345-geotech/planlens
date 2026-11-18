@@ -292,18 +292,27 @@ class Document:
     ``continued_tables`` (off by default; PL-09) notes on each table that
     runs on from the page before or on to the page after which table it
     continues (:mod:`planlens.document.continued_tables`).
+
+    ``column_warning`` (off by default; PL-09) adds a warning to a page
+    whose text is set in columns and drawn row by row, so that its lines
+    alternate between the columns
+    (:func:`planlens.document.reading_order.order_runs_across_columns`).
+    The check is not certain (a table with no rules whose cells read as
+    running text still warns), so a host asks for it; unset, it is not run.
     """
 
     def __init__(self, filepath: Optional[str] = None,
                  content: Optional[bytes] = None,
                  text_source: Any = None, name: Optional[str] = None,
-                 continued_tables: bool = False):
+                 continued_tables: bool = False,
+                 column_warning: bool = False):
         if filepath is None and content is None:
             raise ValueError("pass filepath or content")
         self._doc, self.source_kind = _open_any(filepath, content)
         self.source = name or (str(filepath) if filepath else "<bytes>")
         self.text_source = text_source
         self.continued_tables = continued_tables
+        self.column_warning = column_warning
         #: Pages read with their tables and no continuation notes, for the
         #: neighbours a continuation is looked for on.
         self._unlinked: Dict[int, PageContent] = {}
@@ -832,7 +841,8 @@ class Document:
             warnings.append(
                 f"{stats['n_unmapped_chars']} characters use a font with no "
                 f"Unicode map and read as U+FFFD — OCR this page for them")
-        n_columns = order_runs_across_columns(lines)
+        n_columns = (order_runs_across_columns(lines)
+                     if self.column_warning else None)
         if n_columns:
             # The lines stay as the file draws them; the page says that this
             # order shuffles its columns together (PL-09).

@@ -23,6 +23,7 @@ document/
   tables.py       find_tables wrapper
   continued_tables.py  a table that runs on to the next page (host's switch)
   reading_order.py  columns of prose, and an order that runs across them
+                  (the page's warning is a host's switch)
   scale.py        the measurement calibration the PDF itself stores (/VP, /Measure)
   scales.py       the Scale primitive: a fitted map from a position on the page
                   to a quantity, with its +/-
@@ -100,12 +101,19 @@ against `ir_to_page_point` on a rotated page.
   see "An unreliable text layer" below.
 - Order is content-stream order: reading order for word-processor output,
   drafting order for CAD plots. No reading-order reconstruction by default.
-- **A page whose order runs across its columns says so (PL-09).** Some
-  writers draw a page set in columns row by row: left line 1, right line 1,
-  left line 2. `reading_order.order_runs_across_columns` finds it and the
-  page carries the warning "reading order not reconstructed: the text is
-  set in N columns and the file draws its lines across them ..."; the
-  lines are unchanged. Columns are measured on lines of prose only (20
+- **A page whose order runs across its columns says so, for a host that
+  asks (PL-09).** Some writers draw a page set in columns row by row: left
+  line 1, right line 1, left line 2. With `Document(...,
+  column_warning=True)` `reading_order.order_runs_across_columns` is run
+  on each page read, and such a page carries the warning "reading order
+  not reconstructed: the text is set in N columns and the file draws its
+  lines across them ..."; the lines are unchanged. Off by default: unset,
+  the check is not run and a page is what it was before the check
+  existed. It is an option because the check cannot be made certain (see
+  the end of this item) and has not been run over real pages or put in
+  front of a model; a warning that is sometimes wrong is not put on every
+  host's pages. The toolkit and the review host open their documents
+  without it (neither passes a `Document` option through). Columns are measured on lines of prose only (20
   characters and four words, horizontal): a gap at least 0.6 of a line
   height wide that no more than a fifth of them cross, four lines a side,
   the sides beside each other (half the shorter height overlapping), each
@@ -2223,8 +2231,9 @@ noise that rule costs. And the rows of short marks drawn nowhere.
   a note, and captions on pages that are not figures are read, for a host
   that asks (`continued_tables`, `captions_on_every_page`, PL-09).
   Multi-column reading order is said where the file's
-  order runs across the columns, and read by `column_order` for a host
-  that asks (PL-09); the page a tool shows keeps the file's order.
+  order runs across the columns (`column_warning`), and read by
+  `column_order`, each for a host that asks (PL-09); the page a tool
+  shows keeps the file's order.
 - A `dcp_log` that survives a scan (see "Page roles and work items"), and
   roles for the in-situ tests the vocabulary has no word for (pressuremeter,
   vane, dilatometer), which are answered `other` today.

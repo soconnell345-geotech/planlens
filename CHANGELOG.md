@@ -144,16 +144,21 @@
   read as the default 80 by a markup's quote and by the search of a Word,
   Excel or DXF file, and each now says so. A call with valid arguments
   returns what it did.
-- **A page set in columns whose file draws the lines across them says so
-  (app BACKLOG PL-09).** Lines come in the order the file draws them. Some
-  writers draw a page of two or three columns row by row, so its lines
-  alternated between the columns and nothing said so. Such a page now
-  carries the warning "reading order not reconstructed: the text is set in
-  N columns and the file draws its lines across them ...", in
-  `PageContent.warnings` and so on the page a tool shows. The lines are
-  unchanged, and a page drawn column by column, a table read row by row
-  (ruled or not), a form, an index, a list set in two columns or notes
-  scattered over a drawing carry no warning.
+- **A page set in columns whose file draws the lines across them says so,
+  for a host that asks (app BACKLOG PL-09).** Lines come in the order the
+  file draws them. Some writers draw a page of two or three columns row by
+  row, so its lines alternate between the columns and nothing says so.
+  `Document(..., column_warning=True)` puts on such a page the warning
+  "reading order not reconstructed: the text is set in N columns and the
+  file draws its lines across them ...", in `PageContent.warnings` and so
+  on the page a tool shows. The lines are unchanged, and a page drawn
+  column by column, a table read row by row (ruled or not), a form, an
+  index, a list set in two columns or notes scattered over a drawing carry
+  no warning. Off by default, and unset the check is not run and every
+  page is what it was: the check cannot be made certain (a table with no
+  rules whose cells read as running text still warns), and it has not been
+  run over real pages or put in front of a model. `ReviewToolkit` and
+  `ReviewHost` open their documents without it.
   `planlens.document.reading_order.column_order(lines)` reads such a page
   column by column for a host that asks; nothing calls it by default.
 - **Captions on pages that are not figures, for a host that asks (app
