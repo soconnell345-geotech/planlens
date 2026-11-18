@@ -1,6 +1,7 @@
-"""The schedule-marks check's four known limits, each settled (app BACKLOG
-PL-43): never a definite ``no_mark`` or ``no_row`` where the set's text
-cannot settle it, and never a looser search that finds new false marks.
+"""The schedule-marks check's four known limits, three settled and one
+narrowed (app BACKLOG PL-43): never a definite ``no_mark`` or ``no_row``
+where the set's text cannot settle it, and never a looser search that
+finds new false marks.
 Each test builds a made-up set where the check of 0.16.0 said something
 definite it could not know, or said nothing it could say soundly. (Limit 2,
 a scan away from the schedule, is in ``test_schedules_hard_cases``.) Made-up
@@ -12,7 +13,7 @@ pymupdf = pytest.importorskip("pymupdf")
 
 from planlens.document import open_document  # noqa: E402
 from planlens.document.schedules import (  # noqa: E402
-    CANNOT_TELL, MAYBE_UNREAD, NO_MARK,
+    CANNOT_TELL, MAYBE_UNREAD, NO_MARK, NO_ROW,
 )
 from planlens.testing.schedule_set_fixtures import table  # noqa: E402
 from planlens.testing.sheet_set_fixtures import sketch_pdf  # noqa: E402
@@ -90,26 +91,48 @@ def _doors(rows):
 
 # -- limit 1: a few marks drawn as lines -------------------------------------
 
-def test_rows_of_marks_read_from_hidden_cad_text_are_never_no_mark():
+def test_rows_read_from_hidden_cad_text_stay_no_mark_where_every_sheet_has_it():
     """Two fan tags are drawn as lines with their hidden CAD text, the
-    third as lines with none (a sheet plotted without it, or a tag
-    exploded). 0.16.0 said EF-3 ``no_mark``: two of three rows found. The
-    text the CAD program keeps is not the drawing, so EF-3 cannot be
-    told. Set in a font, the same tags leave EF-3 ``no_mark``."""
-    result = _result(_set(("A-101", _plan(_lines_only(["EF-1", "EF-2",
-                                                       None]))),
-                          ("M-601", _fans())))
-    assert _items(result) == [("EF-3", CANNOT_TELL)]
-    why = result.items[0].why
-    assert "2 of this schedule's 2 rows found are drawn as lines" in why
-    assert why.endswith("view the plans where its other marks are found "
-                        "(A-101)")
-    assert any("hidden text a CAD program keeps" in n for n in result.notes)
-    assert result.unlettered == []
+    third as lines with none (a tag exploded). Where every sheet carries
+    hidden CAD text the set was plotted whole with it, so a tag drawn as
+    lines anywhere is read: EF-3 is ``no_mark``, as in 0.16.0 and as for
+    tags set in a font. M-601, of another discipline than A-101 where the
+    rows are found, does not count with or without hidden text."""
+    def fans_with_hidden_note(s):
+        _fans()(s)
+        _lines_only(["SEE SPECIFICATIONS"], y=700)(s)
+    tags = _plan(_lines_only(["EF-1", "EF-2", None]))
+    whole = _result(_set(("A-101", tags), ("M-601", fans_with_hidden_note)))
+    assert _items(whole) == [("EF-3", NO_MARK)]
+    assert not any("hidden text a CAD program keeps" in n
+                   for n in whole.notes)
+    other = _result(_set(("A-101", tags), ("M-601", _fans())))
+    assert _items(other) == [("EF-3", NO_MARK)]
+    assert other.unlettered == []
 
     in_font = _result(_set(("A-101", _plan(_tags(["EF-1", "EF-2"]))),
                            ("M-601", _fans())))
     assert _items(in_font) == [("EF-3", NO_MARK)]
+
+
+def test_a_sheet_plotted_without_the_hidden_cad_text_leaves_rows_open():
+    """The same set with A-102, a plan of the discipline the rows are
+    found on, whose notes are text and which carries no hidden CAD text
+    (plotted apart): a tag drawn as lines on A-102 would not be read.
+    0.16.0 said EF-3 ``no_mark``; now it is ``cannot_tell``, and the why
+    names A-102."""
+    result = _result(_set(("A-101", _plan(_lines_only(["EF-1", "EF-2",
+                                                       None]))),
+                          ("A-102", _plan()),
+                          ("M-601", _fans())))
+    assert _items(result) == [("EF-3", CANNOT_TELL)]
+    why = result.items[0].why
+    assert "2 of this schedule's 2 rows found are drawn as lines" in why
+    assert ("(on A-101), and A-102, which could show it, carries none of "
+            "that text") in why
+    assert why.endswith("view A-102")
+    assert any("sheets plotted apart" in n for n in result.notes)
+    assert result.unlettered == []
 
 
 def test_a_sheet_with_no_text_outside_its_title_block_leaves_rows_open():
@@ -188,3 +211,23 @@ def test_a_plain_number_on_a_sheet_without_two_marks_borrows_the_lettering():
         ("A-102", _plan(_tags(["201", "202"], size=9))),
         ("A-601", _doors(["101", "102", "103"]))))
     assert plain.items == []
+
+
+def test_a_number_told_where_the_marks_settle_it_is_not_told_again():
+    """Door 109, with no row, is tagged on A-101 among doors 101 to 103 in
+    their lettering, where it is ``no_row``, and again on A-401, an
+    enlarged plan where it is the only door. The lettering borrowed for
+    A-401 adds no second item for 109: one mark, one item. 110, tagged
+    only on A-401, is still ``cannot_tell`` there."""
+    def doors_on(enlarged):
+        return _result(_set(
+            ("A-101", _plan(_tags(["101", "102", "103", "109"],
+                                  bold=True))),
+            ("A-401", _plan(_tags(enlarged, bold=True))),
+            ("A-601", _doors(["101", "102", "103"]))))
+    alone = doors_on(["109"])
+    assert [(i.mark, i.status, i.sheet) for i in alone.items] == [
+        ("109", NO_ROW, "A-101")]
+    beside = doors_on(["109", "110"])
+    assert sorted((i.mark, i.status, i.sheet) for i in beside.items) == [
+        ("109", NO_ROW, "A-101"), ("110", CANNOT_TELL, "A-401")]
