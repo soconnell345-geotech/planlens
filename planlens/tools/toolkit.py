@@ -418,6 +418,11 @@ class ReviewToolkit:
         check with the document map (:func:`sheets_at_open`). Off by
         default, so a host's tool list and results are what they were
         until the host asks.
+    drawing_tools : bool
+        ``True`` also offers ``drawing_geometry`` (:data:`DRAWING_TOOLS`;
+        BACKLOG DR-44): one page's dimensions, leaders, callouts, revision
+        clouds and title block read from its drawn geometry, a fallback for
+        a CAD sheet the text and the look have not settled. Off by default.
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -432,7 +437,8 @@ class ReviewToolkit:
                  image_budget: Any = None,
                  image_format: str = "png",
                  look: Optional[Look] = None,
-                 sheet_tools: bool = False):
+                 sheet_tools: bool = False,
+                 drawing_tools: bool = False):
         from planlens.document.budget import resolve_budget
         if max_chars < 1000:
             raise ValueError("max_chars below 1000 cannot hold a useful result")
@@ -451,6 +457,13 @@ class ReviewToolkit:
         self.look = look
         #: Whether the sheet tools are offered (:data:`OPT_IN_TOOLS`).
         self.sheet_tools = bool(sheet_tools)
+        #: Whether the drawing tools are offered (:data:`DRAWING_TOOLS`).
+        self.drawing_tools = bool(drawing_tools)
+        #: Pages read for their drawn geometry, by (handle, page): the
+        #: document they were read from and its DrawingIR (a few, newest
+        #: last), so a second question about a page does not read it again.
+        self._drawn: "OrderedDict[Tuple[str, int], Tuple[Any, Any]]" = \
+            OrderedDict()
         self.max_chars = int(max_chars)
         self.max_open = int(max_open)
         self.text_source_for = text_source_for
@@ -477,15 +490,23 @@ class ReviewToolkit:
     OPT_IN_TOOLS: Tuple[str, ...] = ("sheet_index", "check_cross_references",
                                      "check_schedule_marks")
 
+    #: Tools offered only by a toolkit built with ``drawing_tools=True``
+    #: (:data:`planlens.tools.specs.DRAWING_TOOL_SPECS`).
+    DRAWING_TOOLS: Tuple[str, ...] = ("drawing_geometry",)
+
     def _offered(self, name: str) -> bool:
         if name in self.OPT_IN_TOOLS:
             return self.sheet_tools
+        if name in self.DRAWING_TOOLS:
+            return self.drawing_tools
         return self.look is not None or name not in self.LOOK_TOOLS
 
     @staticmethod
     def _all_specs() -> List[Dict[str, Any]]:
-        from planlens.tools.specs import SHEET_TOOL_SPECS, TOOL_SPECS
-        return list(TOOL_SPECS) + list(SHEET_TOOL_SPECS)
+        from planlens.tools.specs import (DRAWING_TOOL_SPECS,
+                                          SHEET_TOOL_SPECS, TOOL_SPECS)
+        return (list(TOOL_SPECS) + list(SHEET_TOOL_SPECS)
+                + list(DRAWING_TOOL_SPECS))
 
     # -- publication ----------------------------------------------------------
     def specs(self, style: str = "anthropic") -> List[Dict[str, Any]]:
@@ -683,6 +704,7 @@ class ReviewToolkit:
                     entry.doc.close()
             self._entries.clear()
             self._by_key.clear()
+            self._drawn.clear()
 
     # -- rendering (for hosts that hand images to the model themselves) ---------
     def render(self, handle: str, page: int, bbox=None, dpi=None,
@@ -2354,6 +2376,63 @@ class ReviewToolkit:
             out["truncated"] = "; ".join(
                 f"{n} more {k.replace('_', ' ')}" for k, n in cut.items()
             ) + ": convert the rest in another call"
+        return out
+
+    #: Pages a toolkit keeps read for their drawn geometry.
+    DRAWN_PAGES_KEPT = 4
+
+    def _drawn_ir(self, entry: "_Entry", page: int):
+        """``entry``'s page ``page`` read for its drawn geometry, kept for
+        the next question about it (:attr:`_drawn`)."""
+        from planlens.document.drawing_geometry import page_ir
+        key = (entry.handle, page)
+        with self._guard:
+            hit = self._drawn.get(key)
+            if hit is not None and hit[0] is entry.doc:
+                self._drawn.move_to_end(key)
+                return hit[1]
+        ir = page_ir(entry.doc, page)
+        with self._guard:
+            self._drawn[key] = (entry.doc, ir)
+            self._drawn.move_to_end(key)
+            while len(self._drawn) > self.DRAWN_PAGES_KEPT:
+                self._drawn.popitem(last=False)
+        return ir
+
+    def _tool_drawing_geometry(self, handle: str, page: int,
+                               find: Any = None,
+                               bbox: Any = None) -> Dict[str, Any]:
+        from planlens.document.drawing_geometry import (
+            KINDS, NoDrawnGeometry, drawing_geometry, kinds_asked)
+        entry = self._entry(handle)
+        page = int(page)
+        kinds = kinds_asked(find)
+        region = _floats(bbox, 4) if bbox is not None else None
+        with entry.lock:
+            if not 0 <= page < entry.doc.n_pages:
+                raise ToolError(f"page {page} is out of range",
+                                hint=f"pages run 0-{entry.doc.n_pages - 1}")
+            try:
+                out = drawing_geometry(entry.doc, page, kinds, region,
+                                       ir=self._drawn_ir(entry, page))
+            except NoDrawnGeometry as exc:
+                raise ToolError(str(exc), hint=exc.hint)
+        out = {"handle": handle, **out}
+        budget = self._budget(400)
+        if json_len(out) <= budget:
+            return out
+        # Too long (a dense sheet): each list keeps its likeliest items
+        # (they come most confident first), in an equal share of the room.
+        listed = [k for k in KINDS if out.get(k)]
+        room = max(150, (budget - json_len(
+            {**out, **{k: [] for k in listed}})) // max(1, len(listed)))
+        for kind in listed:
+            items, nxt = fit_items(out[kind], room)
+            if nxt is not None:
+                out[kind] = items
+                out[f"{kind}_truncated"] = (
+                    f"{out['counts'][kind] - len(items)} more: narrow with "
+                    "bbox or find")
         return out
 
     def _tool_measure(self, handle: str, page: int, bbox: Any = None,

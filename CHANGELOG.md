@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **The drawing-geometry layer as a tool an agent can reach for (app
+  BACKLOG DR-44, with PL-13).** `drawing_geometry(handle, page, find,
+  bbox)` reads one page's drafting constructs from its drawn geometry
+  (`planlens.ir`): dimensions with their value and the two points they
+  span, leaders with their note and the point their arrow touches, callout
+  bubbles, revision clouds and deltas, and the title block, each with the
+  finder's confidence, in the displayed-page frame the other tools use.
+  Every result says what it is measured from and what the sheet is (a
+  vector drawing, one whose lettering is drawn as lines, or mostly a
+  picture); a page with no drawn geometry (a scan) is refused in plain
+  words. Off by default at both levels: `ReviewToolkit(drawing_tools=True)`
+  offers it, after every other tool, and `planlens.review` offers it only
+  to a host that asks with `ReviewHost(toolkit_options={"drawing_tools":
+  True})`, after every other group. Without them no tool list, spec or
+  result changes (a test checks every host and toolkit combination: asking
+  adds one spec, last, and changes no other).
 - **The page map's sheet number follows the sheet index once it is made
   (app BACKLOG PL-41).** Read on its own, a page took a labelled number
   anywhere in its title-block area, so a reference-drawings table listing

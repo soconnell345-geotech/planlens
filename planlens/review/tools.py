@@ -64,14 +64,21 @@ def _plan_tools(host) -> bool:
     return _conv._asked_for_plan_tools(host)
 
 
+def _drawing_tools(host) -> bool:
+    """Whether ``host`` asked for the drawing tools
+    (``toolkit_options={"drawing_tools": True}``; BACKLOG DR-44)."""
+    return _conv._asked_for_drawing_tools(host)
+
+
 def tool_names(host=None) -> tuple:
     """The host tools offered with ``host`` (default: the current one;
-    ``find_like`` only with a look, the sheet tools and the plan tools only
-    where the host asked for them)."""
+    ``find_like`` only with a look, the sheet tools, the plan tools and the
+    drawing tools only where the host asked for them)."""
     host = host or _host()
     return _specs.host_tool_names(look=host.look is not None,
                                   sheet_tools=_sheet_tools(host),
-                                  plan_tools=_plan_tools(host))
+                                  plan_tools=_plan_tools(host),
+                                  drawing_tools=_drawing_tools(host))
 
 
 def specs(style: str = "plain", host=None):
@@ -80,7 +87,8 @@ def specs(style: str = "plain", host=None):
     host = host or _host()
     return _specs.host_specs(style, look=host.look is not None,
                              sheet_tools=_sheet_tools(host),
-                             plan_tools=_plan_tools(host))
+                             plan_tools=_plan_tools(host),
+                             drawing_tools=_drawing_tools(host))
 
 
 def _json_with(raw: str, **keys: Any) -> str:
@@ -110,7 +118,7 @@ def _document_args(name: str, a: Dict[str, Any]) -> Dict[str, Any]:
 
     if name == "open_document":
         return {"source": a.get("source")}
-    if name in _specs.PLAN_TOOLS:
+    if name in _specs.PLAN_TOOLS + _specs.DRAWING_TOOLS:
         # what was given, no more: the toolkit's defaults apply to the rest
         # (pdf_page is turned into page by the dispatcher)
         return {arg: a[arg] for arg, _f, _d in _specs._ARGS[name]

@@ -122,14 +122,23 @@ def _asked_for_plan_tools(host) -> bool:
                 .get("plan_tools"))
 
 
+def _asked_for_drawing_tools(host) -> bool:
+    """Whether ``host`` asked for the drawing tools
+    (``toolkit_options={"drawing_tools": True}``; BACKLOG DR-44)."""
+    return bool((getattr(host, "toolkit_options", None) or {})
+                .get("drawing_tools"))
+
+
 #: The toolkit tools a host is served only when it asked for them, by the
 #: option it asks with (:data:`planlens.review.specs.SHEET_TOOLS`,
-#: :data:`planlens.review.specs.PLAN_TOOLS`).
+#: :data:`planlens.review.specs.PLAN_TOOLS`,
+#: :data:`planlens.review.specs.DRAWING_TOOLS`).
 _OPT_IN_TOOLS = {"sheet_index": _asked_for_sheet_tools,
                  "check_cross_references": _asked_for_sheet_tools,
                  "check_schedule_marks": _asked_for_sheet_tools,
                  "plan_symbols": _asked_for_plan_tools,
-                 "plan_grid": _asked_for_plan_tools}
+                 "plan_grid": _asked_for_plan_tools,
+                 "drawing_geometry": _asked_for_drawing_tools}
 
 
 def _unknown_tool(name: str) -> str:
@@ -142,7 +151,8 @@ def _unknown_tool(name: str) -> str:
     offered = list(_specs.host_tool_names(
         look=host.look is not None,
         sheet_tools=_asked_for_sheet_tools(host),
-        plan_tools=_asked_for_plan_tools(host)))
+        plan_tools=_asked_for_plan_tools(host),
+        drawing_tools=_asked_for_drawing_tools(host)))
     return json.dumps({"error": f"unknown tool '{name}'",
                        "hint": f"available tools: {offered}"})
 
@@ -182,6 +192,8 @@ def _new_toolkit(folder: Optional[str]):
     # tools, and each call decides whether they are served
     # (:func:`_refused_opt_in`)
     kw["sheet_tools"] = True
+    # and the drawing tools, each call deciding the same way
+    kw["drawing_tools"] = True
     # the plan tools are the toolkit's own for every toolkit; asking for
     # them is this layer's option, not the toolkit's
     kw.pop("plan_tools", None)

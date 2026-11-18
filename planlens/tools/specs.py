@@ -932,3 +932,48 @@ SHEET_TOOL_SPECS = [
         },
     },
 ]
+
+#: The drawing tools (BACKLOG DR-44): a toolkit offers them only when it is
+#: built with ``drawing_tools=True``. Kept out of :data:`TOOL_SPECS` for the
+#: reason :data:`SHEET_TOOL_SPECS` is: a host that reads the list gets no
+#: new tool it did not ask for.
+DRAWING_TOOL_SPECS = [
+    {
+        "name": "drawing_geometry",
+        "description": (
+            "Read one page's DRAWN GEOMETRY (the PDF's own vector lines and "
+            "text, not a picture of it) for drafting constructs: dimensions "
+            "(the value and the two points it spans), leaders (the note and "
+            "the point its arrow touches), callout bubbles, revision clouds "
+            "and the title block. A fallback for a CAD drawing whose text "
+            "and look have not settled a question (a dense or old sheet, "
+            "lettering drawn as lines), not a first step. Each item is "
+            "found by its shape: exact where it is drawn, but confirm one "
+            "on a render before relying on it. The result says what the "
+            "sheet is: a vector drawing, one whose lettering is drawn as "
+            "lines (values then come back empty), or mostly a picture. A "
+            "scan has no drawn geometry and is refused: read it by looking. "
+            "Points are PDF points on the displayed page (top-left origin, "
+            "y down), as render_region and annotate_document take them; "
+            "page counts from 0."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "handle": HANDLE_SCHEMA,
+                "page": {"type": "integer", "minimum": 0},
+                "find": {"type": "array",
+                         "items": {"type": "string",
+                                   "enum": ["dimensions", "leaders",
+                                            "callouts", "revision_clouds",
+                                            "title_block"]},
+                         "description": "Which constructs (default all)."},
+                "bbox": {"type": "array", "items": {"type": "number"},
+                         "minItems": 4, "maxItems": 4,
+                         "description": "Only items touching this part of "
+                                        "the page, PDF points, displayed "
+                                        "page."},
+            },
+            "required": ["handle", "page"],
+        },
+    },
+]
