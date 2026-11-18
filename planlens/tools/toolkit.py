@@ -229,6 +229,32 @@ class sheets_at_open:
         return False
 
 
+#: The page argument of the call in progress as the caller gave it, where a
+#: host layer turned another argument into it: ``{"pages": ("pdf_pages",
+#: "3-4")}``. A refusal that names the argument then names the one given,
+#: with the number given (PL-37: 1-based ``pdf_pages`` beside ``sheets``).
+_PAGES_AS_GIVEN: ContextVar[Optional[Dict[str, Tuple[str, Any]]]] = \
+    ContextVar("planlens_pages_as_given", default=None)
+
+
+class pages_as_given:
+    """``with pages_as_given({"pages": ("pdf_pages", "3-4")}):`` tells the
+    calls inside it which argument, and what value, the caller gave for a
+    page argument a host layer rewrote, so a refusal words it that way."""
+
+    def __init__(self, given: Optional[Dict[str, Tuple[str, Any]]]):
+        self.given = dict(given) if given else None
+        self._token = None
+
+    def __enter__(self):
+        self._token = _PAGES_AS_GIVEN.set(self.given)
+        return self
+
+    def __exit__(self, *exc):
+        _PAGES_AS_GIVEN.reset(self._token)
+        return False
+
+
 class ToolError(Exception):
     """A mistake the model can fix; its message is returned, not raised."""
 
@@ -652,13 +678,17 @@ class ReviewToolkit:
                 except (TypeError, ValueError, IndexError):
                     named = None
                 if named != pages:
+                    # as the caller gave it: pdf_pages, 1-based, where a
+                    # host layer turned that into pages
+                    said_arg, said = (_PAGES_AS_GIVEN.get() or {}).get(
+                        page_arg, (page_arg, beside))
                     return arguments, None, {
-                        "error": (f"{page_arg} {beside!r} and {sheet_arg} "
+                        "error": (f"{said_arg} {said!r} and {sheet_arg} "
                                   f"{', '.join(numbers)} name different "
                                   f"pages (the sheet index reads "
                                   f"{', '.join(numbers)} on "
                                   f"{sa.pages_text(pages)})"),
-                        "hint": f"give one of them, {page_arg} or "
+                        "hint": f"give one of them, {said_arg} or "
                                 f"{sheet_arg}"}
             arguments[page_arg] = (",".join(str(p) for p in pages)
                                    if page_arg == "pages" else pages[0])
