@@ -144,6 +144,33 @@
   read as the default 80 by a markup's quote and by the search of a Word,
   Excel or DXF file, and each now says so. A call with valid arguments
   returns what it did.
+- **A page set in columns whose file draws the lines across them says so
+  (app BACKLOG PL-09).** Lines come in the order the file draws them. Some
+  writers draw a page of two or three columns row by row, so its lines
+  alternated between the columns and nothing said so. Such a page now
+  carries the warning "reading order not reconstructed: the text is set in
+  N columns and the file draws its lines across them ...", in
+  `PageContent.warnings` and so on the page a tool shows. The lines are
+  unchanged, and a page drawn column by column, a table read row by row
+  (ruled or not), a form, an index, a list set in two columns or notes
+  scattered over a drawing carry no warning.
+  `planlens.document.reading_order.column_order(lines)` reads such a page
+  column by column for a host that asks; nothing calls it by default.
+- **Captions on pages that are not figures, for a host that asks (app
+  BACKLOG PL-09).** `document_outline(doc, captions_on_every_page=True)`
+  also reads a table's caption printed over the table, or a figure's set
+  in the text, wherever the line is set apart as a caption, so that a list
+  of tables can be placed; a sentence such as "Table 3 summarizes the
+  results" is not read. With it a table entry is placed only on a table's
+  caption. Off by default: the outline is unchanged unless a host asks.
+- **A table that runs on to the next page is linked, for a host that asks
+  (app BACKLOG PL-09).** `Document(..., continued_tables=True)` notes on
+  the last table of a page and the first of the next that one continues
+  the other ("continues table p3.tbl1 from page 3: the column titles are
+  on that page, not repeated here"), when they share their columns and
+  edges, nothing of the body comes between them, the running header and
+  footer are the same and the second repeats the column titles or says it is
+  continued. Rows and ids are unchanged. Off by default.
 
 ## 0.16.0 — 2026-11-17
 

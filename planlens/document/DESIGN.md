@@ -21,6 +21,8 @@ document/
   annotations.py  review markups + hidden CAD text
   markup_writer.py  the other direction: review comments ONTO a copy
   tables.py       find_tables wrapper
+  continued_tables.py  a table that runs on to the next page (host's switch)
+  reading_order.py  columns of prose, and an order that runs across them
   scale.py        the measurement calibration the PDF itself stores (/VP, /Measure)
   scales.py       the Scale primitive: a fitted map from a position on the page
                   to a quantity, with its +/-
@@ -97,7 +99,34 @@ against `ir_to_page_point` on a rotated page.
   there are enough of them the page is marked **`text_reliable = False`** —
   see "An unreliable text layer" below.
 - Order is content-stream order: reading order for word-processor output,
-  drafting order for CAD plots. No reading-order reconstruction yet.
+  drafting order for CAD plots. No reading-order reconstruction by default.
+- **A page whose order runs across its columns says so (PL-09).** Some
+  writers draw a page set in columns row by row: left line 1, right line 1,
+  left line 2. `reading_order.order_runs_across_columns` finds it and the
+  page carries the warning "reading order not reconstructed: the text is
+  set in N columns and the file draws its lines across them ..."; the
+  lines are unchanged. Columns are measured on lines of prose only (20
+  characters and four words, horizontal): a gap at least 0.6 of a line
+  height wide that no more than a fifth of them cross, four lines a side,
+  the sides beside each other (half the shorter height overlapping), each
+  column's lines sharing a left or a right edge (three fifths of them,
+  within 3 pt). The order runs across when consecutive prose lines sit in
+  different columns ON THE SAME ROW at least four times and for a quarter
+  of the column lines; a page drawn column by column changes column only
+  at the foot of one, never on a row. And every column must read as
+  running text: three fifths of its lines at least three quarters as wide
+  as its widest (text wraps when the line is full), and a third of its
+  lines that have a small letter opening with one (a wrapped line opens
+  mid-sentence; a cell, a label or a list entry opens with a capital or a
+  number). So a table read row by row (short cells, or cells of text with
+  no rules), a form, an index with dot leaders, a list set in two columns,
+  side headings beside their paragraphs and notes scattered over a drawing
+  (no shared edge) carry no warning. Not certain: a table whose cells are
+  all about as long as each other and open with small letters still warns.
+  `reading_order.column_order(lines)` is the new reading, for a host that
+  asks: the same lines (ids unchanged), each column top to bottom, a line
+  over the columns a break between the runs above and below it. Nothing
+  calls it by default.
 
 ## Markups
 
@@ -526,6 +555,28 @@ the whole process, so character boxes hug their glyphs ("A-1" read
 (two ruled tables side by side read as one). Tables are read on the ruling
 lines alone (`use_layout=False`) with the corrections on for the read, then
 the setting found is put back.
+
+**A table that runs on to the next page, for a host that asks (PL-09).**
+Read page by page, a table printed over two pages is two tables, the second
+with its column titles on the page before. `Document(...,
+continued_tables=True)` (off by default) puts a note on each:
+"continues on page N as table pN.tbl0" on the earlier, "continues table
+pM.tblK from page M: its first row repeats that table's column titles" (or
+"the column titles are on that page, not repeated here") on the later.
+Rows, ids and boxes are unchanged; only `notes` gains a line.
+`continued_tables.table_continuation(earlier, later)` is the rule, on two
+pages' contents: the last table of one page and the first of the next have
+the same column count and left and right edges (6 pt); nothing of the
+body (outside the 8 % bands) is printed below the first or above or
+beside the second, except a line saying "continued" or a line printed
+outside the first too (its caption); the running header and footer are the
+same on both pages, page numbers aside and the tables' own lines in those
+bands left out, so two borings' one-page logs on one form are not linked
+wherever the page prints the boring's number outside the grid; and the
+second repeats the first's first row or says it is continued. Two pages
+that share a ruled form AND its column titles, with nothing outside the
+grid that differs, are linked: the rule cannot tell them from one table. The neighbours are read with their tables once and kept
+(`Document._unlinked`).
 
 ## Page map
 
@@ -1260,6 +1311,24 @@ a number the numbers must agree. **An entry that cannot be placed carries
 than a page index that is probably wrong. The synthetic fixture lists a
 figure the document does not contain, precisely so that the unplaced case is
 pinned by a test.
+
+**Captions on pages that are not figures, for a host that asks (PL-09).**
+By default a caption is read only on a figure-kind page, so a table's
+caption printed over the table (on a page labelled as a table or the
+narrative) is not read, and every entry of a list of tables stays
+`page = None`. `document_outline(doc, captions_on_every_page=True)` (and
+`outline_from(..., captions_on_every_page=True)`) also reads, on every page
+that is not a divider, a figure-kind page or a contents or list page, each
+line set apart as a caption: "Figure", "Fig", "Plate" or "Table" and a
+number, then a separator ("Table 3: ...", "TABLE 3 - ..."), or a title
+opening with a capital ("Table 3 Summary of Test Results"), or nothing and
+the title on the next line; at most 14 words of title, and no trailing page
+number (a list entry). "Table 3 summarizes the results" is a sentence and
+is not read. With the switch a table entry is placed only on a table's
+caption and a figure entry never on one. A figure page is read as without
+it, and a report whose captions are all on figure pages gives the same
+outline either way (tested). Off by default: the outline a host gets today
+is unchanged.
 
 The ledger is one line of about 150 characters per page:
 
@@ -2149,8 +2218,13 @@ noise that rule costs. And the rows of short marks drawn nowhere.
 - RapidOCR (`planlens.ocr`) as a text source (it currently emits IR TextItems).
 - The drawing tools (digitize / query / snip / search a drawing set) as
   planlens tools — the app's drawing adapter still owns them.
-- Headings from the PDF text layer; multi-column reading order; figure
-  and caption detection; tables spanning pages.
+- Headings from the PDF text layer; figure detection; joining a table
+  printed over two pages into one. Such a table's two parts are linked by
+  a note, and captions on pages that are not figures are read, for a host
+  that asks (`continued_tables`, `captions_on_every_page`, PL-09).
+  Multi-column reading order is said where the file's
+  order runs across the columns, and read by `column_order` for a host
+  that asks (PL-09); the page a tool shows keeps the file's order.
 - A `dcp_log` that survives a scan (see "Page roles and work items"), and
   roles for the in-situ tests the vocabulary has no word for (pressuremeter,
   vane, dilatometer), which are answered `other` today.

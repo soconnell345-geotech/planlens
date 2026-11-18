@@ -30,6 +30,7 @@ from planlens.document.annotations import (
     extract_annotations,
 )
 from planlens.document.classify import classify_page
+from planlens.document.continued_tables import with_continuation_notes
 from planlens.document.frame import bbox_union
 from planlens.document.imagehash import (
     DUP_HASH_DISTANCE, fine_grid, hamming, page_dhash, same_picture,
@@ -41,6 +42,9 @@ from planlens.document.model import (
     TextBlock, TextLine,
 )
 from planlens.document.pdf_text import MAX_UNMAPPED_FRACTION, extract_text
+from planlens.document.reading_order import (
+    across_columns_warning, order_runs_across_columns,
+)
 from planlens.document.scale import page_viewports
 from planlens.document.search_text import find_spans, fold, readings
 from planlens.document.structure import (
@@ -284,16 +288,25 @@ class Document:
     page-level operation — the page map, rendering, the displayed frame —
     applies to it the same way, and a scan photographed with a phone is
     reviewed like a scanned page.
+
+    ``continued_tables`` (off by default; PL-09) notes on each table that
+    runs on from the page before or on to the page after which table it
+    continues (:mod:`planlens.document.continued_tables`).
     """
 
     def __init__(self, filepath: Optional[str] = None,
                  content: Optional[bytes] = None,
-                 text_source: Any = None, name: Optional[str] = None):
+                 text_source: Any = None, name: Optional[str] = None,
+                 continued_tables: bool = False):
         if filepath is None and content is None:
             raise ValueError("pass filepath or content")
         self._doc, self.source_kind = _open_any(filepath, content)
         self.source = name or (str(filepath) if filepath else "<bytes>")
         self.text_source = text_source
+        self.continued_tables = continued_tables
+        #: Pages read with their tables and no continuation notes, for the
+        #: neighbours a continuation is looked for on.
+        self._unlinked: Dict[int, PageContent] = {}
         self._text: Dict[int, tuple] = {}
         self._annots: Dict[int, tuple] = {}
         self._summaries: Dict[int, PageSummary] = {}
@@ -779,6 +792,28 @@ class Document:
         key = (index, words, tables)
         if key in self._pages:
             return self._pages[key]
+        if tables and self.continued_tables:
+            pc = (self._read_page(index, words, tables) if words
+                  else self._unlinked_page(index))
+            pc = with_continuation_notes(
+                pc,
+                before=self._unlinked_page(index - 1) if index > 0 else None,
+                after=(self._unlinked_page(index + 1)
+                       if index + 1 < self.n_pages else None))
+        else:
+            pc = self._read_page(index, words, tables)
+        self._pages[key] = pc
+        return pc
+
+    def _unlinked_page(self, index: int) -> PageContent:
+        pc = self._unlinked.get(index)
+        if pc is None:
+            pc = self._unlinked[index] = self._read_page(index, False, True)
+        return pc
+
+    def _read_page(self, index: int, words: bool,
+                   tables: bool) -> PageContent:
+        """One page's content as read, with no continuation notes."""
         page = self._doc[index]
         lines, blocks, src_tables, stats, warns, src_name = self._page_text(
             index, words=words)
@@ -797,6 +832,11 @@ class Document:
             warnings.append(
                 f"{stats['n_unmapped_chars']} characters use a font with no "
                 f"Unicode map and read as U+FFFD — OCR this page for them")
+        n_columns = order_runs_across_columns(lines)
+        if n_columns:
+            # The lines stay as the file draws them; the page says that this
+            # order shuffles its columns together (PL-09).
+            warnings.append(across_columns_warning(n_columns))
         table_list = []
         if src_tables is not None:
             table_list = list(src_tables)
@@ -814,7 +854,6 @@ class Document:
             pc.warnings.append(
                 "no text layer on this page and it is mostly image — "
                 "use an OCR or Azure Document Intelligence text source")
-        self._pages[key] = pc
         return pc
 
     # -- search -------------------------------------------------------------
