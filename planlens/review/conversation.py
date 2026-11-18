@@ -1310,6 +1310,14 @@ def _side_document(name: str, arguments: Dict[str, Any],
                                        "search"})
         out: Dict[str, Any] = {"handle": shown, "pattern": pattern,
                                "n_hits": n, "hits": []}
+        given = arguments.get("min_score")
+        if (bool(arguments.get("fuzzy")) and not bool(arguments.get("regex"))
+                and given is not None and not given):
+            # A score of 0 has always been read as 80 here; say so (BACKLOG
+            # PL-26). A PDF's search takes the score as given.
+            out["min_score_note"] = (
+                f"min_score {given!r} was read as 80, the default: it is the "
+                f"lowest fuzzy score (50 to 100) a line may match at")
         room = budget - len(json.dumps(out))
         for h in hits:
             size = len(json.dumps(h, ensure_ascii=False)) + 1

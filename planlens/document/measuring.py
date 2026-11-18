@@ -52,6 +52,9 @@ __all__ = ["measure", "inventory", "KINDS", "STRATUM_COVER", "WIDE_VIEW_PT",
 
 KINDS = ("line", "lines", "point", "edge", "curve", "distance", "text")
 
+#: The edges ``kind="edge"`` reads; ``side`` left out reads the top.
+SIDES = ("top", "bottom", "left", "right")
+
 #: A line must cross this fraction of the region it is snapped in (loggrid's
 #: stratum rule).
 STRATUM_COVER = 0.55
@@ -659,8 +662,9 @@ def measure(doc, page: int, where: Any = None, kind: str = "line", *,
     quantity); ``to`` a second box for ``distance``; ``scale`` an id from the
     listing; ``values`` label values for a scale that needs them (see
     :func:`planlens.document.scalefinder.find_scales`); ``side`` the edge
-    for ``edge``; ``orientation`` ``h`` / ``v`` to say which way a line runs
-    when the box does not.
+    for ``edge`` (one of :data:`SIDES`, in any case; another word is
+    refused, not read as the top); ``orientation`` ``h`` / ``v`` to say
+    which way a line runs when the box does not.
     """
     from planlens.document.scalefinder import find_scales
     if kind not in KINDS:
@@ -669,6 +673,8 @@ def measure(doc, page: int, where: Any = None, kind: str = "line", *,
     if box is None:
         ps = find_scales(doc, page, values=values, dpi=dpi)
         return {"page": ps.page, "scales": inventory(ps)}
+    if kind == "edge":
+        side = _edge_side(side)
     p = float(pad) if pad is not None else default_pad(box)
     window = (box[0] - p, box[1] - p, box[2] + p, box[3] + p)
     # Only the frames that can hold the box are looked for (a whole-page
@@ -930,9 +936,21 @@ def _measure_point(ps, facts, box, window, centre, pad, named, warnings,
     return res
 
 
+def _edge_side(side: Any) -> str:
+    """``side`` as one of :data:`SIDES`. Left out (``None`` or blank) it is
+    the top, as before; any case reads; another word is refused with the
+    four named (BACKLOG PL-26), where it used to be read as the top and
+    gave the top edge's value for a bottom asked as "Bottom" or "lower"."""
+    if side is None or (isinstance(side, str) and not side.strip()):
+        return "top"
+    name = str(side).strip().lower()
+    if name not in SIDES:
+        raise ValueError(f"side must be one of {list(SIDES)}, not {side!r}")
+    return name
+
+
 def _measure_edge(ps, facts, window, centre, pad, named, side, warnings
                   ) -> Dict[str, Any]:
-    side = side if side in ("top", "bottom", "left", "right") else "top"
     boxes: List[BBox] = []
     if facts.raster is not None:
         from planlens.document.raster import components
@@ -1004,7 +1022,19 @@ def _measure_curve(ps, facts, window, centre, pad, at, named, warnings,
     if not at or not isinstance(at, dict):
         raise ValueError("curve needs at={axis: value}, the axis value to "
                          "read the curve at")
-    key, val = next(iter(at.items()))
+    # One axis value is read. A key given as null is left out (a filled-in
+    # form of the call); two or more with values are refused, where only
+    # the first used to be read (BACKLOG PL-26).
+    given = {k: v for k, v in at.items() if v is not None}
+    if not given:
+        raise ValueError("curve needs at={axis: value}, the axis value to "
+                         "read the curve at; every value in at is null")
+    if len(given) > 1:
+        raise ValueError(f"at takes ONE axis and its value, {{axis: value}}; "
+                         f"it was given {len(given)} "
+                         f"({', '.join(map(str, given))}): measure once for "
+                         f"each")
+    key, val = next(iter(given.items()))
     sc = _axis_scale(ps, str(key), centre)
     if sc is None:
         return {"value": None, "scale_known": False,

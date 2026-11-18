@@ -360,3 +360,27 @@ def test_without_a_reader_an_office_file_is_said_plainly(tmp_path):
     as_(folder)
     out = _doc("open_document", {"source": "spec.docx"})
     assert "reads none" in out["error"] and str(folder) not in json.dumps(out)
+
+
+def test_a_fuzzy_search_of_an_office_file_says_a_zero_score_was_read_as_80(
+        tmp_path):
+    """BACKLOG PL-26: min_score 0 has always been read as 80 on a Word or
+    Excel file; the result now says so. The hits are unchanged."""
+    pytest.importorskip("rapidfuzz")
+    folder = tmp_path / "conv" / "files"
+    folder.mkdir(parents=True)
+    (folder / "log.xlsx").write_bytes(b"PK\x03\x04 made up")
+    rows = ["S-01 Concrete mix 3000 psi Submitted",
+            "S-02 Curb ramp detail Resubmit", "S-03 Handrail Approved"]
+    as_(folder, read_office=lambda path, name, image_dir=None,
+        image_ref=None: ("\n".join(rows), {}))
+    assert "error" not in _doc("open_document", {"source": "log.xlsx"})
+    ask = {"handle": "log.xlsx", "pattern": "resubmitt", "fuzzy": True}
+    at_80 = _doc("search_document", {**ask, "min_score": 80})
+    at_0 = _doc("search_document", {**ask, "min_score": 0})
+    assert "min_score_note" not in at_80
+    assert "read as 80" in at_0.pop("min_score_note")
+    assert at_0 == at_80 and at_80["n_hits"] >= 1
+    exact = _doc("search_document", {"handle": "log.xlsx",
+                                     "pattern": "Resubmit", "min_score": 0})
+    assert "min_score_note" not in exact
