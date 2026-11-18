@@ -82,6 +82,13 @@
   or notes scattered over a drawing carry no warning.
   `planlens.document.reading_order.column_order(lines)` reads such a page
   column by column for a host that asks; nothing calls it by default.
+- **Captions on pages that are not figures, for a host that asks (app
+  BACKLOG PL-09).** `document_outline(doc, captions_on_every_page=True)`
+  also reads a table's caption printed over the table, or a figure's set
+  in the text, wherever the line is set apart as a caption, so that a list
+  of tables can be placed; a sentence such as "Table 3 summarizes the
+  results" is not read. With it a table entry is placed only on a table's
+  caption. Off by default: the outline is unchanged unless a host asks.
 
 ## 0.16.0 — 2026-11-17
 

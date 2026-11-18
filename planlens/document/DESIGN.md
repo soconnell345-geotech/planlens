@@ -1269,6 +1269,24 @@ than a page index that is probably wrong. The synthetic fixture lists a
 figure the document does not contain, precisely so that the unplaced case is
 pinned by a test.
 
+**Captions on pages that are not figures, for a host that asks (PL-09).**
+By default a caption is read only on a figure-kind page, so a table's
+caption printed over the table (on a page labelled as a table or the
+narrative) is not read, and every entry of a list of tables stays
+`page = None`. `document_outline(doc, captions_on_every_page=True)` (and
+`outline_from(..., captions_on_every_page=True)`) also reads, on every page
+that is not a divider, a figure-kind page or a contents or list page, each
+line set apart as a caption: "Figure", "Fig", "Plate" or "Table" and a
+number, then a separator ("Table 3: ...", "TABLE 3 - ..."), or a title
+opening with a capital ("Table 3 Summary of Test Results"), or nothing and
+the title on the next line; at most 14 words of title, and no trailing page
+number (a list entry). "Table 3 summarizes the results" is a sentence and
+is not read. With the switch a table entry is placed only on a table's
+caption and a figure entry never on one. A figure page is read as without
+it, and a report whose captions are all on figure pages gives the same
+outline either way (tested). Off by default: the outline a host gets today
+is unchanged.
+
 The ledger is one line of about 150 characters per page:
 
 ```
@@ -2134,8 +2152,9 @@ noise that rule costs. And the rows of short marks drawn nowhere.
 - RapidOCR (`planlens.ocr`) as a text source (it currently emits IR TextItems).
 - The drawing tools (digitize / query / snip / search a drawing set) as
   planlens tools — the app's drawing adapter still owns them.
-- Headings from the PDF text layer; figure and caption detection; tables
-  spanning pages. Multi-column reading order is said where the file's
+- Headings from the PDF text layer; figure detection; tables spanning
+  pages. Captions on pages that are not figures are read for a host that
+  asks (`captions_on_every_page`, PL-09). Multi-column reading order is said where the file's
   order runs across the columns, and read by `column_order` for a host
   that asks (PL-09); the page a tool shows keeps the file's order.
 - A `dcp_log` that survives a scan (see "Page roles and work items"), and

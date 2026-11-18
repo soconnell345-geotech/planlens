@@ -2195,6 +2195,64 @@ def _caption(f: PageFacts, lines_of) -> Optional[OutlineMark]:
     return None
 
 
+#: The most words a caption's title has on a page that is not a figure; a
+#: longer line opening "Table 3." is the first sentence of a paragraph.
+CAPTION_MAX_WORDS = 14
+_CAPTION_WORDS = ("figure", "fig", "plate", "table")
+
+
+def _caption_word(text: str) -> Optional[str]:
+    m = _RE_ITEM_LABEL.match(text)
+    if m and m.group("word").lower() in _CAPTION_WORDS:
+        return "table" if m.group("word").lower() == "table" else "figure"
+    return None
+
+
+def _captions_set_apart(f: PageFacts, lines_of) -> List[OutlineMark]:
+    """Every caption a page that is NOT a figure prints (PL-09; only for a
+    host that asks for captions on every page).
+
+    Such a page is prose or a table, so a line opening "Table 3" is a
+    caption only when it is set apart as one: a separator after the number
+    ("Table 3: ...", "TABLE 3 - ...", "Figure 2. ..."), or a title in
+    capitals right behind it ("Table 3 Summary of Test Results"), or the
+    label alone with its title on the next line. "Table 3 summarizes the
+    results" is a sentence; a line ending in a page number is a list entry.
+    """
+    raw = [" ".join(t.split()) for t in lines_of(f.page)]
+    out: List[OutlineMark] = []
+    for i, text in enumerate(raw):
+        if not (OUTLINE_MIN_TITLE <= len(text) <= OUTLINE_MAX_TITLE):
+            continue
+        m = _RE_ITEM_LABEL.match(text)
+        if not m or _caption_word(text) is None:
+            continue
+        rest = m.group("rest").strip()
+        between = text[m.end("number"):m.start("rest")]
+        if not rest:
+            nxt = raw[i + 1] if i + 1 < len(raw) else ""
+            if not nxt or _RE_ITEM_LABEL.match(nxt) or len(
+                    nxt.split()) > CAPTION_MAX_WORDS:
+                continue
+            text = f"{text} {nxt}"[:OUTLINE_MAX_TITLE]
+        elif len(rest.split()) > CAPTION_MAX_WORDS:
+            continue
+        elif not (any(ch in between for ch in ":.–—-") or rest[:1].isupper()):
+            continue
+        listed = _RE_LEADER.match(text) or _RE_TRAILING_PAGE.match(text)
+        if listed and _looks_like_page_number(listed.group("page")):
+            continue
+        out.append(OutlineMark(kind="caption", page=f.page, text=text,
+                               number=m.group("number")))
+    return out
+
+
+def _is_list_page(f: PageFacts) -> bool:
+    """A page :func:`_read_list_pages` reads as a contents or list page."""
+    return (_list_kind(f.title) is not None or _list_kind(f.top) is not None
+            or _is_toc(f))
+
+
 def _section_heading(f: PageFacts) -> Optional[OutlineMark]:
     """A narrative page's section heading, when it prints one."""
     text = " ".join((f.heading or "").split())
@@ -2215,11 +2273,14 @@ def _section_heading(f: PageFacts) -> Optional[OutlineMark]:
     return None
 
 
-def _match_entries(entries, dividers, captions, headings):
+def _match_entries(entries, dividers, captions, headings,
+                   same_word: bool = False):
     """Place each entry on the page that carries it, or leave it unplaced.
 
     A match must be unique and must agree on the item's number when both
-    sides print one. Nothing is placed by position or by proximity.
+    sides print one. Nothing is placed by position or by proximity. With
+    ``same_word`` (captions read on every page) a table entry is placed only
+    on a table's caption and a figure entry never on one.
     """
     def key(text: str) -> str:
         return _norm(text).strip()
@@ -2229,6 +2290,9 @@ def _match_entries(entries, dividers, captions, headings):
     out: List[OutlineEntry] = []
     for e in entries:
         pool = pools.get(e.kind, [])
+        if same_word and e.kind in ("figure", "table"):
+            pool = [m for m in pool if m.kind != "caption"
+                    or _caption_word(m.text) == e.kind]
         want = key(e.title)
         hits = []
         for mark in pool:
@@ -2252,8 +2316,16 @@ def _match_entries(entries, dividers, captions, headings):
     return out
 
 
-def outline_from(facts, roles, lines_of) -> Outline:
-    """The outline, from facts, their roles and a page -> text lines lookup."""
+def outline_from(facts, roles, lines_of,
+                 captions_on_every_page: bool = False) -> Outline:
+    """The outline, from facts, their roles and a page -> text lines lookup.
+
+    ``captions_on_every_page`` (off by default; PL-09) also reads the
+    captions a page that is not a figure prints (a table's caption over
+    the table, a figure set in the text), every one set apart as a caption,
+    so that a list of tables can be placed. A figure page is read as
+    without it.
+    """
     role_of = {r.page: r for r in roles}
     dividers: List[OutlineMark] = []
     captions: List[OutlineMark] = []
@@ -2277,18 +2349,25 @@ def outline_from(facts, roles, lines_of) -> Outline:
             head = _section_heading(f)
             if head is not None:
                 headings.append(head)
+        if (captions_on_every_page and r.role not in (
+                "divider", "figure", "plan", "profile")
+                and not _is_list_page(f)):
+            captions.extend(_captions_set_apart(f, lines_of))
     entries = _read_list_pages(facts, lines_of)
     return Outline(entries=_match_entries(entries, dividers, captions,
-                                          headings),
+                                          headings,
+                                          same_word=captions_on_every_page),
                    dividers=dividers, captions=captions, headings=headings,
                    no_dividers=not dividers)
 
 
-def document_outline(doc) -> Outline:
+def document_outline(doc, captions_on_every_page: bool = False) -> Outline:
     """What the report says about itself: contents, lists, tabs, captions.
 
     Deterministic and literal. Every entry is a line somebody printed; an
     entry this could not place on a page carries ``page = None``.
+    ``captions_on_every_page`` (off by default) also reads the captions
+    pages that are not figures print: see :func:`outline_from`.
     """
     facts = facts_from_document(doc)
     roles = assign(facts)
@@ -2297,7 +2376,8 @@ def document_outline(doc) -> Outline:
         return [ln.text for ln in doc.page(index, tables=False).lines
                 if (ln.text or "").strip()]
 
-    return outline_from(facts, roles, lines_of)
+    return outline_from(facts, roles, lines_of,
+                        captions_on_every_page=captions_on_every_page)
 
 
 # ---------------------------------------------------------------------------
