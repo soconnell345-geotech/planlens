@@ -254,6 +254,12 @@ recovered with 9 points of margin on the worst (88.9), every absent word still
 silent with 10 points of margin (nothing scored above 70), and a median of 5
 unrelated hits ranked below the answer.
 
+A `min_score` of 0 (outside the 50 to 100 the tool schemas state) is read as
+this default by a markup's quote and by the search of a Word, Excel or DXF
+file, as it always was, and each now says so (a markup's `adjustments`, the
+search's `min_score_note`; app BACKLOG PL-26). A PDF's own search takes the
+score as given and echoes it.
+
 ## Quantities (2026-09-16)
 
 A review is a comparison. The report says "borings at approximately 40-foot
@@ -488,7 +494,12 @@ where OpenCV cannot load).
   more off (its `pad`), or a small box in a window over 300 pt across, has
   every candidate listed and none chosen. With no scale the answer is in page
   points and says `scale_known: false`. With no box it lists the page's
-  scales.
+  scales. Its arguments are read as given or refused, never quietly read as
+  something else (app BACKLOG PL-26): `side` for `edge` is one of top,
+  bottom, left, right in any case, top when left out, and another word is
+  refused with the four named (it used to be read as top); `at` for `curve`
+  holds one axis value, a key given as null is left out, and two values are
+  refused (only the first used to be read).
 - **`raster.py`** — the pixel layer under the finders: render with a
   megapixel cap, Otsu and a permissive line mask, skew from long rules, solid
   and dashed lines, components, text blobs, markers, column runs.

@@ -71,6 +71,16 @@
   file's documents through `ReviewToolkit.forget` instead of reaching into
   the toolkit's private entries; it also closes a document opened under
   that exact name.
+- **Arguments that were quietly read as something else are read as given
+  or refused (app BACKLOG PL-26).** `measure`'s `side` for an edge reads
+  in any case ("Bottom" is the bottom edge; it was read as the top), and a
+  word that is not top, bottom, left or right is refused with the four
+  named instead of read as top; left out it is still the top. `measure`'s
+  `at` for a curve with two axis values is refused instead of reading only
+  the first; a key given as null is left out. A `min_score` of 0 is still
+  read as the default 80 by a markup's quote and by the search of a Word,
+  Excel or DXF file, and each now says so. A call with valid arguments
+  returns what it did.
 
 ## 0.16.0 — 2026-11-17
 
