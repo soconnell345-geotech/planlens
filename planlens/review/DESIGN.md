@@ -109,7 +109,8 @@ annotation's `/NM`, as the call that wrote the mark returns it; it does not
 move when another mark is removed, as the positional id does) wherever it
 takes an id, as the entry or under `id`. The keys of a `remove` object are
 still `id` and `text`: the spec shows `remove` as strings, so no spec text
-changes, and a refusal of a wrong key reads as it did. `forget_path` closes
+changes. A refusal of a wrong key reads as it did, with one addition: a
+`uid` or `markupuid` key is told to pass the uid under `id`. `forget_path` closes
 a file's documents with the toolkit's own `ReviewToolkit.forget`.
 
 ## Modules
