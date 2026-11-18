@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Repair: a box a vision answer writes in page units is no longer
+  converted as if it were pixels (app BACKLOG VIS-24).** A box with a page
+  unit written right after it (`[300, 200, 320, 220] pt`, `... in PDF
+  points`, `... (page coordinates)`) is the model's own estimate in the
+  page's units. `boxes_to_grid` used to rewrite it onto the 0-999 grid as a
+  pixel box, so the agent was handed a wrong grid box; it now leaves it
+  exactly as written and counts it (`counts["page_units"]`, present only
+  when there was one), `boxes_note` names it before the rest, and
+  `answer_boxes` does not read it as a place. Every other box converts as
+  before; "pt lettering" (a size) and "points to" (a verb) are not page
+  units.
+
 ## 0.16.0 — 2026-11-17
 
 - **A drawing set's schedules checked against the marks on its sheets,
