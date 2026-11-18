@@ -57,6 +57,12 @@ SIDE_BY_SIDE_MIN = 0.5
 #: same row before the order is said to run across them.
 ACROSS_MIN = 4
 ACROSS_MIN_FRACTION = 0.25
+#: A column of running text: at least FULL_MIN_FRACTION of its lines are at
+#: least FULL_WIDTH of its widest line, and at least LOWER_MIN_FRACTION of
+#: its lines that have a small letter open with one.
+FULL_WIDTH = 0.75
+FULL_MIN_FRACTION = 0.6
+LOWER_MIN_FRACTION = 1.0 / 3.0
 #: A line crosses a gap when it reaches past its centre by more than this.
 CROSS_TOLERANCE_PT = 1.0
 #: Most columns a page is split into (a gap is looked for inside each side).
@@ -74,8 +80,24 @@ def _horizontal(line) -> bool:
 
 def _is_prose(line) -> bool:
     text = (line.text or "").strip()
-    return (_horizontal(line) and len(text) >= PROSE_MIN_CHARS
-            and len(text.split()) >= PROSE_MIN_WORDS)
+    if not _horizontal(line) or len(text) < PROSE_MIN_CHARS:
+        return False
+    # A word has a letter: a row of dot leaders is not prose.
+    return sum(1 for w in text.split()
+               if any(ch.isalpha() for ch in w)) >= PROSE_MIN_WORDS
+
+
+def _running_text(lines) -> bool:
+    """Whether a column's lines read as wrapped text, not as the cells of
+    a table, the labels of a form or the entries of a list."""
+    widths = [ln.bbox[2] - ln.bbox[0] for ln in lines]
+    full = sum(1 for w in widths if w >= FULL_WIDTH * max(widths))
+    if full < FULL_MIN_FRACTION * len(lines):
+        return False
+    cased = [ln.text.strip() for ln in lines
+             if any(ch.islower() for ch in ln.text)]
+    lower = sum(1 for t in cased if t[:1].islower())
+    return lower >= LOWER_MIN_FRACTION * len(cased)
 
 
 def _shares_an_edge(lines) -> bool:
@@ -186,9 +208,14 @@ def order_runs_across_columns(lines: Sequence) -> Optional[int]:
     placed = [(ln, c) for ln, c in placed if c is not None]
     across = sum(1 for (a, ca), (b, cb) in zip(placed, placed[1:])
                  if ca != cb and _same_row(a, b))
-    if across >= ACROSS_MIN and across >= ACROSS_MIN_FRACTION * len(placed):
-        return len(gutters) + 1
-    return None
+    if across < ACROSS_MIN or across < ACROSS_MIN_FRACTION * len(placed):
+        return None
+    columns = {}
+    for ln, c in placed:
+        columns.setdefault(c, []).append(ln)
+    if not all(_running_text(col) for col in columns.values()):
+        return None            # a table, a form or a list read row by row
+    return len(gutters) + 1
 
 
 def across_columns_warning(n_columns: int) -> str:

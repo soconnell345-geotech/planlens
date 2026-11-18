@@ -113,9 +113,16 @@ against `ir_to_page_point` on a rotated page.
   within 3 pt). The order runs across when consecutive prose lines sit in
   different columns ON THE SAME ROW at least four times and for a quarter
   of the column lines; a page drawn column by column changes column only
-  at the foot of one, never on a row. A table read row by row (short
-  cells), side headings beside their paragraphs and notes scattered over a
-  drawing (no shared edge) carry no warning.
+  at the foot of one, never on a row. And every column must read as
+  running text: three fifths of its lines at least three quarters as wide
+  as its widest (text wraps when the line is full), and a third of its
+  lines that have a small letter opening with one (a wrapped line opens
+  mid-sentence; a cell, a label or a list entry opens with a capital or a
+  number). So a table read row by row (short cells, or cells of text with
+  no rules), a form, an index with dot leaders, a list set in two columns,
+  side headings beside their paragraphs and notes scattered over a drawing
+  (no shared edge) carry no warning. Not certain: a table whose cells are
+  all about as long as each other and open with small letters still warns.
   `reading_order.column_order(lines)` is the new reading, for a host that
   asks: the same lines (ids unchanged), each column top to bottom, a line
   over the columns a break between the runs above and below it. Nothing

@@ -48,13 +48,15 @@ def _columns(n_cols: int = 2, rows: int = 18, across: bool = True,
             cells.sort(key=lambda rc: (rc[1], rc[0]))
         for r, c in cells:
             page.insert_text((xs[c], top + 14 * r),
-                             f"C{c}R{r} " + _prose(r + 3 * c, words),
+                             f"c{c}r{r} " + _prose(r + 3 * c, words),
                              fontsize=8)
     return _pdf(draw)
 
 
 def _texts(lines):
-    return [ln.text.split()[0] for ln in lines]
+    # The columns' lines open with a small letter, as wrapped text does
+    # (the check reads a column of lines opening with capitals as cells).
+    return [ln.text.split()[0].upper() for ln in lines]
 
 
 # -- the repair: the page says its order runs across the columns -------------

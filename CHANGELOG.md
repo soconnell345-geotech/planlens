@@ -79,7 +79,8 @@
   N columns and the file draws its lines across them ...", in
   `PageContent.warnings` and so on the page a tool shows. The lines are
   unchanged, and a page drawn column by column, a table read row by row
-  or notes scattered over a drawing carry no warning.
+  (ruled or not), a form, an index, a list set in two columns or notes
+  scattered over a drawing carry no warning.
   `planlens.document.reading_order.column_order(lines)` reads such a page
   column by column for a host that asks; nothing calls it by default.
 - **Captions on pages that are not figures, for a host that asks (app
