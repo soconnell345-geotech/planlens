@@ -46,6 +46,19 @@ PROPOSAL_NOTE = ("each item is a construct recognised by its shape: exact "
                  "where it is drawn, but confirm one on a render before "
                  "relying on it")
 
+#: What a dimension's value and a leader's text are: the nearest text, not
+#: a reading of the construct. The finders reach for text within a distance
+#: sized off the sheet's typical line, which on a sheet of long lines is far
+#: (a note 150 pt from a dimension lettered in strokes came back as its
+#: value), so each row says how far its text is.
+TIED_TEXT_NOTE = (
+    "a dimension's value and a leader's text are the text-layer text "
+    "NEAREST the dimension line's middle or the leader's tail, "
+    "value_offset_pt / text_offset_pt away: text set much farther off "
+    "than the lettering is tall, or than the other items' offsets, is "
+    "likely another note and not this item's (its own lettering may be "
+    "drawn as lines); check it on a render")
+
 #: Pictures covering at least this share of the page make it a scan or a
 #: drawing pasted as an image, whatever lines are drawn over it.
 PICTURE_SHARE = 0.5
@@ -135,6 +148,16 @@ def _conf(item: Dict[str, Any]) -> float:
         return 0.0
 
 
+def _offset(item: Dict[str, Any]) -> Optional[float]:
+    """How far the text a finder tied to ``item`` is from it (PDF points),
+    or ``None`` when it tied none or did not measure."""
+    try:
+        return (round(float(item["text_distance"]), 1)
+                if item.get("text") else None)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _rows(kind: str, ir, fpage) -> List[Tuple[List[Any], Dict[str, Any]]]:
     """``(where, row)`` per construct of ``kind``: ``where`` is the row's
     points (a list of ``[x, y]``) or its box (``[x0, y0, x1, y1]``), what a
@@ -145,18 +168,22 @@ def _rows(kind: str, ir, fpage) -> List[Tuple[List[Any], Dict[str, Any]]]:
         for d in sorted(queries.find_dimensions(ir), key=_conf, reverse=True):
             a, b = _pt(fpage, d["end_a_xy"]), _pt(fpage, d["end_b_xy"])
             mid = _pt(fpage, d["midpoint_xy"])
-            out.append(([a, b, mid], {
-                "value": d.get("text"), "from": a, "to": b,
-                "length_pt": round(float(d.get("length") or 0.0), 1),
-                "confidence": d.get("confidence")}))
+            row = {"value": d.get("text"), "from": a, "to": b,
+                   "length_pt": round(float(d.get("length") or 0.0), 1),
+                   "confidence": d.get("confidence")}
+            if _offset(d) is not None:
+                row["value_offset_pt"] = _offset(d)
+            out.append(([a, b, mid], row))
     elif kind == "leaders":
         # a dimension's arrow is not a leader: the dimensions say it
         for d in sorted(queries.find_leaders(ir, exclude_dimensions=True),
                         key=_conf, reverse=True):
             tip, tail = _pt(fpage, d["tip_xy"]), _pt(fpage, d["tail_xy"])
-            out.append(([tip, tail], {
-                "text": d.get("text"), "tip": tip, "tail": tail,
-                "confidence": d.get("confidence")}))
+            row = {"text": d.get("text"), "tip": tip, "tail": tail,
+                   "confidence": d.get("confidence")}
+            if _offset(d) is not None:
+                row["text_offset_pt"] = _offset(d)
+            out.append(([tip, tail], row))
     elif kind == "callouts":
         for d in sorted(queries.find_bubble_callouts(ir), key=_conf,
                         reverse=True):
@@ -267,6 +294,9 @@ def drawing_geometry(document, page: int, find: Any = None,
             "leader(s) have no text beside them in the text layer: their "
             "lettering may be drawn as lines, or set farther off; read it "
             "on a render")
+    if any("value_offset_pt" in r for r in out.get("dimensions") or ()) \
+            or any("text_offset_pt" in r for r in out.get("leaders") or ()):
+        notes.append(TIED_TEXT_NOTE)
     if "dimensions" in kinds:
         notes.append("length_pt is the drawn length in PDF points, not "
                      "converted; measure with a scale converts it")
@@ -277,5 +307,6 @@ def drawing_geometry(document, page: int, find: Any = None,
 
 
 __all__ = ["KINDS", "MEASURED_FROM", "FRAME", "PROPOSAL_NOTE",
+           "TIED_TEXT_NOTE",
            "PICTURE_SHARE", "NoDrawnGeometry", "kinds_asked", "page_ir",
            "drawing_geometry"]
