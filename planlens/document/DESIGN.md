@@ -114,7 +114,8 @@ against `ir_to_page_point` on a rotated page.
   front of a model; a warning that is sometimes wrong is not put on every
   host's pages. The toolkit and the review host open their documents
   without it (neither passes a `Document` option through). Columns are measured on lines of prose only (20
-  characters and four words, horizontal): a gap at least 0.6 of a line
+  characters and four words, horizontal; a word has a letter, so a row of
+  dot leaders is not prose): a gap at least 0.6 of a line
   height wide that no more than a fifth of them cross, four lines a side,
   the sides beside each other (half the shorter height overlapping), each
   column's lines sharing a left or a right edge (three fifths of them,
@@ -126,7 +127,8 @@ against `ir_to_page_point` on a rotated page.
   as its widest (text wraps when the line is full), and a third of its
   lines that have a small letter opening with one (a wrapped line opens
   mid-sentence; a cell, a label or a list entry opens with a capital or a
-  number). So a table read row by row (short cells, or cells of text with
+  number; a line with no small letter at all, such as one set in
+  capitals, is left out of that count). So a table read row by row (short cells, or cells of text with
   no rules), a form, an index with dot leaders, a list set in two columns,
   side headings beside their paragraphs and notes scattered over a drawing
   (no shared edge) carry no warning. Not certain: a table whose cells are
@@ -583,7 +585,10 @@ bands left out, so two borings' one-page logs on one form are not linked
 wherever the page prints the boring's number outside the grid; and the
 second repeats the first's first row or says it is continued. Two pages
 that share a ruled form AND its column titles, with nothing outside the
-grid that differs, are linked: the rule cannot tell them from one table. The neighbours are read with their tables once and kept
+grid that differs, are linked: the rule cannot tell them from one table.
+Never linked: tables of fewer than two columns, pages of different
+widths, and two pages where a line of text has no box (it cannot be
+placed above, below or beside a table). The neighbours are read with their tables once and kept
 (`Document._unlinked`).
 
 ## Page map
