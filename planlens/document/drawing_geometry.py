@@ -59,6 +59,17 @@ TIED_TEXT_NOTE = (
     "likely another note and not this item's (its own lettering may be "
     "drawn as lines); check it on a render")
 
+#: What an empty list means. The finders know a dimension or a leader by a
+#: filled arrowhead sized against the sheet's typical line length, so a
+#: sheet can have dimensions and return none.
+NONE_FOUND_NOTE = (
+    "none found ({kinds}) does not show the sheet has none: a construct "
+    "is known by one drawn shape (a dimension or a leader by a filled "
+    "arrowhead, sized against the sheet's typical line length), so "
+    "dimensions ended with tick marks or open arrows, very short ones, "
+    "and any on a sheet of mostly short strokes (hatching) are not found; "
+    "look at a render before saying there is none")
+
 #: Pictures covering at least this share of the page make it a scan or a
 #: drawing pasted as an image, whatever lines are drawn over it.
 PICTURE_SHARE = 0.5
@@ -297,6 +308,9 @@ def drawing_geometry(document, page: int, find: Any = None,
     if any("value_offset_pt" in r for r in out.get("dimensions") or ()) \
             or any("text_offset_pt" in r for r in out.get("leaders") or ()):
         notes.append(TIED_TEXT_NOTE)
+    empty = [k.replace("_", " ") for k in kinds if not counts[k]]
+    if empty:
+        notes.append(NONE_FOUND_NOTE.format(kinds=", ".join(empty)))
     if "dimensions" in kinds:
         notes.append("length_pt is the drawn length in PDF points, not "
                      "converted; measure with a scale converts it")
@@ -307,6 +321,6 @@ def drawing_geometry(document, page: int, find: Any = None,
 
 
 __all__ = ["KINDS", "MEASURED_FROM", "FRAME", "PROPOSAL_NOTE",
-           "TIED_TEXT_NOTE",
+           "TIED_TEXT_NOTE", "NONE_FOUND_NOTE",
            "PICTURE_SHARE", "NoDrawnGeometry", "kinds_asked", "page_ir",
            "drawing_geometry"]
