@@ -316,8 +316,11 @@ def test_two_letterings_standing_alone_leave_a_plain_number_open():
 
 def test_a_numbers_lettering_needs_two_marks_on_the_sheet():
     """One scheduled door on the sheet sets no lettering: the unscheduled
-    number beside it is not looked at."""
+    number beside it is not looked at. (A note in text: a plan whose only
+    text is two tags may be lettered as lines, PL-43.)"""
     pdf = _plan_and_schedule(_door_tags(["101", "109"]), ["101", "102"],
+                             extra=[(700, 300, "GENERAL NOTES: VERIFY ON "
+                                     "SITE", 8, False)],
                              title="DOOR SCHEDULE")
     result = _result(pdf)
     assert [(i.mark, i.status) for i in result.items] == [("102", NO_MARK)]

@@ -19,6 +19,36 @@
   `opencv-python-headless>=4.8,<6`. OpenCV 5 arrived through the unbounded
   pin and the suite passed on it afterwards (5.0.0.93, 2026-10-12); 6 is
   untested, so taking it is now a decision rather than a discovery.
+- **The schedule-mark check's four known limits: three settled, one
+  narrowed (app BACKLOG PL-43).** The check still runs only for a host
+  that asks for the sheet tools; for one that does, it says less that is
+  definite where the text cannot settle it. (1) Narrowed: a readable
+  sheet with no text outside its title block (its drawing lettered as
+  lines with nothing kept) is taken as unread, like a sheet whose drawing
+  is an image (`ScheduleMarks.unlettered`); and where a schedule's marks
+  found are read only from the hidden text a CAD program keeps with
+  lettering drawn as lines, a row not found is `cannot_tell` if a read
+  sheet that could show its mark (one of the discipline of the sheets the
+  rows are found on) carries none of that text, as where sheets were
+  plotted apart; the item names that sheet. Where every such sheet
+  carries it, the row stays `no_mark`. A tag drawn as lines with no
+  hidden text, on a sheet whose other marks are read, still gives
+  `no_mark`, as in 0.16.0. (2) A mark with
+  no row is `may_be_on_unread_sheet` wherever a sheet's drawing is not
+  read, not only beside the schedule's pages: a schedule can continue
+  away from its other parts. (3) A row whose mark is one or two
+  characters, drawn alone on no sheet, is `cannot_tell` (it was never
+  looked for); such a mark with no row is still not looked for, since
+  every grid letter would be one. (4) On a sheet showing fewer than two
+  of a schedule's plain-number marks, a number of the form in the
+  lettering the marks have on the sheets that settle it (one lettering,
+  same discipline) is `cannot_tell`, where nothing was said before (a
+  floor whose doors the schedule leaves out); a number already told from
+  a sheet that settles the lettering is not told again there (one mark,
+  one item). The tool's description says
+  so, which changes the sheet tools' spec text for a host that asks for
+  them only. Measured on made-up sets only; DESIGN says what a first run
+  on a real set should look at.
 
 ## 0.16.0 — 2026-11-17
 
