@@ -171,6 +171,20 @@
   edges, nothing of the body comes between them, the running header and
   footer are the same and the second repeats the column titles or says it is
   continued. Rows and ids are unchanged. Off by default.
+- **Repair: a box a vision answer writes in page units is no longer
+  converted as if it were pixels (app BACKLOG VIS-24).** A box with a page
+  unit written right after it is the model's own estimate in the page's
+  units: `pt` or `pts` (also `PDF pt`, `PDF-view pt`), `PDF points` or
+  `page points`, `in points`, `PDF` or `page` followed by `units`,
+  `coordinates` or `space` (as in `[300, 200, 320, 220] pt`), or a bare
+  `points` followed by punctuation or the end of the line.
+  `boxes_to_grid` used to rewrite it onto the 0-999 grid as a pixel box,
+  so the agent was handed a wrong grid box. It now leaves it exactly as
+  written and counts it (`counts["page_units"]`, present only when there
+  was one); `boxes_note` names it before the rest, and `answer_boxes` does
+  not read it as a place. Every other box converts as before, among them
+  a box followed by a size ("pt lettering") or by the verb ("points right
+  to the boring").
 
 ## 0.16.0 — 2026-11-17
 

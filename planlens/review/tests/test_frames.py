@@ -88,6 +88,102 @@ def test_box_conversion_rules():
     assert "converted in code" in vision_view.boxes_note(counts, size)
 
 
+#: App BACKLOG VIS-24: a box with a page unit after it is the model's own
+#: estimate in page units. Made-up answers on a made-up 2048 x 1326 image.
+PX = "A px=[1024, 663, 1034, 673]"
+PX_GRID = "A [500, 500, 504, 507]"
+
+
+def test_a_pixel_box_converts_as_before():
+    size = (2048, 1326)
+    for tail in ("", " at the valve", ", near the door.", "; B [100, 50, "
+                 "140, 60]", " points to the valve"):
+        text, counts = vision_view.boxes_to_grid(PX + tail, size)
+        assert "page_units" not in counts
+        assert text.startswith(PX_GRID)
+    text, counts = vision_view.boxes_to_grid(PX + "; B [100, 50, 140, 60]",
+                                             size)
+    assert text == PX_GRID + "; B [49, 38, 68, 45]"
+    assert counts == {"converted": 2, "grid": 0}
+    assert vision_view.boxes_note(counts, size).startswith(
+        "the boxes in this analysis are on the 0-999 grid")
+
+
+@pytest.mark.parametrize("unit", [" pt", " pts", " points", " PDF points",
+                                  " in PDF points", " (page coordinates)",
+                                  " PDF-view pt", ") pt"])
+def test_a_box_followed_by_a_page_unit_is_left_as_written(unit):
+    size = (2048, 1326)
+    for box in ("B [300, 200, 320, 220]", "B px=[300, 200, 320, 220]"):
+        text, counts = vision_view.boxes_to_grid(f"{PX}; {box}{unit}.", size)
+        assert text == f"{PX_GRID}; {box}{unit}."
+        assert counts == {"converted": 1, "grid": 0, "page_units": 1}
+        note = vision_view.boxes_note(counts, size)
+        assert note.startswith("1 box(es) with a page unit written after "
+                               "them (such as pt) were left as the vision "
+                               "call wrote them")
+        assert "; the other boxes in this analysis are on the 0-999 grid" \
+            in note
+    # alone, or beside an old-style grid box: named, never "without units"
+    text, counts = vision_view.boxes_to_grid(f"B [300, 200, 320, 220]{unit}",
+                                             size)
+    assert text == f"B [300, 200, 320, 220]{unit}"
+    assert counts == {"converted": 0, "grid": 0, "page_units": 1}
+    assert "without units" not in vision_view.boxes_note(counts, size)
+    text, counts = vision_view.boxes_to_grid(
+        f"B [300, 200, 320, 220]{unit}; C [10, 20, 30, 40]", size)
+    assert counts == {"converted": 0, "grid": 1, "page_units": 1}
+    assert "its other boxes without units" in vision_view.boxes_note(
+        counts, size)
+
+
+@pytest.mark.parametrize("tail", [" px", " pixels", "", " pt lettering",
+                                  " pt tall", " points to the valve"])
+def test_a_box_followed_by_pixels_nothing_or_a_size_converts(tail):
+    size = (2048, 1326)
+    text, counts = vision_view.boxes_to_grid(
+        f"{PX}; B [100, 50, 140, 60]{tail}", size)
+    assert text.startswith(f"{PX_GRID}; B [49, 38, 68, 45]")
+    assert counts == {"converted": 2, "grid": 0}
+
+
+#: The verb "points" after a pixel box (made-up answers).
+VERBS = ["points right to the boring.", "points at the pump.",
+         "points upward.", "points northeast.", "points left.",
+         "points roughly north."]
+
+
+@pytest.mark.parametrize("verb", VERBS)
+def test_the_verb_points_is_not_a_page_unit(verb):
+    text, counts = vision_view.boxes_to_grid(
+        f"Leader px=[1024, 663, 1034, 673] {verb}", (2048, 1326))
+    assert text == f"Leader [500, 500, 504, 507] {verb}"
+    assert counts == {"converted": 1, "grid": 0}
+    found = vision_view.answer_boxes(text, [0.0, 0.0, 1000.0, 1000.0])
+    assert [label for label, _box in found] == ["Leader"]
+
+
+@pytest.mark.parametrize("unit", [" points.", " points,", " points",
+                                  " points\nNext line.", " pt", " pts",
+                                  " PDF points", " page points",
+                                  " in points"])
+def test_a_page_unit_after_a_box_still_holds(unit):
+    box = f"B [300, 200, 320, 220]{unit}"
+    text, counts = vision_view.boxes_to_grid(f"{PX}; {box}", (2048, 1326))
+    assert text == f"{PX_GRID}; {box}"
+    assert counts == {"converted": 1, "grid": 0, "page_units": 1}
+    found = vision_view.answer_boxes(text, [0.0, 0.0, 1000.0, 1000.0])
+    assert [label for label, _box in found] == ["A"]
+
+
+def test_a_box_in_page_units_is_not_read_as_a_place():
+    view = [0.0, 0.0, 1000.0, 1000.0]
+    found = vision_view.answer_boxes(
+        "Tag [100, 100, 120, 120] pt\nValve [200, 200, 220, 220]\n"
+        "Pump [300, 300, 320, 320] in PDF points", view)
+    assert [label for label, _box in found] == ["Valve"]
+
+
 def test_px_box_to_page_is_exact():
     view = [100.0, 200.0, 1100.0, 700.0]
     assert vision_view.px_box_to_page(view, [0, 0, 2000, 1000],
