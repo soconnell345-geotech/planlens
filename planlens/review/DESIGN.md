@@ -33,7 +33,7 @@ process with `planlens.review.configure(...)` or for one conversation (see
 | `vision_tools.display_path`, `_fileio.hide_working_folder` | `display_path`, `hide_paths` |
 | `vision_view.render_view(..., pad_frac=0.0, engine=)` for the check's crop | `render_crop(pdf, page, bbox)`, the box unpadded; default planlens' own render at 300 dpi |
 | `vision_tools._resolve_attachment_or_path` in `find_like` | `find_like_source(key, attachments) -> bytes`, raising in the host's words; default the document tools' resolver |
-| `image_view` (Pillow) | `images: ImageSupport` (`open_image`, `as_pdf`, `page_scale`, `shown_size`) |
+| `image_view` (Pillow) | `images: ImageSupport` (`open_image`, `as_pdf`, `page_scale`, `shown_size`, and optionally `sent_scale`: see "Marks on an image") |
 | `office_text` (python-docx, openpyxl) | `read_office(path, name, image_dir=, image_ref=) -> (markdown, fields)`; planlens passes the working folder's scratch folder and its name, as the app did |
 | `cited_documents` | `after_marked_copy(result, markups)` |
 | `dispatch_custom_event` (the lock-wait record) | `record(event, data)` |
@@ -178,7 +178,9 @@ review/
                    numbers (and a note where they did not fit, PL-38);
                    Word/Excel/DXF read as text; lock-wait timing
   marked_copy.py   annotate's copy: temp file + swap, remove by id, uid or words,
-                   marks on an image in its pixels, off-the-page refusal;
+                   marks on an image in its pixels (its views judged by
+                   the scale they were sent at; a copy of another image
+                   passed over), off-the-page refusal;
                    one lock per copy, so two calls on it keep both (PL-38)
   markup_check.py  every mark looked at on the marked copy
   find_like.py     every copy of one mark, each candidate read by the look,
@@ -207,3 +209,35 @@ context variable that `current()` reads first: other threads keep theirs,
 and the markup check's and `find_like`'s worker threads run in a copy of the
 calling context, so it reaches them. `using(look=None)` is "no look for
 this conversation" (no `find_like`, marks written and not checked).
+
+## Marks on an image
+
+A mark on an IMAGE file is given in the image's own pixels, as its looks
+give them, and goes on a copy whose page is the image at one point a pixel
+(`ImageSupport.as_pdf`), or converted exactly onto an existing copy at
+another scale. Two rules judge such a mark by the image, not by the page
+rules the writer applies to points (app BACKLOG VIS-26):
+
+- **A view is judged by the scale it was sent at.** The writer refuses a
+  small mark read off a view wider than 300 units, because a box read off
+  a page view that wide can be off by about a tenth of it. A look at an
+  image is cut from the original: a crop that fits the host's vision budget
+  reaches the model at full resolution or larger, and a box read off it is
+  good to a few of the image's pixels however wide it is. When the host's
+  `ImageSupport.sent_scale(w, h)` says a view went at 1 or more, the mark
+  is handed to the writer as the box its view + image_box name (converted
+  as the writer converts them, so the written row is the same) and is
+  placed; a view sent shrunk is refused as before. Either way a refusal
+  is said in pixels, with the scale the view went at when the host gives
+  it (`judge_image_views`). A host with no `sent_scale` keeps the page's
+  rule. The marks keep their order, so the writer's skipped rows still
+  name each mark by its index.
+- **A copy is added to only when it holds this image.** With append on, a
+  second image under a name that already has a marked copy went onto the
+  first image's copy, converted by that copy's size. A copy is added to
+  only when its page holds an image of this image's pixels (as shown, or as
+  stored before an EXIF turn) drawn at one scale (`_copy_fits_image`);
+  otherwise the marks go on a new copy under the next free name, as for a
+  file that is not a copy of this host's, and `remove` with marks on such a
+  copy writes nothing. Only the size can be told: a different image of the
+  same size under the same name is still added to.
