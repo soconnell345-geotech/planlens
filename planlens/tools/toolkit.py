@@ -616,7 +616,8 @@ class ReviewToolkit:
         """``(arguments, sheet_pages, refusal)``: ``sheets`` / ``sheet``
         turned into the ``pages`` / ``page`` the document's sheet index reads
         them on (:func:`planlens.tools.sheet_addresses.resolve`), with the
-        rows saying which (``[{"sheet", "page"}]``, ``None`` when none was
+        rows saying which (``[{"sheet", "page"}]``, with ``from`` where the
+        number is the PDF's page label and no reading of the sheet; ``None`` when none was
         given); or a refusal (``{"error", "hint"}``) for a number the index
         does not hold, holds on more than one page, or that names other
         pages than a ``pages`` / ``page`` given beside it. A tool that takes
@@ -692,7 +693,15 @@ class ReviewToolkit:
                                 f"{sheet_arg}"}
             arguments[page_arg] = (",".join(str(p) for p in pages)
                                    if page_arg == "pages" else pages[0])
-            rows.extend({"sheet": number, "page": page}
+            # a number the index took from the PDF's page label is not a
+            # reading of the sheet (a scan), and the file's labels can name
+            # another page: said, in the words of the index's own rows
+            label, _short, words = self.SHEET_FROM[0]
+            labelled = {r.page for r in index.indexed
+                        if (r.how or "").startswith(label)}
+            rows.extend(dict({"sheet": number, "page": page},
+                             **({"from": words} if page in labelled
+                                else {}))
                         for number, page in found)
         return arguments, (rows or None), None
 
