@@ -1296,6 +1296,20 @@ def _side_document(name: str, arguments: Dict[str, Any],
             "error": f"'{shown}' is {what}: it has no pages here, so "
                      f"{name} does not apply to it.",
             "hint": hint}, ensure_ascii=False)
+    given = arguments.get("sheets")
+    if given not in (None, "", [], ()) and _asked_for_sheet_tools(_host()):
+        # PL-37: a sheet number is refused, never dropped; and a workbook's
+        # worksheets are not the sheets a sheet index holds. A host that
+        # did not ask is answered as before.
+        return json.dumps({
+            "error": f"sheets {given!r}: '{shown}' is read as text, with no "
+                     f"pages and no sheet index, so nothing in it is found "
+                     f"by a printed sheet number (a workbook's worksheets "
+                     f"are not sheets here)",
+            "hint": f"leave sheets out: read_document(handle='{shown}', "
+                    f"start_line=...) reads it by line and "
+                    f"search_document(handle='{shown}', pattern=...) finds "
+                    f"lines in it"}, ensure_ascii=False)
     try:
         read = _side_read(source)
     except Exception as exc:  # noqa: BLE001 - ToolError / OfficeReadError
