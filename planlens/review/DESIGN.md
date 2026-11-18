@@ -88,7 +88,8 @@ exactly as each is offered them. Any name the toolkit does not have is
 answered the same way, with the calling host's list, never the toolkit's.
 The conversation's toolkit is built with them on, so the order of the
 calls does not matter. A host that asked is also offered `sheets` beside
-`pages` (and `sheet` beside `page` on the plan tools) after its other
+`pages` (and `sheet` beside `page` on the plan tools and the drawing
+tool; `find_like` takes neither, `specs.NO_SHEET_ARGS`) after its other
 arguments (`specs.sheet_args`, app BACKLOG PL-37): printed sheet numbers,
 turned into pages by the toolkit's sheet index; every other host is
 offered, and refused, them as before (`specs.host_arg_names`).
@@ -141,6 +142,15 @@ answered as the toolkit answers any file that is not a PDF or an image
 Reading and searching a DXF stay with its own text; its `open_document`
 result gains one `plot` line saying what the plot is. No spec changes: the
 tools' descriptions are the same for every host.
+`find_like` is not one of those page tools: it reads the file's own bytes
+and never the toolkit's document, so on a DXF it fails to open the file
+for every host, as in 0.16.0. Two rules follow the plot back to its
+drawing (release review of the whole change): `annotate_document` on the
+toolkit refuses an `output_path` that is the DXF the plot was made from
+(the plot is held in memory, so the document has no file of its own to
+compare; the marked PDF would have replaced the drawing), and
+`ReviewToolkit.forget(path)`, so `forget_path`, closes the plot made from
+that file under whatever name it was opened.
 
 The plot itself (`planlens.dxf.plot.dxf_to_pdf`) is made inside the
 toolkit's `open`, under the toolkit's lock, so it is bounded: a file over

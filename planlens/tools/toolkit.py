@@ -777,6 +777,9 @@ class ReviewToolkit:
             # a plot is another document than the file it was made from:
             # an open that does not plot never finds it
             key += ":dxf-plot"
+        #: The DXF file a plot is made from (``None`` for one given as bytes).
+        plotted_path = (os.path.abspath(str(resolved))
+                        if plotted and not in_memory else None)
         with self._guard:
             handle = self._by_key.get(key)
             if handle and handle in self._entries:
@@ -821,6 +824,10 @@ class ReviewToolkit:
             #: What the document was made from, when it is not the file
             #: itself (``"dxf"``: a plot of its model space).
             entry.plotted_from = "dxf" if plotted else None
+            #: The file that plot was made from: the document's own pages
+            #: are the plot's, held in memory, so ``path`` is ``None``, and
+            #: this is what a tool that WRITES must not write to instead.
+            entry.plotted_path = plotted_path
             self._entries[handle] = entry
             self._by_key[key] = handle
             while len(self._entries) > self.max_open:
@@ -877,7 +884,8 @@ class ReviewToolkit:
         has open (an upload removed, a marked-up copy written over), so the
         file handle is released and the next ``open_document`` reads the file
         as it now is. ``path`` is matched against the file a document was
-        opened from and against the ``source`` string it was opened under.
+        opened from (for a DXF opened as a plot, the DXF the plot was made
+        from) and against the ``source`` string it was opened under.
         Returns the handles closed (empty when none was open).
         """
         def norm(p: str) -> str:
@@ -888,7 +896,9 @@ class ReviewToolkit:
         dropped: List[_Entry] = []
         with self._guard:
             for handle, entry in list(self._entries.items()):
+                made_from = getattr(entry, "plotted_path", None)
                 if ((entry.path and norm(entry.path) == target)
+                        or (made_from and norm(made_from) == target)
                         or getattr(entry, "source", None) == path):
                     del self._entries[handle]
                     dropped.append(entry)
@@ -1538,6 +1548,14 @@ class ReviewToolkit:
             raise ToolError(
                 "output_path is the document itself; a marked-up copy is a "
                 "NEW file", hint="use a name like '<document>_marked.pdf'")
+        made_from = getattr(entry, "plotted_path", None)
+        if made_from and _same_file(made_from, out_path):
+            # the marks go on a copy of the PLOT, a PDF: written here it
+            # would replace the drawing the plot was made from
+            raise ToolError(
+                "output_path is the DXF this plot was made from; a marked-up "
+                "copy is a NEW file, a PDF",
+                hint="use a name like '<drawing>_marked.pdf'")
         try:
             with entry.lock:
                 # The bytes come off the OPEN document rather than from
