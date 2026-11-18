@@ -423,6 +423,12 @@ class ReviewToolkit:
         BACKLOG DR-44): one page's dimensions, leaders, callouts, revision
         clouds and title block read from its drawn geometry, a fallback for
         a CAD sheet the text and the look have not settled. Off by default.
+    dxf_plots : bool
+        ``True`` opens a DXF (by its extension) as a one-page PDF plot of
+        its model space (:func:`planlens.dxf.plot.dxf_to_pdf`; BACKLOG
+        DR-19), so the page tools can look at it; ``open_document`` then
+        says what the plot is (``plot``). Off by default: a DXF is refused
+        as before.
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -438,7 +444,8 @@ class ReviewToolkit:
                  image_format: str = "png",
                  look: Optional[Look] = None,
                  sheet_tools: bool = False,
-                 drawing_tools: bool = False):
+                 drawing_tools: bool = False,
+                 dxf_plots: bool = False):
         from planlens.document.budget import resolve_budget
         if max_chars < 1000:
             raise ValueError("max_chars below 1000 cannot hold a useful result")
@@ -459,6 +466,8 @@ class ReviewToolkit:
         self.sheet_tools = bool(sheet_tools)
         #: Whether the drawing tools are offered (:data:`DRAWING_TOOLS`).
         self.drawing_tools = bool(drawing_tools)
+        #: Whether a DXF opens as a PDF plot of its model space.
+        self.dxf_plots = bool(dxf_plots)
         #: Pages read for their drawn geometry, by (handle, page): the
         #: document they were read from and its DrawingIR (a few, newest
         #: last), so a second question about a page does not read it again.
@@ -608,6 +617,12 @@ class ReviewToolkit:
                 raise ToolError(
                     f"could not open '{source}': the file is empty (0 bytes)",
                     hint=OPEN_HINTS["empty"])
+            from planlens.dxf.plot import is_dxf
+            plotted = self.dxf_plots and (
+                is_dxf(source) or (not in_memory and is_dxf(resolved)))
+            if plotted:
+                resolved = self._dxf_plot(source, resolved, in_memory)
+                in_memory = True
             try:
                 if in_memory:
                     doc = Document(content=bytes(resolved), name=name,
@@ -633,6 +648,9 @@ class ReviewToolkit:
                            path=(None if isinstance(resolved, (bytes, bytearray))
                                  else str(resolved)))
             entry.source = source
+            #: What the document was made from, when it is not the file
+            #: itself (``"dxf"``: a plot of its model space).
+            entry.plotted_from = "dxf" if plotted else None
             self._entries[handle] = entry
             self._by_key[key] = handle
             while len(self._entries) > self.max_open:
@@ -642,6 +660,24 @@ class ReviewToolkit:
                 with old.lock:
                     old.doc.close()
             return entry
+
+    @staticmethod
+    def _dxf_plot(source: str, resolved: Source, in_memory: bool) -> bytes:
+        """The PDF plot of the DXF ``resolved`` (bytes or a path), or a
+        ToolError saying in plain words why there is none."""
+        from planlens.dxf.plot import dxf_to_pdf
+        try:
+            if in_memory:
+                return dxf_to_pdf(content=bytes(resolved))
+            return dxf_to_pdf(filepath=str(resolved))
+        except ValueError as exc:
+            raise ToolError(f"could not plot '{source}': {exc}")
+        except Exception as exc:  # noqa: BLE001 - ezdxf's own errors
+            raise ToolError(
+                f"could not plot '{source}': it is not a DXF ezdxf can read "
+                f"({type(exc).__name__})",
+                hint="ask the user for a PDF plot of the drawing, or read "
+                     "its text with read_document")
 
     def _entry(self, handle: str) -> _Entry:
         with self._guard:
@@ -841,6 +877,9 @@ class ReviewToolkit:
             "n_pages": doc.n_pages,
             "pages_by_kind": {k: compact_ranges(v) for k, v in by_kind.items()},
         }
+        if getattr(entry, "plotted_from", None) == "dxf":
+            from planlens.dxf.plot import PLOT_NOTE
+            out["plot"] = PLOT_NOTE
         # This dict IS the JSON the host receives, so measure everything
         # against the whole limit rather than reserving a flat guess for the
         # parts still to come: the look line below carries the HOST's own

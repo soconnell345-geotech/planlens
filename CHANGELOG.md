@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **A DXF can be looked at: a plot of its model space (app BACKLOG
+  DR-19).** `planlens.dxf.plot.dxf_to_pdf` draws a DXF's model space onto
+  one PDF page with ezdxf's drawing add-on (ezdxf was already a
+  dependency): black on white, scaled to fit inside an A0-sized page, with
+  a margin. `ReviewToolkit(dxf_plots=True)` opens a DXF as that plot, so
+  the page tools (render, zoom, page map, marks) work on it, and
+  `open_document` says what the plot is (`plot`: model space only, its
+  lettering drawn as shapes, its scale the fit to the page). In
+  `planlens.review` a host that asks with
+  `ReviewHost(toolkit_options={"dxf_plots": True})` gets the page tools on
+  a DXF instead of the "no pages here" refusal; reading and searching a
+  DXF still read its own text, and its open result gains the `plot` line.
+  Off by default at both levels: a toolkit or host that does not ask is
+  answered as before (a test compares the open result with and without
+  it).
 - **The drawing-geometry layer as a tool an agent can reach for (app
   BACKLOG DR-44, with PL-13).** `drawing_geometry(handle, page, find,
   bbox)` reads one page's drafting constructs from its drawn geometry

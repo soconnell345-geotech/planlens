@@ -129,6 +129,13 @@ def _asked_for_drawing_tools(host) -> bool:
                 .get("drawing_tools"))
 
 
+def _asked_for_dxf_plots(host) -> bool:
+    """Whether ``host`` asked for a DXF's page tools to look at a plot of it
+    (``toolkit_options={"dxf_plots": True}``; BACKLOG DR-19)."""
+    return bool((getattr(host, "toolkit_options", None) or {})
+                .get("dxf_plots"))
+
+
 #: The toolkit tools a host is served only when it asked for them, by the
 #: option it asks with (:data:`planlens.review.specs.SHEET_TOOLS`,
 #: :data:`planlens.review.specs.PLAN_TOOLS`,
@@ -194,6 +201,9 @@ def _new_toolkit(folder: Optional[str]):
     kw["sheet_tools"] = True
     # and the drawing tools, each call deciding the same way
     kw["drawing_tools"] = True
+    # and a DXF's plot: only a calling host that asked gets a DXF past
+    # :func:`_side_document` to the toolkit
+    kw["dxf_plots"] = True
     # the plan tools are the toolkit's own for every toolkit; asking for
     # them is this layer's option, not the toolkit's
     kw.pop("plan_tools", None)
@@ -1278,6 +1288,9 @@ def _side_document(name: str, arguments: Dict[str, Any],
         return None
     shown = os.path.basename(source.replace("\\", "/")) or source
     kind = side_kind(source)
+    plots = kind == "cad" and _asked_for_dxf_plots(_host())
+    if name not in SIDE_READ_TOOLS and plots:
+        return None          # the page tools look at a plot of it (DR-19)
     if name not in SIDE_READ_TOOLS:
         what = ("a DXF drawing, read as CAD data" if kind == "cad"
                 else "a Word or Excel file, read as Markdown")
@@ -1344,6 +1357,10 @@ def _side_document(name: str, arguments: Dict[str, Any],
     out = {"handle": shown, "source": source, "name": read.get("name", shown)}
     if name == "open_document" or start == 0:
         out.update({k: v for k, v in read["header"].items() if k != "note"})
+    if name == "open_document" and plots:
+        from planlens.dxf.plot import PLOT_NOTE
+        out["plot"] = ("render_page, render_region and the other page tools "
+                       "take this file too: they look at " + PLOT_NOTE)
     out["n_lines"] = len(lines)
     note = read["header"].get("note") if name == "open_document" else None
     reserve = len(json.dumps(out, ensure_ascii=False)) + len(
