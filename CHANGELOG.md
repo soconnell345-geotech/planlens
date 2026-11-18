@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **The page map's sheet number follows the sheet index once it is made
+  (app BACKLOG PL-41).** Read on its own, a page took a labelled number
+  anywhere in its title-block area, so a reference-drawings table listing
+  "DWG NO." over another sheet's number beat the sheet's own unlabelled
+  number, which the index finds by its place across the set. Once
+  `Document.sheet_index()` has been made, each page it numbered from the
+  title block carries that number on the page map (and in the drawing
+  segments); where the page's own reading differs, it is kept as
+  `evidence["sheet_read_alone"]`. A number the index took from the PDF's
+  page label, or a page it gave no number, leaves the page's own reading.
+  The page map never makes the index itself: without the sheet tools no
+  result changes (checked byte for byte against 0.16.0 on 22 made-up
+  documents).
+- **OpenCV is bounded below 6 (app BACKLOG PL-16):**
+  `opencv-python-headless>=4.8,<6`. OpenCV 5 arrived through the unbounded
+  pin and the suite passed on it afterwards (5.0.0.93, 2026-10-12); 6 is
+  untested, so taking it is now a decision rather than a discovery.
+
 ## 0.16.0 — 2026-11-17
 
 - **A drawing set's schedules checked against the marks on its sheets,

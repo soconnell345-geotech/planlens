@@ -642,11 +642,48 @@ class Document:
         """The drawing sheets of this document, from their title blocks:
         page, sheet number, title, latest revision
         (:func:`planlens.document.sheets.sheet_index`). Reads every page;
-        kept once read."""
+        kept once read. Once read, the page map's ``sheet`` follows it
+        (:meth:`_sheets_from_index`)."""
         if self._sheet_index is None:
             from planlens.document.sheets import sheet_index
             self._sheet_index = sheet_index(self)
+            self._sheets_from_index(self._sheet_index)
         return self._sheet_index
+
+    def _sheets_from_index(self, index) -> None:
+        """Give the page map the sheet numbers ``index`` read (PL-41).
+
+        A page read on its own (:func:`printed_numbers`) takes a labelled
+        number anywhere in its title-block area, so a reference-drawings
+        table listing "DWG NO." over another sheet's number beats the sheet's
+        own unlabelled number, which the index finds by its place across the
+        set. So each page the index numbered from its title block takes the
+        index's number; where the page's own reading was another number, it
+        is kept as ``evidence["sheet_read_alone"]``. A number the index took
+        from the PDF's page label is not a reading of the sheet and changes
+        nothing (the row carries the label already), and a page the index
+        gave no number keeps its own reading. Called only once the index has
+        been made (a host that asked for the sheet tools): the page map never
+        makes the index, so without it nothing here runs."""
+        from planlens.document.sheets import HOW_PAGE_LABEL, normalize_number
+        changed = False
+        for row in index.rows:
+            if not row.number or (row.how or "").startswith(HOW_PAGE_LABEL):
+                continue
+            s = self._summaries.get(row.page)
+            if s is None:
+                continue
+            number = row.number.upper()
+            if s.sheet and normalize_number(s.sheet) == normalize_number(
+                    number):
+                continue
+            if s.sheet:
+                s.evidence["sheet_read_alone"] = s.sheet
+            s.sheet = number
+            changed = True
+        if changed:
+            # a drawing segment's title and its list of sheets read `sheet`
+            self._segments = None
 
     def cross_references(self):
         """This document's callouts, each checked against the sheet index
