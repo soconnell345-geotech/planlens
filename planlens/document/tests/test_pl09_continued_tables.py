@@ -112,6 +112,20 @@ def test_the_note_reaches_the_page_a_tool_renders():
     assert any(r.startswith("note: continues table p0.tbl0") for r in rows)
 
 
+def test_a_line_with_no_box_on_either_page_means_cannot_tell():
+    from dataclasses import replace
+
+    from planlens.document.continued_tables import table_continuation
+    from planlens.document.model import TextLine
+    with Document(content=_doc("repeated")) as doc:
+        first, second = doc.page(0), doc.page(1)
+    assert table_continuation(first, second) is not None
+    boxless = TextLine(id="p1.x0", page=1, bbox=None,
+                       text="a made-up line from a text source with no box")
+    second = replace(second, lines=list(second.lines) + [boxless])
+    assert table_continuation(first, second) is None
+
+
 @pytest.mark.parametrize("case", [
     dict(second="bare"),                   # nothing says it continues
     dict(note_below=True),                 # a note under the first ends it

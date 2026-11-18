@@ -76,7 +76,7 @@ def _in_band(ln, height: float) -> bool:
 def _running_header(pc) -> List[str]:
     out = []
     for ln in pc.lines:
-        if ln.bbox[3] <= BAND_FRACTION * pc.height:
+        if ln.bbox is not None and ln.bbox[3] <= BAND_FRACTION * pc.height:
             text = _RE_PAGE_NUMBER.sub("page #", _norm(ln.text))
             if text and not text.replace("page #", "").strip(" #.-|"
                                                              ).isdigit():
@@ -103,6 +103,9 @@ def table_continuation(earlier, later) -> Optional[TableContinuation]:
     last table of ``earlier`` (the page before), or None."""
     if not earlier.tables or not later.tables:
         return None
+    if any(ln.bbox is None and (ln.text or "").strip()
+           for ln in list(earlier.lines) + list(later.lines)):
+        return None            # a line placed nowhere: cannot tell
     if abs(earlier.width - later.width) > 1.0:
         return None
     a = max(earlier.tables, key=lambda t: t.bbox[3])
@@ -127,8 +130,8 @@ def table_continuation(earlier, later) -> Optional[TableContinuation]:
                     and _row_key(a.rows[0]) == _row_key(b.rows[0]))
     if a.header and b.header and _row_key(a.header) == _row_key(b.header):
         repeated = True
-    top_band = [ln.text for ln in later.lines
-                if ln.bbox[3] <= BAND_FRACTION * later.height]
+    top_band = [ln.text for ln in later.lines if ln.bbox is not None
+                and ln.bbox[3] <= BAND_FRACTION * later.height]
     if not (repeated or _says_continued(above + top_band)
             or _says_continued([c or "" for c in (b.rows[0] if b.rows
                                                   else ())])):
