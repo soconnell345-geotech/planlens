@@ -11,13 +11,14 @@ The later table continues the earlier one only when all of these hold:
 * the earlier table is the last on its page and nothing of the page's body
   is printed below it (a note or a paragraph under a table ends it);
 * the later table is the first on the next page and nothing of the body is
-  printed above it but a line saying it is continued or a line printed
-  above the earlier table too (its caption, its column titles outside the
-  grid);
+  printed above or beside it but a line saying it is continued or a line
+  printed above or beside the earlier table too (its caption, its column
+  titles outside the grid);
 * both have the same number of columns and the same left and right edges;
-* the running header is the same on both pages (page numbers aside): the
-  logs of two borings, one page each, are two tables even when their forms
-  match;
+* the running header and footer are the same on both pages (page numbers
+  aside; the table's own lines in those bands left out): the logs of two
+  borings, one page each, are two tables even when their forms match,
+  wherever the page prints the boring's number outside the grid;
 * the later table repeats the earlier one's first row (the column titles),
   or a line above it or its own first row says it is continued.
 
@@ -73,10 +74,13 @@ def _in_band(ln, height: float) -> bool:
             or ln.bbox[1] >= (1.0 - BAND_FRACTION) * height)
 
 
-def _running_header(pc) -> List[str]:
+def _running_bands(pc, table) -> List[str]:
+    """The page's running header and footer, page numbers aside, without
+    the lines of ``table`` (a table may start or end inside a band)."""
     out = []
     for ln in pc.lines:
-        if ln.bbox is not None and ln.bbox[3] <= BAND_FRACTION * pc.height:
+        if (ln.bbox is not None and _in_band(ln, pc.height)
+                and not _inside(ln, table.bbox)):
             text = _RE_PAGE_NUMBER.sub("page #", _norm(ln.text))
             if text and not text.replace("page #", "").strip(" #.-|"
                                                              ).isdigit():
@@ -117,14 +121,13 @@ def table_continuation(earlier, later) -> Optional[TableContinuation]:
         return None
     if any(_centre_y(ln) > a.bbox[3] for ln in _body_outside(earlier, a)):
         return None
-    carried: Set[str] = {_norm(ln.text) for ln in _body_outside(earlier, a)
-                         if _centre_y(ln) < a.bbox[1]}
+    carried: Set[str] = {_norm(ln.text) for ln in _body_outside(earlier, a)}
     above = [ln.text for ln in _body_outside(later, b)
-             if _centre_y(ln) < b.bbox[1]]
+             if _centre_y(ln) <= b.bbox[3]]       # above it or beside it
     if any(not (_RE_CONTINUED.search(t) or _norm(t) in carried)
            for t in above):
         return None
-    if _running_header(earlier) != _running_header(later):
+    if _running_bands(earlier, a) != _running_bands(later, b):
         return None
     repeated = bool(a.rows and b.rows and any(_row_key(a.rows[0]))
                     and _row_key(a.rows[0]) == _row_key(b.rows[0]))

@@ -555,13 +555,15 @@ Rows, ids and boxes are unchanged; only `notes` gains a line.
 `continued_tables.table_continuation(earlier, later)` is the rule, on two
 pages' contents: the last table of one page and the first of the next have
 the same column count and left and right edges (6 pt); nothing of the
-body (outside the 8 % bands) is printed below the first or above the
-second, except a line saying "continued" or a line printed above the first
-too (its caption); the running header is the same on both pages, page
-numbers aside, so two borings' one-page logs on one form are not linked;
-and the second repeats the first's first row or says it is continued.
-Two pages that merely share a ruled form are not linked unless one says
-so. The neighbours are read with their tables once and kept
+body (outside the 8 % bands) is printed below the first or above or
+beside the second, except a line saying "continued" or a line printed
+outside the first too (its caption); the running header and footer are the
+same on both pages, page numbers aside and the tables' own lines in those
+bands left out, so two borings' one-page logs on one form are not linked
+wherever the page prints the boring's number outside the grid; and the
+second repeats the first's first row or says it is continued. Two pages
+that share a ruled form AND its column titles, with nothing outside the
+grid that differs, are linked: the rule cannot tell them from one table. The neighbours are read with their tables once and kept
 (`Document._unlinked`).
 
 ## Page map

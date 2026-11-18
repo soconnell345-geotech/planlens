@@ -95,8 +95,8 @@
   the last table of a page and the first of the next that one continues
   the other ("continues table p3.tbl1 from page 3: the column titles are
   on that page, not repeated here"), when they share their columns and
-  edges, nothing of the body comes between them, the running header is
-  the same and the second repeats the column titles or says it is
+  edges, nothing of the body comes between them, the running header and
+  footer are the same and the second repeats the column titles or says it is
   continued. Rows and ids are unchanged. Off by default.
 
 ## 0.16.0 — 2026-11-17
