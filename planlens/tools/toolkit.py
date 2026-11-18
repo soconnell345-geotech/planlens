@@ -884,7 +884,8 @@ class ReviewToolkit:
         has open (an upload removed, a marked-up copy written over), so the
         file handle is released and the next ``open_document`` reads the file
         as it now is. ``path`` is matched against the file a document was
-        opened from and against the ``source`` string it was opened under.
+        opened from (for a DXF opened as a plot, the DXF the plot was made
+        from) and against the ``source`` string it was opened under.
         Returns the handles closed (empty when none was open).
         """
         def norm(p: str) -> str:
@@ -895,7 +896,9 @@ class ReviewToolkit:
         dropped: List[_Entry] = []
         with self._guard:
             for handle, entry in list(self._entries.items()):
+                made_from = getattr(entry, "plotted_path", None)
                 if ((entry.path and norm(entry.path) == target)
+                        or (made_from and norm(made_from) == target)
                         or getattr(entry, "source", None) == path):
                     del self._entries[handle]
                     dropped.append(entry)
