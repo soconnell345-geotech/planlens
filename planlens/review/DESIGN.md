@@ -138,6 +138,10 @@ handle it had), and a handle given by a host whose options are not the ones
 its document was opened with is answered from the same source opened with
 that host's options. A host that did not ask is therefore never handed a
 page another host read with an option on, whichever opened the file first.
+One file read with and without an option is then two open documents, and
+each counts toward the conversation's open-document limit (`max_open`, 8):
+the limit is reached sooner, and a host's document closed under it is
+reopened from its source at that host's next call, under the same handle.
 `captions_on_every_page` is the outline's option and is read at each
 `document_roles` call, so it needs no document of its own; `document_roles`
 is the toolkit's tool and the host layer does not serve it, so for a
