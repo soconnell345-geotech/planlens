@@ -328,6 +328,8 @@ _RE_FEET_INCHES = re.compile(
 _RE_VALUE_UNIT = re.compile(r"(" + _NUM + r")\s*(" + _UNIT + r")?", re.I)
 _RE_BARE_RATIO = re.compile(r"(" + _NUM + r")\s*:\s*(" + _NUM + r")")
 _RE_SCALE_LABEL = re.compile(r"^\s*scale\s*[:=]?\s*", re.I)
+#: A whole number and a fraction joined by a hyphen: "1-1/2".
+_RE_HYPHEN_MIXED = re.compile(r"(?<![\d./-])(\d+)-(\d+\s*/\s*\d+)")
 
 #: Area unit spellings met on dimension markups, mapped to a canonical
 #: ``<length>^2`` (or left as written when there is no length behind it).
@@ -420,6 +422,9 @@ def parse_ratio(text: Optional[str]
         return None
     if "=" in t:
         left, right = t.split("=", 1)
+        # A drafter writes one and a half inches "1-1/2"" as often as
+        # "1 1/2"" ("1-1/2" = 1'-0"", a common detail scale).
+        left = _RE_HYPHEN_MIXED.sub(r"\1 \2", left)
         a, b = _parse_length(left), _parse_length(right)
         if a is None or b is None or a[0] <= 0 or b[0] <= 0:
             return None
