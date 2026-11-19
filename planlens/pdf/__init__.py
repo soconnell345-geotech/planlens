@@ -21,7 +21,7 @@ Output is compatible with both slope_stability and fem2d via
 to_dxf_parse_result() adapter for use with build_slope_geometry() and
 build_fem_inputs().
 
-Requires: PyMuPDF >= 1.23 (optional dependency)
+Requires: PyMuPDF >= 1.27.2 (a core dependency)
 """
 
 from planlens.pdf.results import PdfParseResult
