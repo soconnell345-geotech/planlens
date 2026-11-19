@@ -140,13 +140,12 @@ def test_the_fixture_sets_view_scales_are_never_a_sheets_scale():
         assert rows and all(r.scale is None for r in rows), style
 
 
-def test_one_sheet_alone_says_its_title_block_was_not_located():
+def test_one_sheet_alone_has_no_scale_its_title_block_was_not_located():
+    # changed in review (REVIEW_B15_PL37.md): a label in the corner of a
+    # sheet read alone may be a detail's, so no scale is given
     row = _rows(_set([RATIO]))[0]
     assert row.number == "S-101"
-    assert row.scale == "1:100"
-    assert row.scale_how == sheets.HOW_SCALE_CORNER
-    # and without a scale by the corner's label, none: the view titles'
-    # scales stand elsewhere on the sheet
+    assert row.scale is None and row.scale_how is None
     assert _rows(_set([NO_SCALE]))[0].scale is None
 
 

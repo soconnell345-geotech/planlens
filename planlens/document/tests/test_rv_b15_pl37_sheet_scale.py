@@ -127,3 +127,18 @@ def test_one_stray_scale_line_does_not_unseat_the_scale_the_set_shares():
     sheets = [([(0, Y, "SCALE: 1:100")], []) for _ in range(5)]
     sheets[3][0].append((0, 700, "SCALE: 1:50"))
     assert _scales(sheets) == ["1:100", "1:100", "1:100", None, "1:100"]
+
+
+CORNER_DETAIL = [(BX - 60, H - 300, "ANCHOR DETAIL", 12),
+                 (BX - 60, H - 286, "SCALE: 1:10", 7)]
+
+
+def test_a_sheet_read_alone_is_not_given_a_corner_details_scale():
+    # one sheet, or two: the set shows no title block, and the lower right
+    # corner holds a detail with its own scale
+    assert _scales([([], CORNER_DETAIL)]) == [None]
+    assert _scales([([], CORNER_DETAIL)] * 2) == [None, None]
+    weep = [(W - 500, H - 200, "WEEP HOLE", 12), (W - 500, H - 186, "SCALE", 7),
+            (W - 500, H - 172, '3" = 1\'-0"', 7)]
+    block = [(1300, H - 82, "SCALE"), (1300, H - 60, "1\" = 40'")]
+    assert _scales([(block, weep)], _bottom_block) == [None]

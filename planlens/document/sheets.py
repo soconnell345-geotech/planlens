@@ -142,10 +142,6 @@ HOW_FURTHER_SLOT = "slot of a second title-block layout"
 #: line, or alone in the cell beside or under the label.
 HOW_SCALE_LINE = "after the title block's scale label"
 HOW_SCALE_CELL = "in the cell by the title block's scale label"
-#: Where the set shows no title block (one sheet on its own), the label is
-#: taken only in the sheet's lower right corner, and the row says so.
-HOW_SCALE_CORNER = ("by a scale label in the sheet's lower right corner "
-                    "(title block not located)")
 #: The reason a readable sheet has no number.
 NO_NUMBER = "no sheet number found in the title block's text"
 
@@ -890,8 +886,8 @@ def _scale(sheet: _Sheet, block: Optional[BBox],
     sheet is the view's; so the block is cut to the band that holds most
     of the set's fixed wording (``places``), the right one or the bottom
     one, and a view the set repeats in the other band is left out. Where the set shows no title block (``block`` is
-    ``None``), a label in the sheet's lower right corner is taken and the
-    row says so. Two labels with different values, or none: ``(None,
+    ``None``: one sheet on its own), no scale is given: a label in the
+    sheet's corner may as well be a detail's. Two labels with different values, or none: ``(None,
     None)``; nothing is guessed. A scale line the set prints the same at
     one place on every sheet, beside a scale that is the sheet's own, is
     counted in ``beside``; one that stands so on several sheets is a view
@@ -901,12 +897,13 @@ def _scale(sheet: _Sheet, block: Optional[BBox],
     right = (sum(1 for x, _y in spots if x >= BAND_RIGHT)
              >= sum(1 for _x, y in spots if y >= BAND_BOTTOM))
 
+    if block is None:
+        return None, None
+
     def inside(ln) -> bool:
         cx, cy = _at(ln.bbox, sheet)
-        if block is not None:
-            return _inside(ln.bbox, block) and (
-                cx >= BAND_RIGHT if right else cy >= BAND_BOTTOM)
-        return cx >= CORNER_X and cy >= CORNER_Y
+        return _inside(ln.bbox, block) and (
+            cx >= BAND_RIGHT if right else cy >= BAND_BOTTOM)
 
     # a revision row that tells of a scale ("B  SCALE 1:50") is no scale cell
     revisions = _revision_rows(sheet)[1]
@@ -939,7 +936,7 @@ def _scale(sheet: _Sheet, block: Optional[BBox],
     if len(found) != 1:
         return None, None
     value, how, _fixed = next(iter(found.values()))
-    return value, (how if block is not None else HOW_SCALE_CORNER)
+    return value, how
 
 
 def _count(sheet: _Sheet) -> Optional[str]:
@@ -1109,4 +1106,4 @@ __all__ = ["SheetRow", "SheetIndex", "sheet_index", "page_sheet_number",
            "number_shape", "discipline", "SHEET_NUMBER", "WHOLE_SHEET_NUMBER",
            "SHEET_COUNT", "HOW_SLOT", "HOW_LABEL", "HOW_SIZE",
            "HOW_PAGE_LABEL", "HOW_FURTHER_SLOT", "SCALE_LABEL",
-           "HOW_SCALE_LINE", "HOW_SCALE_CELL", "HOW_SCALE_CORNER"]
+           "HOW_SCALE_LINE", "HOW_SCALE_CELL"]

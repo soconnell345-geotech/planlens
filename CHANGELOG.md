@@ -12,7 +12,9 @@
   block that prints no scale gives neither; a scale under a view title is
   the view's and is never taken; two scale labels that disagree give
   none. A sheet read on its own (no set to show where the title block is)
-  takes a label only in its lower right corner, and the row says so. A
+  has no scale: a label in its corner may be a detail's. A view the set
+  repeats inside the title block's band (a key plan with its own scale
+  line) and a revision row that tells of a scale are not the sheet's. A
   ratio or an equation is recognised by the measuring tools' own reader
   (`planlens.document.scale.parse_ratio`). The tool's description gains
   one word (7 characters); `open_document`'s short index is unchanged, and
