@@ -626,6 +626,23 @@ Apache-2.0/MIT/BSD).
   `annotate_document` calls on one marked copy keep both; a marked copy
   holds no second copy of the file; the viewer-page note; and the
   OpenCV probe leaves no core file on a FIPS host.
+- **0.17.0** — each new behaviour is for a host that asks and is off
+  by default. With the sheet tools: sheet numbers wherever a page is
+  taken (`sheets`, `sheet`, answered with `sheet_pages`), the page
+  map's sheet number following the sheet index once it is made, and
+  three of the schedule-mark check's four known limits settled. New
+  options: the plan tools through the host layer (`plan_tools`);
+  `drawing_geometry` as a tool (`drawing_tools`); a DXF opened as a
+  one-page plot of its model space (`dxf_plots`; a plot needs Pillow);
+  a host's `sent_scale`, by which a small mark on an image view sent at
+  full size is placed; and three `Document` options no tool passes yet
+  (`column_warning`, `continued_tables`, `captions_on_every_page`). For
+  every host: a DXF MINSERT arrives with every placement of its array;
+  arguments that were quietly read as something else are read as given
+  or refused (`measure`'s `side` and `at`); `annotate_document`'s
+  `remove` takes a mark's `uid`; a box a vision answer writes in page
+  units is left as written; and OpenCV is bounded below 6. Nothing that
+  0.16.0 published was removed or renamed.
 
 ### Hosts where OpenCV cannot load
 

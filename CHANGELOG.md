@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.17.0 — 2026-11-18
+
 - **Sheet numbers where a page is taken, for a host that asks for the
   sheet tools (app BACKLOG PL-37).** With `sheet_tools=True` (or, in the
   host layer, `ReviewHost(toolkit_options={"sheet_tools": True})`), a tool
