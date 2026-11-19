@@ -30,6 +30,15 @@ LINE_HYPHENS = "-‐­"
 #: White space that folding changes: a run of it, or one that is not a space.
 _UNFOLDED_SPACE = re.compile(r"\s\s+|[^\S ]")
 
+#: Punctuation a word processor sets and a reader types plainly: curly
+#: quotes and apostrophes, the prime, the minus sign and the en dash.
+#: NFKD leaves each as it is, so a search for "contractor's" missed a page
+#: that prints "contractor\u2019s" (audit 2026-11-18).
+_PUNCT_FOLD = {"\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+               "\u2032": "'", "\u201c": '"', "\u201d": '"', "\u201e": '"',
+               "\u2033": '"', "\u2212": "-", "\u2013": "-"}
+_HAS_PUNCT = re.compile("[" + "".join(_PUNCT_FOLD) + "]")
+
 #: What folding may change at all: that white space, or a run of characters
 #: outside ASCII (most of which decompose to themselves).
 _TO_FOLD = re.compile(r"\s\s+|[^\S ]|[^\x00-\x7f\s]+")
@@ -61,7 +70,8 @@ class Folded(NamedTuple):
 def fold(text: str) -> Folded:
     """``text`` folded for matching (see the module)."""
     if unicodedata.is_normalized("NFKD", text) \
-            and not _UNFOLDED_SPACE.search(text):
+            and not _UNFOLDED_SPACE.search(text) \
+            and not _HAS_PUNCT.search(text):
         return Folded(text, None)
     out: List[str] = []
     at: List[int] = []
@@ -72,7 +82,8 @@ def fold(text: str) -> Folded:
             at.extend(range(pos, m.start()))
             spaced = text[m.start() - 1] == " "
         for i in range(m.start(), m.end()):
-            for c in unicodedata.normalize("NFKD", text[i]):
+            for c in _PUNCT_FOLD.get(text[i]) or unicodedata.normalize(
+                    "NFKD", text[i]):
                 if c.isspace():
                     if spaced:
                         continue
