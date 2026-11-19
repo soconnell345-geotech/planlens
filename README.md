@@ -646,6 +646,23 @@ Apache-2.0/MIT/BSD).
   `remove` takes a mark's `uid`; a box a vision answer writes in page
   units is left as written; and OpenCV is bounded below 6. Nothing that
   0.16.0 published was removed or renamed.
+- **0.18.0** — each new behaviour is for a host that asks and is off
+  by default. The three reading options of 0.17.0 (`column_warning`,
+  `continued_tables`, `captions_on_every_page`) are now passed for a
+  host that names them in `toolkit_options` (in 0.17.0 that raised
+  `TypeError`). With the sheet tools, the sheet index gives each
+  sheet's printed scale (`scale`, `scale_from`; the `sheet_index`
+  description is 7 characters longer, and a long index takes more
+  calls); a row of `Document.sheet_index()` holds `scale` and
+  `scale_how` for every library caller. `planlens.review.frames` gains
+  `region_tiles` and `page_marks`, tiles cut along a sheet's own
+  regions (not wired to any tool; it may answer with the uniform grid).
+  For every host: exact search folds curly quotes, the prime, the minus
+  sign and the en dash; a scale written `1-1/2" = 1'-0"` is read;
+  `measure` with `kind="line"` on a plan that has a scale no longer
+  says the page has none; a note at a sheet's edge keeps its icon on
+  the sheet; `printed_pages` gets no viewer twin. Nothing that 0.17.0
+  published was removed or renamed.
 
 ### Hosts where OpenCV cannot load
 
