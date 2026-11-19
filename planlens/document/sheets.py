@@ -906,7 +906,10 @@ def _scale(sheet: _Sheet, block: Optional[BBox],
                 cx >= BAND_RIGHT if right else cy >= BAND_BOTTOM)
         return cx >= CORNER_X and cy >= CORNER_Y
 
-    lines = [ln for ln in sheet.lines if inside(ln)]
+    # a revision row that tells of a scale ("B  SCALE 1:50") is no scale cell
+    revisions = _revision_rows(sheet)[1]
+    lines = [ln for ln in sheet.lines if inside(ln) and not any(
+        _inside(ln.bbox, box) for box in revisions)]
     found: Dict[str, Tuple[str, str, bool]] = {}
     for lab in lines:
         m = SCALE_LABEL.match(lab.text)

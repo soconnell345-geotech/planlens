@@ -92,3 +92,29 @@ def test_a_scale_most_sheets_share_is_still_theirs():
     # block's scale cell and two print their own in that cell
     printed = ["1:100", "1:100", "1:50", "1:100", "AS NOTED", "1:100"]
     assert _scales([([(0, Y, f"SCALE: {s}")], []) for s in printed]) == printed
+
+
+def _revisions(words):
+    """A revision block in the title block whose last row tells of a scale
+    change; ``words`` is that row's description, one line or two."""
+    y = H - 560
+    rows = [(0, y, "REVISIONS"), (0, y + 15, "NO"), (30, y + 15, "DATE"),
+            (100, y + 15, "DESCRIPTION"), (0, y + 30, "A"),
+            (30, y + 30, "2026-02-03"), (100, y + 30, "ISSUED FOR REVIEW"),
+            (0, y + 45, "B"), (30, y + 45, "2026-04-09"),
+            (100, y + 45, words[0])]
+    return rows + [(100, y + 57, more) for more in words[1:]]
+
+
+CHANGES = [("SCALE CHANGED TO 1:50",), ("SCALE 1:50",), ("SCALE: 1:50",)]
+
+
+def test_a_revision_row_that_tells_of_a_scale_is_not_the_sheets_scale():
+    # the title block prints no scale; its revision block mentions one
+    assert _scales([(_revisions(c), []) for c in CHANGES]) == [None] * 3
+
+
+def test_a_revision_row_does_not_take_the_blocks_own_scale_away():
+    got = _scales([(_revisions(c) + [(0, Y, "SCALE: 1:100")], [])
+                   for c in CHANGES])
+    assert got == ["1:100"] * 3
