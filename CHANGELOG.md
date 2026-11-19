@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Small repairs from the audit of 2026-11-18 (app BACKLOG PL-46, PL-47 and INF-88; no tool specification moves).** Exact search folds the punctuation a word processor sets (curly quotes and apostrophes, the prime, the minus sign, the en dash) to the plain characters on both sides, so a search typed with a straight apostrophe finds a page that prints a curly one; a hit still quotes the page. The host layer no longer adds a viewer twin (`pdf_printed_pages`) to `printed_pages`: those are the numbers printed on the pages, not page indexes. A scale written `1-1/2" = 1'-0"` (a whole number and a fraction joined by a hyphen) is read. `measure` with `kind="line"` on a plan that has a scale no longer says the page has none (`scale_known` is true, with the note that sends the caller to `kind="distance"`, as `kind="point"` already did). A note placed within an icon's width of a sheet's right or bottom edge has its icon moved back onto the sheet. Where a row of the sheet index has a scale, the `sheet_index` result's note says that `scale` is the title block's, never a view's, and what `scale_from` is; with the scale keys a long index reaches a caller's size cap sooner and takes more calls.
 - **The three reading options, for a host that asks (app BACKLOG PL-09).**
   `ReviewToolkit(column_warning=True)`, `continued_tables=True` and
   `captions_on_every_page=True`, and in the host layer
