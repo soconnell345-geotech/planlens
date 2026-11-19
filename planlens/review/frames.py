@@ -22,6 +22,8 @@ level and the text given to the model (planlens already owns
   padded by that error (:func:`zoom_pad`, :func:`zoom_window`).
 * **Tiles.** :func:`tile_grid` says how many tiles per side bring a page's
   small lettering up to a legible size; :func:`tile_boxes` cuts them.
+  :func:`region_tiles` cuts along the sheet's own regions instead (app
+  BACKLOG VIS-30); nothing calls it yet.
 * **Turned lettering is sent upright.** Where a page's text layer shows the
   lettering in a view running up, down or upside down, the image can be
   sent turned so it reads upright (:func:`reading_turn`,
@@ -877,6 +879,351 @@ def image_box_to_page(view: Sequence[float], image_box: Sequence[float]
 
 
 
+# ---------------------------------------------------------------------------
+# Tiles cut along the sheet's own regions (app BACKLOG VIS-30, first slice).
+# Not wired: no tool calls region_tiles yet; tile_boxes is what callers get.
+# ---------------------------------------------------------------------------
+
+#: Under this many characters of text a page has no lettering to cut by (the
+#: count :func:`tile_grid` takes a stroked sheet by): it gets the uniform grid.
+REGION_MIN_CHARS = 40
+#: A band free of text and linework is a gutter when it is at least this
+#: many times as wide as the region's median lettering is tall.
+GUTTER_LETTERINGS = 2.0
+#: Drawn pieces on one straight line are a border (of a title block, a ruled
+#: table, the sheet's frame) when together they run this share of the region.
+RULE_SPAN = 0.9
+#: A drawn piece no thicker than this (pt) across is a straight line.
+RULE_THIN_PT = 1.0
+#: A second-level cut (through linework, where no border or gutter is left)
+#: stays this share of the region away from its ends.
+SECOND_CUT_BAND = 0.25
+
+
+class PageMarks(NamedTuple):
+    """What a page is cut by, in displayed points: ``text`` one row per
+    text-layer line (x0, y0, x1, y1, lettering height in pt), ``strokes``
+    one box per drawn line or curve piece, ``shapes`` one box per drawn
+    path, the page's size and its count of text characters."""
+    text: Any
+    strokes: Any
+    shapes: Any
+    width: float
+    height: float
+    chars: int
+
+
+class RegionTiles(NamedTuple):
+    """:func:`region_tiles`' answer. ``boxes`` are the tiles (top first);
+    ``lettering_px`` the smallest lettering each tile holds at the size it
+    is sent (``None``: no text of its own); ``level`` 1 for a tile cut only
+    along borders and gutters, 2 where a cut through linework made it, 0
+    for an uncut page or a grid tile; ``under`` the tiles (indices) still
+    under :data:`LEGIBLE_TEXT_PX`; ``method`` ``"regions"``, ``"whole"``
+    (one tile) or ``"grid"`` (:func:`tile_boxes`: no text to cut by, and
+    ``lettering_px`` is then :data:`ASSUMED_CAD_LETTERING_PT`); ``capped``
+    when the ceiling on tiles stopped the cutting."""
+    boxes: List[Tuple[float, float, float, float]]
+    lettering_px: List[Optional[float]]
+    level: List[int]
+    under: List[int]
+    method: str
+    capped: bool
+
+
+def page_marks(doc, page: int) -> PageMarks:
+    """The text lines (hidden CAD text left out) and drawn lines of one page
+    of an open planlens ``Document``, for :func:`region_tiles`."""
+    import numpy as np
+    from planlens.document.frame import to_display_bbox
+    text, chars = [], 0
+    for ln in doc.page(int(page), tables=False).lines:
+        words = str(ln.text or "").strip()
+        if not words or getattr(ln, "source", None) == _CAD_HIDDEN:
+            continue
+        x0, y0, x1, y1 = (float(v) for v in ln.bbox)
+        text.append((x0, y0, x1, y1,
+                     float(ln.size or min(x1 - x0, y1 - y0))))
+        chars += len(words)
+    raw = doc._doc[int(page)]
+    strokes, shapes = [], []
+    for path in raw.get_cdrawings():
+        shapes.append(to_display_bbox(raw, path["rect"]))
+        for item in path.get("items", ()):
+            if item[0] == "re":
+                x0, y0, x1, y1 = item[1]
+                sides = [(x0, y0, x1, y0), (x0, y1, x1, y1),
+                         (x0, y0, x0, y1), (x1, y0, x1, y1)]
+            else:
+                pts = item[1] if item[0] == "qu" else item[1:]
+                xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+                sides = [(min(xs), min(ys), max(xs), max(ys))]
+            strokes.extend(to_display_bbox(raw, s) for s in sides)
+    pc = doc.summary(int(page))
+    return PageMarks(np.array(text, float).reshape(-1, 5),
+                     np.array(strokes, float).reshape(-1, 4),
+                     np.array(shapes, float).reshape(-1, 4),
+                     float(pc.width), float(pc.height), chars)
+
+
+def _gaps(lo_of, hi_of, lo: float, hi: float) -> List[Tuple[float, float]]:
+    """The stretches of ``lo``..``hi`` that no interval covers."""
+    import numpy as np
+    order = np.argsort(lo_of)
+    starts = np.concatenate(([lo], np.clip(
+        np.maximum.accumulate(hi_of[order]), lo, hi)))
+    ends = np.concatenate((np.clip(lo_of[order], lo, hi), [hi]))
+    keep = ends > starts
+    return list(zip(starts[keep].tolist(), ends[keep].tolist()))
+
+
+def _in(rows, box, tol: float = 0.0):
+    """Which rows (boxes) overlap ``box`` by more than ``tol`` both ways."""
+    return ((rows[:, 2] > box[0] + tol) & (rows[:, 0] < box[2] - tol)
+            & (rows[:, 3] > box[1] + tol) & (rows[:, 1] < box[3] - tol))
+
+
+def _through(pieces, a: int, lo: float, hi: float):
+    """Of straight pieces lying ACROSS axis ``a`` (thin on the other axis),
+    which sit on a line whose pieces together run :data:`RULE_SPAN` of
+    ``lo``..``hi``; with each such line's position on the other axis."""
+    import numpy as np
+    b = 1 - a
+    keys = np.round((pieces[:, b] + pieces[:, b + 2]) / 2.0)
+    found = np.zeros(len(pieces), bool)
+    at = []
+    names, which = np.unique(keys, return_inverse=True)
+    run = np.bincount(which, pieces[:, a + 2] - pieces[:, a],
+                      minlength=len(names))
+    for key in names[run >= RULE_SPAN * (hi - lo)]:
+        on = keys == key
+        free = sum(g1 - g0 for g0, g1 in
+                   _gaps(pieces[on, a], pieces[on, a + 2], lo, hi))
+        if (hi - lo) - free >= RULE_SPAN * (hi - lo):
+            found |= on
+            at.append(float(key))
+    return found, at
+
+
+def _cuts(box, text, strokes, shapes, a: int,
+          second: bool) -> List[Tuple[float, float]]:
+    """Where ``box`` may be cut across axis ``a`` (0: at an x), as
+    ``(position, weight)``: along a border (weight 2), down the middle of a
+    gutter (1) or, with ``second``, at the text-free position nearest the
+    middle (off every small drawn path, where it can be) or where a :data:`SECOND_CUT_BAND` of paper with no text on it
+    ends (0). No position lies on a text line; a border, a gutter and a
+    middle cut each leave text on both sides."""
+    import numpy as np
+    b, lo, hi = 1 - a, box[a], box[a + 2]
+    mine = text[_in(text, box)]
+    ink = strokes[_in(strokes, box, -RULE_THIN_PT)]
+    if not len(mine):
+        return []
+    clear = _gaps(mine[:, a], mine[:, a + 2], lo, hi)
+    mids = (mine[:, a] + mine[:, a + 2]) / 2.0
+
+    def good(c):
+        return (any(g0 <= c <= g1 for g0, g1 in clear)
+                and (mids < c).any() and (mids > c).any())
+
+    if second:
+        mid, edge = (lo + hi) / 2.0, SECOND_CUT_BAND * (hi - lo)
+        # Clear of every drawn path that a cut in the band could miss (a
+        # cloud, a short dimension line) where there is such a position.
+        small = shapes[_in(shapes, box, -RULE_THIN_PT)]
+        small = small[small[:, a + 2] - small[:, a] <= (hi - lo) - 2 * edge]
+        for rows in (np.concatenate((mine[:, :4], small)), mine):
+            spots = [min(max(mid, g0 + CUT_TOL_PT), g1 - CUT_TOL_PT)
+                     for g0, g1 in _gaps(rows[:, a], rows[:, a + 2], lo, hi)
+                     if g1 - g0 > 2 * CUT_TOL_PT]
+            spots = [c for c in spots
+                     if lo + edge <= c <= hi - edge and good(c)]
+            if spots:
+                break
+        out = [(min(spots, key=lambda c: abs(c - mid)), 0.0)] if spots else []
+        # Paper with no text on it at an end of the region is cut off too.
+        if clear and clear[0][0] <= lo and clear[0][1] - lo >= edge:
+            out.append((clear[0][1] - WIDEN_MARGIN_PT, 0.0))
+        if clear and clear[-1][1] >= hi and hi - clear[-1][0] >= edge:
+            out.append((clear[-1][0] + WIDEN_MARGIN_PT, 0.0))
+        return out
+    out = []
+    along = (ink[:, a + 2] - ink[:, a]) <= RULE_THIN_PT     # runs along b
+    across = (ink[:, b + 2] - ink[:, b]) <= RULE_THIN_PT    # runs along a
+    _on, borders = _through(ink[along & ~across], b, box[b], box[b + 2])
+    out += [(c, 2.0) for c in borders if lo < c < hi and good(c)]
+    # A line right across the region (the frame, a table rule) is no bar to
+    # a gutter; any other linework is.
+    crossing = np.zeros(len(ink), bool)
+    crossing[np.flatnonzero(across)] = _through(ink[across], a, lo, hi)[0]
+    solid = np.concatenate((mine[:, :4], ink[~crossing]))
+    wide = GUTTER_LETTERINGS * float(np.median(mine[:, 4]))
+    out += [((g0 + g1) / 2.0, 1.0)
+            for g0, g1 in _gaps(solid[:, a], solid[:, a + 2], lo, hi)
+            if g1 - g0 >= wide and g0 > lo and g1 < hi
+            and good((g0 + g1) / 2.0)]
+    return out
+
+
+def _with_overlap(core, clip, level: int, text, shapes, overlap: float):
+    """``core`` widened into its neighbours: by ``overlap`` of its size
+    where a second-level cut made it, and to take in whole each text line
+    and drawn path lying on one of its cuts (within :data:`WIDEN_MAX_FRAC`
+    of its size); then drawn back, never inside ``core``, so that its edges
+    pass through no text line."""
+    import numpy as np
+    size = (core[2] - core[0], core[3] - core[1])
+    inner = [abs(core[k] - clip[k]) > CUT_TOL_PT for k in range(4)]
+    reach = [max(WIDEN_MIN_PT, WIDEN_MAX_FRAC * size[k % 2]) * inner[k]
+             for k in range(4)]
+    far = (core[0] - reach[0], core[1] - reach[1],
+           core[2] + reach[2], core[3] + reach[3])
+    grow = overlap * (level == 2)
+    box = [max(far[0], core[0] - grow * size[0] * inner[0]),
+           max(far[1], core[1] - grow * size[1] * inner[1]),
+           min(far[2], core[2] + grow * size[0] * inner[2]),
+           min(far[3], core[3] + grow * size[1] * inner[3])]
+    things = np.concatenate((text[:, :4], shapes))
+    things = things[(things[:, 0] >= far[0]) & (things[:, 1] >= far[1])
+                    & (things[:, 2] <= far[2]) & (things[:, 3] <= far[3])]
+    for _ in range(4):
+        on = things[_in(things, box, -WIDEN_MARGIN_PT)]
+        if not len(on):
+            break
+        wider = [max(far[0], min(box[0], on[:, 0].min() - WIDEN_MARGIN_PT)),
+                 max(far[1], min(box[1], on[:, 1].min() - WIDEN_MARGIN_PT)),
+                 min(far[2], max(box[2], on[:, 2].max() + WIDEN_MARGIN_PT)),
+                 min(far[3], max(box[3], on[:, 3].max() + WIDEN_MARGIN_PT))]
+        wider = [wider[k] if inner[k] else core[k] for k in range(4)]
+        if wider == box:
+            break
+        box = wider
+    apart = text[~_in(text, core, CUT_TOL_PT)]       # no line of the core's
+    while True:
+        cut = apart[_in(apart, box, CUT_TOL_PT)
+                    & ((apart[:, 0] < box[0] - CUT_TOL_PT)
+                       | (apart[:, 1] < box[1] - CUT_TOL_PT)
+                       | (apart[:, 2] > box[2] + CUT_TOL_PT)
+                       | (apart[:, 3] > box[3] + CUT_TOL_PT))]
+        if not len(cut):
+            return tuple(box)
+        x0, y0, x1, y1 = cut[0, :4]
+        if x0 >= core[2] - CUT_TOL_PT:
+            box[2] = max(core[2], x0)
+        elif x1 <= core[0] + CUT_TOL_PT:
+            box[0] = min(core[0], x1)
+        elif y0 >= core[3] - CUT_TOL_PT:
+            box[3] = max(core[3], y0)
+        else:
+            box[1] = min(core[1], y1)
+
+
+def region_tiles(marks: Optional[PageMarks], budget, clip=None,
+                 max_tiles: int = MAX_TILES_PER_SIDE ** 2,
+                 overlap: float = 0.08) -> RegionTiles:
+    """Tiles over ``clip`` (default the whole page) cut along the sheet's
+    own regions, each sent at the largest size ``budget`` (a planlens
+    ``ImageBudget`` or its name) lets it be.
+
+    The region whose lettering is smallest in its image is cut while that
+    is under :data:`LEGIBLE_TEXT_PX`: first along a border (drawn pieces on
+    one line right across the region) or down the middle of a gutter (a
+    band with no text and no linework), whichever leaves the smaller
+    lettering larger; and, where neither is left, a second level, at the
+    text-free position nearest the region's middle. Cutting stops at
+    ``max_tiles``. No cut and no tile edge passes through a text line; the
+    tiles cover ``clip``; each overlaps its neighbours as
+    :func:`_with_overlap` says. A page with under :data:`REGION_MIN_CHARS`
+    characters of text (a scan, a stroked sheet; ``marks`` may be ``None``
+    with a ``clip``) gets :func:`tile_grid`'s uniform :func:`tile_boxes`."""
+    import numpy as np
+    from planlens.document.budget import fit_size, resolve_budget
+    bud = resolve_budget(budget)
+    if bud is None:
+        raise ValueError("region_tiles needs an image budget")
+    clip = tuple(float(v) for v in
+                 (clip or (0.0, 0.0, marks.width, marks.height)))
+
+    def scale(box):                        # pixels per point, as sent
+        return fit_size(box[2] - box[0], box[3] - box[1], bud)[0] / max(
+            box[2] - box[0], 1e-6)
+
+    if marks is None or marks.chars < REGION_MIN_CHARS:
+        px = fit_size(clip[2] - clip[0], clip[3] - clip[1], bud)
+        n = tile_grid({"clip": clip, "width_px": px[0], "height_px": px[1],
+                       "text_chars": marks.chars if marks else 0})
+        boxes = tile_boxes(clip, n)
+        small = [round(ASSUMED_CAD_LETTERING_PT * scale(b), 1) for b in boxes]
+        return RegionTiles(boxes, small, [0] * len(boxes), [
+            k for k, v in enumerate(small) if v < LEGIBLE_TEXT_PX],
+            "grid", False)
+    text, strokes, shapes = marks.text, marks.strokes, marks.shapes
+
+    def smallest(core, box):
+        """The smallest lettering ``core`` holds, in pixels of ``box``."""
+        mids = (text[:, :2] + text[:, 2:4]) / 2.0
+        own = text[(mids[:, 0] >= core[0]) & (mids[:, 0] <= core[2])
+                   & (mids[:, 1] >= core[1]) & (mids[:, 1] <= core[3])]
+        return float(own[:, 4].min()) * scale(box) if len(own) else None
+
+    def leaf(core, level):
+        box = _with_overlap(core, clip, level, text, shapes, overlap)
+        return {"core": core, "box": box, "level": level,
+                "px": smallest(core, box), "stuck": False}
+
+    def is_under(t):
+        return t["px"] is not None and t["px"] < LEGIBLE_TEXT_PX
+
+    def tiles_needed(core):
+        """About how many tiles ``core`` still takes to read (1: it reads)."""
+        px = smallest(core, core)
+        return max(1.0, (LEGIBLE_TEXT_PX / px) ** 2) if px else 1.0
+
+    def halves(core, cut):
+        a, c, _w = cut
+        one, two = list(core), list(core)
+        one[a + 2] = two[a] = c
+        return tuple(one), tuple(two)
+
+    leaves = [leaf(clip, 1)]
+    while True:
+        todo = [t for t in leaves if is_under(t) and not t["stuck"]]
+        if not todo or len(leaves) >= max(1, int(max_tiles)):
+            break
+        worst = min(todo, key=lambda t: t["px"])
+        core = worst["core"]
+
+        def cost(cut):
+            return sum(tiles_needed(h) for h in halves(core, cut))
+
+        # A cut along a border or gutter; a second-level cut only where
+        # the region has none left.
+        best = None
+        for second in (False, True):
+            found = [(a, c, w) for a in (0, 1)
+                     for c, w in _cuts(core, text, strokes, shapes, a,
+                                      second)]
+            best = min(found, key=lambda cut: (cost(cut), -cut[2]),
+                       default=None)
+            if best:
+                break
+        if best is None:
+            worst["stuck"] = True
+            continue
+        level = max(worst["level"], 1 if best[2] else 2)
+        leaves.remove(worst)
+        leaves += [leaf(h, level) for h in halves(core, best)]
+    leaves.sort(key=lambda t: (t["core"][1], t["core"][0]))
+    whole = len(leaves) == 1
+    return RegionTiles(
+        [t["box"] for t in leaves],
+        [None if t["px"] is None else round(t["px"], 1) for t in leaves],
+        [0 if whole else t["level"] for t in leaves],
+        [k for k, t in enumerate(leaves) if is_under(t)],
+        "whole" if whole else "regions",
+        any(is_under(t) and not t["stuck"] for t in leaves))
+
+
 __all__ = ["LEGIBLE_TEXT_PX", "TARGET_TEXT_PX", "LOCATION_ERROR_FRAC",
            "MIN_LOCATION_ERROR_PT", "MARK_VIEW_PT",
            "ASSUMED_CAD_LETTERING_PT", "MAX_TILES_PER_SIDE", "tile_grid",
@@ -891,4 +1238,7 @@ __all__ = ["LEGIBLE_TEXT_PX", "TARGET_TEXT_PX", "LOCATION_ERROR_FRAC",
            "page_text_layer", "reading_turn", "turn_image", "turned_note",
            "TURN_TAG_INSTRUCTION", "read_turn_tag", "unturned_size",
            "unturn_px_box", "turn_px_box", "turn_edge", "cut_lines",
-           "widen_to_lines", "cut_note", "image_box_to_page"]
+           "widen_to_lines", "cut_note", "image_box_to_page",
+           "REGION_MIN_CHARS", "GUTTER_LETTERINGS", "RULE_SPAN", "RULE_THIN_PT",
+           "SECOND_CUT_BAND", "PageMarks", "RegionTiles", "page_marks",
+           "region_tiles"]
