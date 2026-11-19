@@ -17,6 +17,23 @@
   that did not ask is answered exactly as before. Until now
   `toolkit_options` holding one of these names failed when the toolkit
   was built (`TypeError`).
+- **The sheet index gives each sheet's printed scale, for a host that asks
+  for the sheet tools (app BACKLOG PL-37).** A row of
+  `Document.sheet_index()` now holds `scale`, the scale the sheet's title
+  block prints, as printed ("1:100", `1/4" = 1'-0"`, "AS NOTED", "NTS"),
+  and `scale_how`, how it was read: after the title block's scale label on
+  the label's line, or alone in the cell beside or under it. The
+  `sheet_index` tool's rows show them as `scale` and `scale_from`. A title
+  block that prints no scale gives neither; a scale under a view title is
+  the view's and is never taken; two scale labels that disagree give
+  none. A sheet read on its own (no set to show where the title block is)
+  has no scale: a label in its corner may be a detail's. A view the set
+  repeats inside the title block's band (a key plan with its own scale
+  line) and a revision row that tells of a scale are not the sheet's. A
+  ratio or an equation is recognised by the measuring tools' own reader
+  (`planlens.document.scale.parse_ratio`). The tool's description gains
+  one word (7 characters); `open_document`'s short index is unchanged, and
+  so is everything for a host that did not ask.
 
 ## 0.17.0 — 2026-11-18
 

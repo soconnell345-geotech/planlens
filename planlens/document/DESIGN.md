@@ -1890,6 +1890,33 @@ whenever a row of the first three is shown. A review comment sent to a
 design team on a wrong `unresolved` costs the reviewer more than a callout
 left to look at, which is why `unresolved` is kept to what the text shows.
 
+**The scale (`SheetRow.scale`, `scale_how`; PL-37).** The scale the title
+block prints, as printed, and how it was read. It is the value of a scale
+label ("SCALE", "SCALE:", "DWG SCALE") inside the title block: on the
+label's line (`scale_how`: "after the title block's scale label") or alone
+in the cell beside or under it ("in the cell by the title block's scale
+label"). A value is a ratio or an equation that `scale.parse_ratio` reads
+(the reader the measuring tools use for a stored or a printed scale), or
+the words AS NOTED, AS SHOWN, AS INDICATED, VARIES, NONE, NO SCALE, N/A,
+NTS, NOT TO SCALE; anything else gives no scale. The title block is
+`_block_box` (the wording the set prints at the same place on every
+sheet), cut to the band that holds most of that wording, the right one or
+the bottom one, so a view title's scale out on the sheet is never taken.
+With no title block shown (one or two sheets) no scale is given: a label
+in the sheet's corner may be a detail's. Lines inside the revision block
+are not looked at. Two labels with different values give none. The tool's rows show
+`scale` and `scale_from`. A view (a key
+plan) the set repeats at one place inside the title block's own band
+prints a fixed scale line; where that line stands beside a sheet's own
+scale on several sheets (two, and a quarter of the set) it is left out on
+every sheet. Limits: where no sheet's block prints a scale of its own,
+that view's line cannot be told from a block that prints one scale on
+every sheet, and is given; a scale followed by a
+paper size ("1:100 @ A1") and two scales in one cell ("H 1:100 V 1:10")
+are not read; a sheet with no text layer has no scale. Checked on made-up
+sheets only (`tests/test_b15_pl37_sheet_scale.py`,
+`tests/test_rv_b15_pl37_sheet_scale.py`).
+
 **The tools** (`sheet_index`, `check_cross_references`) are in
 `SHEET_TOOL_SPECS`, apart from `TOOL_SPECS`, and a toolkit serves them only
 with `sheet_tools=True`. Both apps bind to the published lists, so a new
