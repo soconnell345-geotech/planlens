@@ -1445,6 +1445,11 @@ def _place(page, spec: MarkupSpec, anchor: _Anchor, author: str, created: str
     # rotated page the unrotated top-left is a different corner, so placing it
     # by the point alone lands the icon a whole icon away.
     w, h = probe.rect.width, probe.rect.height
+    # A spot at the sheet's right or bottom edge would hang the icon off it,
+    # where a viewer clips it: the icon is moved back onto the sheet.
+    px0, py0, px1, py1 = _page_box(page)
+    spot = (min(max(spot[0], px0), max(px0, px1 - w)),
+            min(max(spot[1], py0), max(py0, py1 - h)))
     probe.set_rect(_rect(page, from_display_bbox(
         page, (spot[0], spot[1], spot[0] + w, spot[1] + h))))
     # MuPDF still hangs a sticky-note icon from a different corner on a
