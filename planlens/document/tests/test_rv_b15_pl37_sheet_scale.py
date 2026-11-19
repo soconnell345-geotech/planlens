@@ -118,3 +118,12 @@ def test_a_revision_row_does_not_take_the_blocks_own_scale_away():
     got = _scales([(_revisions(c) + [(0, Y, "SCALE: 1:100")], [])
                    for c in CHANGES])
     assert got == ["1:100"] * 3
+
+
+def test_one_stray_scale_line_does_not_unseat_the_scale_the_set_shares():
+    # every block prints "SCALE: 1:100"; on one sheet a second scale line
+    # stands in the block's column. That sheet has two that disagree and
+    # gets none; the others keep theirs
+    sheets = [([(0, Y, "SCALE: 1:100")], []) for _ in range(5)]
+    sheets[3][0].append((0, 700, "SCALE: 1:50"))
+    assert _scales(sheets) == ["1:100", "1:100", "1:100", None, "1:100"]
