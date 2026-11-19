@@ -1793,6 +1793,11 @@ class ReviewToolkit:
                 "block of the set prints it, and is trusted less (" + "; ".join(
                     f"{words}: {meaning}" for _start, words, meaning
                     in self.SHEET_FROM if words in used) + ")")
+        if any(r.scale for r in rows):
+            marks.append(
+                "scale: the scale the sheet's own title block prints, as "
+                "printed, never a view's (scale_from: where in the title "
+                "block it was read)")
         if doubled:
             marks.append("duplicate: the number is read on another page too")
         out["note"] = "; ".join([note] + marks)
