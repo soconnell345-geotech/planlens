@@ -421,7 +421,7 @@ control that matters, and it has three meaningful stops:
 |-----------|----------------|
 | **0.25** | *contradicted* — the geometry actively argues against the reading (an arrowhead pointing the wrong way along the line claiming it). Published so a caller can see WHY something was rejected. |
 | **0.45** | *uncorroborated* — a real construct with one channel of evidence missing or weak (no witness lines, no text in range, an arrowhead the shaft does not run into along its spine). |
-| **0.5** | the **default** call threshold: everything above is corroborated on more than one channel. |
+| **0.5** | the **conventional** call threshold (the finders' own `min_confidence` defaults to 0.0): everything above is corroborated on more than one channel. |
 
 The practical consequence, and the reason the ladder is written down:
 lowering `min_confidence` to 0.45 to catch uncorroborated constructs
@@ -635,8 +635,11 @@ Apache-2.0/MIT/BSD).
   `drawing_geometry` as a tool (`drawing_tools`); a DXF opened as a
   one-page plot of its model space (`dxf_plots`; a plot needs Pillow);
   a host's `sent_scale`, by which a small mark on an image view sent at
-  full size is placed; and three `Document` options no tool passes yet
-  (`column_warning`, `continued_tables`, `captions_on_every_page`). For
+  full size is placed; and three reading options no tool passes in
+  0.17.0 (`column_warning` and `continued_tables` on `Document`,
+  `captions_on_every_page` on the outline; on `main`, not released, a
+  host that asks passes them: `ReviewToolkit(column_warning=True)`,
+  `ReviewHost(toolkit_options={"column_warning": True})`). For
   every host: a DXF MINSERT arrives with every placement of its array;
   arguments that were quietly read as something else are read as given
   or refused (`measure`'s `side` and `at`); `annotate_document`'s
@@ -728,7 +731,8 @@ lines, whose default names this server's `render_page` /
 one; `--root DIR` confines reading to one directory tree; `--http
 HOST:PORT` serves streamable HTTP instead of stdio; `--image-budget`
 sizes every page and zoom to the model family the host runs (`claude`,
-`claude-hires`, `openai-high`, `openai-original`, `gpt-4.1-high`) and
+`claude-hires`, `openai-high`, `openai-original`, `gpt-4.1-high`,
+`gpt-5.2-high`) and
 `--image-format auto` sends a scan as JPEG and a drawing as PNG.
 
 Over MCP the pictures travel: `render_page`, `render_region` and
