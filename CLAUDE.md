@@ -12,7 +12,7 @@ GeotechStaffEngineer app, and Document Review (`aec-document-review`,
 ## Open work lives in ONE list
 
 All open work for planlens is in **`BACKLOG.md` in the GeotechStaffEngineer
-repo**, §5 (PL-nn), with planlens items under other areas too, such as VIS and
+repo**, §8 (PL-nn), with planlens items under other areas too, such as VIS and
 DOC. That file is the one list across the app, planlens and geotech-references
 (owner's rule, 2026-10-12).
 - **New to-dos:** add them there with the next free ID.
