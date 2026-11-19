@@ -1905,7 +1905,9 @@ the bottom one, so a view title's scale out on the sheet is never taken.
 With no title block shown (one or two sheets) no scale is given: a label
 in the sheet's corner may be a detail's. Lines inside the revision block
 are not looked at. Two labels with different values give none. The tool's rows show
-`scale` and `scale_from`. A view (a key
+`scale` and `scale_from`, and where a row has a scale the result's note
+says what they are: the scale the sheet's own title block prints, as
+printed, never a view's, and where in the title block it was read. A view (a key
 plan) the set repeats at one place inside the title block's own band
 prints a fixed scale line; where that line stands beside a sheet's own
 scale on several sheets (two, and a quarter of the set) it is left out on
