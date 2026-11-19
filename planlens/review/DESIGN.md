@@ -271,3 +271,84 @@ rules the writer applies to points (app BACKLOG VIS-26):
   file that is not a copy of this host's, and `remove` with marks on such a
   copy writes nothing. Only the size can be told: a different image of the
   same size under the same name is still added to.
+
+## Tiles cut along the sheet's own regions (not wired)
+
+`frames.region_tiles(marks, budget)` stands beside `frames.tile_boxes` (app
+BACKLOG VIS-30, first slice). No tool, host or spec uses it: every caller
+still gets the uniform grid.
+
+**What it reads.** `frames.page_marks(doc, page)` gives the page's text
+lines (box and lettering height; hidden CAD text left out), a box for each
+drawn line or curve piece and a box for each drawn path, all in displayed
+points. Nothing else: no region names, no positions, no sheet sizes.
+
+**How the regions are found.** The page starts as one region. The region
+whose smallest lettering is smallest in its image (at the largest size the
+budget allows that tile) is cut in two while that is under
+`LEGIBLE_TEXT_PX`:
+
+- along a **border**: drawn straight pieces on one line that together run
+  `RULE_SPAN` of the region (a title block's edge, a rule of a table);
+- or down the middle of a **gutter**: a band with no text and no linework,
+  at least `GUTTER_LETTERINGS` times as wide as the region's median
+  lettering is tall. A line that runs right across the region (the sheet's
+  frame) is no bar to a gutter;
+- of those, the cut that leaves the fewest tiles still to cut (each half
+  costs the square of how far its lettering is under the line), which is
+  what keeps a sliver from being cut off first;
+- and, only where the region has neither left, a **second level**: the
+  position with no text on it nearest the region's middle (off every small
+  drawn path, where there is such a position), or the end of a stretch of
+  paper with no text on it.
+
+**What is guaranteed.**
+
+- *Cover*: the tiles together cover the page (the regions partition it and
+  a tile is never smaller than its region).
+- *No text line cut*: no cut and no tile edge passes through a text-layer
+  line. A tile is widened into its neighbours, then drawn back (never
+  inside its region) until its edges cut none.
+- *Overlap*: a tile takes in whole each text line and each drawn path that
+  lies on one of its cuts and reaches no further than `WIDEN_MAX_FRAC` of
+  the region's size past it; a tile made by a second-level cut also
+  overlaps its neighbours by 8% of its size, as `tile_boxes` does.
+- *The ceiling*: never more than `max_tiles` tiles (default 16, the most
+  the uniform grid cuts). `under` names every tile still under the line and
+  `capped` says the ceiling is why; the caller keeps its legibility note
+  for those tiles.
+
+**What is not.**
+
+- A dimension string or cloud longer than a tile's reach past its cut is
+  whole in no tile (on the made-up sheets: the string that runs the whole
+  width of a view that had to be cut). The whole-page look still has it.
+- A dimension string is not known as one thing: its line, ticks and words
+  are separate paths and lines, each taken whole on its own.
+- Lettering drawn as strokes is linework here: it is kept out of gutters
+  but can be cut by a second-level cut, and is not measured.
+- A page with fewer than `REGION_MIN_CHARS` characters of text (a scan, a
+  stroked sheet) gets `tile_grid`'s uniform `tile_boxes`, with the
+  lettering height assumed as `tile_grid` assumes it. A page that already
+  reads whole is one tile.
+- The lettering height is the text layer's font size, the smallest in the
+  tile; one stray tiny text object makes its region look unreadable.
+- Cuts are in two, greedily: the result is not the fewest tiles, and on a
+  sparse sheet the uniform grid can need fewer.
+- **Where the grid reads better it is the answer** (`method="grid"`, with
+  `capped` as the regions left it). When the cutting ends with tiles under
+  the line (the ceiling, or a region with no text-free place to cut: one
+  plan with notes all through it, a line longer than a tile), the uniform
+  grid of no more tiles than `max_tiles` is measured the same way, each
+  line in the tile that holds it whole and shows it largest. It is
+  returned when its smallest lettering is larger AND its lines are on the
+  whole no smaller (the sum of their heights in px, each counted at no
+  more than `LEGIBLE_TEXT_PX` and at 0 where no tile holds it whole). Its
+  edges cut text
+  lines: the guarantees above are those of `"regions"` and `"whole"`.
+- `RULE_THIN_PT` (1 pt across) is what makes a drawn piece a straight line;
+  `SECOND_CUT_BAND` (a quarter of the region from each end) is where a
+  second-level cut may not fall. "No text line cut" is to `CUT_TOL_PT`
+  (1 pt): an edge may shave that much of a line's box.
+- Nothing here has been run on a real drawing set or through a model: the
+  misread rate with either kind of tile is not measured.
