@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **The three reading options, for a host that asks (app BACKLOG PL-09).**
+  `ReviewToolkit(column_warning=True)`, `continued_tables=True` and
+  `captions_on_every_page=True`, and in the host layer
+  `ReviewHost(toolkit_options={"column_warning": True})` and so on, each
+  by itself and off by default. `read_document` then shows the column
+  warning on a page drawn row by row and, with `include_tables`, the note
+  on a table that runs on to the next page; `document_roles`' outline
+  reads captions on every page (a toolkit tool: the host layer does not
+  serve it). What the options do is unchanged, and no tool specification
+  moves. Where hosts share a conversation's toolkit, a document read with
+  `column_warning` or `continued_tables` on has a key and a handle of its
+  own and a handle is answered with the calling host's options, so a host
+  that did not ask is answered exactly as before. Until now
+  `toolkit_options` holding one of these names failed when the toolkit
+  was built (`TypeError`).
+
 ## 0.17.0 — 2026-11-18
 
 - **Sheet numbers where a page is taken, for a host that asks for the

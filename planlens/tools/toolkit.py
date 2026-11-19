@@ -366,7 +366,20 @@ def _default_resolver(source: str) -> Source:
                     hint="pass the path of a PDF the host can read")
 
 
+#: The reading options a host can ask a toolkit for, each off by default
+#: (BACKLOG PL-09).
+READING_OPTIONS: Tuple[str, ...] = (
+    "column_warning", "continued_tables", "captions_on_every_page")
+#: Those that are ``Document``'s own: a document opened with one on is
+#: another document than the same file opened without it. (The captions
+#: are the outline's option, asked at each ``document_roles`` call.)
+_DOCUMENT_OPTIONS = READING_OPTIONS[:2]
+
+
 class _Entry:
+    #: The ``Document`` options the document was opened with.
+    reading: Dict[str, bool] = dict.fromkeys(_DOCUMENT_OPTIONS, False)
+
     def __init__(self, handle: str, name: str, doc: Document,
                  path: Optional[str] = None):
         self.handle = handle
@@ -462,6 +475,15 @@ class ReviewToolkit:
         as before. A callable is asked at each open (a host layer whose
         toolkit is shared by hosts that did and did not ask gives one that
         answers for the calling host).
+    column_warning, continued_tables, captions_on_every_page : bool
+        ``Document``'s reading options (:data:`READING_OPTIONS`; BACKLOG
+        PL-09), each off by default: a warning on a page whose columns are
+        drawn row by row (``read_document``), a note on a table that runs on
+        to the next page (``read_document`` with tables), and captions read
+        on every page for ``document_roles``' outline. A document opened
+        with one of the first two on has its own handle, and a handle is
+        answered only with the options of the call. A callable is asked at
+        each call, as for ``dxf_plots``.
     """
 
     def __init__(self, resolve_source: Optional[Callable[[str], Source]] = None,
@@ -478,7 +500,10 @@ class ReviewToolkit:
                  look: Optional[Look] = None,
                  sheet_tools: bool = False,
                  drawing_tools: bool = False,
-                 dxf_plots: Any = False):
+                 dxf_plots: Any = False,
+                 column_warning: Any = False,
+                 continued_tables: Any = False,
+                 captions_on_every_page: Any = False):
         from planlens.document.budget import resolve_budget
         if max_chars < 1000:
             raise ValueError("max_chars below 1000 cannot hold a useful result")
@@ -502,6 +527,11 @@ class ReviewToolkit:
         #: Whether a DXF opens as a PDF plot of its model space.
         self.dxf_plots = (dxf_plots if callable(dxf_plots)
                           else bool(dxf_plots))
+        #: The reading options asked for (:data:`READING_OPTIONS`): a bool,
+        #: or a callable asked at each call.
+        self._reading_options: Dict[str, Any] = dict(
+            column_warning=column_warning, continued_tables=continued_tables,
+            captions_on_every_page=captions_on_every_page)
         #: Pages read for their drawn geometry, by (handle, page): the
         #: document they were read from and its DrawingIR (a few, newest
         #: last), so a second question about a page does not read it again.
@@ -764,9 +794,23 @@ class ReviewToolkit:
         st = os.stat(resolved)
         return f"path:{os.path.abspath(resolved)}:{st.st_mtime_ns}:{st.st_size}"
 
+    def _reading(self) -> Dict[str, bool]:
+        """The reading options of the call in progress."""
+        return {name: bool(on() if callable(on) else on)
+                for name, on in self._reading_options.items()}
+
+    def _document_options(self) -> Dict[str, bool]:
+        reading = self._reading()
+        return {name: reading[name] for name in _DOCUMENT_OPTIONS}
+
     def open(self, source: str) -> _Entry:
         resolved = self.resolve_source(source)
         key = self._content_key(resolved)
+        asked = self._document_options()
+        # read with an option on, it is another document: an open that did
+        # not ask never finds it (nothing is added with every option off)
+        key += "".join(f":{name}" for name in _DOCUMENT_OPTIONS
+                       if asked[name])
         in_memory = isinstance(resolved, (bytes, bytearray))
         from planlens.dxf.plot import is_dxf
         plots = (self.dxf_plots() if callable(self.dxf_plots)
@@ -799,10 +843,10 @@ class ReviewToolkit:
             try:
                 if in_memory:
                     doc = Document(content=bytes(resolved), name=name,
-                                   text_source=text_source)
+                                   text_source=text_source, **asked)
                 else:
                     doc = Document(filepath=resolved, name=name,
-                                   text_source=text_source)
+                                   text_source=text_source, **asked)
             except Exception as exc:
                 raise _cannot_open(source, exc)
             # A document that opens but cannot be read is refused here, with
@@ -821,6 +865,7 @@ class ReviewToolkit:
                            path=(None if isinstance(resolved, (bytes, bytearray))
                                  else str(resolved)))
             entry.source = source
+            entry.reading = asked
             #: What the document was made from, when it is not the file
             #: itself (``"dxf"``: a plot of its model space).
             entry.plotted_from = "dxf" if plotted else None
@@ -865,7 +910,12 @@ class ReviewToolkit:
                     hint=("call open_document first; open handles: "
                           f"{list(self._entries) or 'none'}"))
             self._entries.move_to_end(handle)
-            return entry
+        if entry.reading != self._document_options():
+            # opened with other reading options than this call's (a toolkit
+            # shared by hosts that did and did not ask): the call is
+            # answered from the same source read with its own
+            return self.open(getattr(entry, "source", None) or handle)
+        return entry
 
     def document_name(self, handle: str) -> Optional[str]:
         """The file name a handle was opened under, or None if it is not open.
@@ -2034,7 +2084,10 @@ class ReviewToolkit:
                             for ln in entry.doc.page(index, tables=False).lines
                             if (ln.text or "").strip()]
 
-                outline_dict = outline_from(facts, roles, lines_of).to_dict()
+                outline_dict = outline_from(
+                    facts, roles, lines_of,
+                    captions_on_every_page=self._reading()[
+                        "captions_on_every_page"]).to_dict()
             if ledger:
                 di = [s.page for s in entry.doc.page_map()
                       if s.evidence.get("text_source") == SOURCE_AZURE_DI]

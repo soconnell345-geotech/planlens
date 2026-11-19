@@ -123,6 +123,26 @@ Its spec follows the toolkit's as the plan tools' do
 known only through its own description: nothing calls it on its own, and
 no system prompt names it.
 
+The reading options (app BACKLOG PL-09) are a host's choice too, each by
+itself: `ReviewHost(toolkit_options={"column_warning": True})`,
+`{"continued_tables": True}` and `{"captions_on_every_page": True}`, the
+names `Document` and the outline give them. The first two are options of
+`Document`, so they change the page `read_document` shows (a `!` warning
+line under the page's header; a `note:` line under a table read with
+`include_tables`). The conversation's toolkit is given a callable for each
+(`ReviewToolkit(column_warning=...)`), asked for the CALLING host, as for
+`dxf_plots`: a document opened with one on is kept under a key and a handle
+of its own (the content key with `:column_warning` / `:continued_tables`;
+nothing added with both off, so a host that did not ask has the key and the
+handle it had), and a handle given by a host whose options are not the ones
+its document was opened with is answered from the same source opened with
+that host's options. A host that did not ask is therefore never handed a
+page another host read with an option on, whichever opened the file first.
+`captions_on_every_page` is the outline's option and is read at each
+`document_roles` call, so it needs no document of its own; `document_roles`
+is the toolkit's tool and the host layer does not serve it, so for a
+`ReviewHost` this option changes no result today. No spec changes.
+
 A DXF's page tools (app BACKLOG DR-19) are a host's choice too: a host
 that asks with `ReviewHost(toolkit_options={"dxf_plots": True})` has a
 DXF's page tools (render, zoom, page map, marks, the drawing tool) look at

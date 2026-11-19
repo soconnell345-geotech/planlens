@@ -137,6 +137,13 @@ def _asked_for_dxf_plots(host) -> bool:
                 .get("dxf_plots"))
 
 
+def _asked_for_reading(host, option: str) -> bool:
+    """Whether ``host`` asked for the reading option ``option``
+    (``toolkit_options={"column_warning": True}``, ``"continued_tables"``,
+    ``"captions_on_every_page"``; BACKLOG PL-09)."""
+    return bool((getattr(host, "toolkit_options", None) or {}).get(option))
+
+
 #: The toolkit tools a host is served only when it asked for them, by the
 #: option it asks with (:data:`planlens.review.specs.SHEET_TOOLS`,
 #: :data:`planlens.review.specs.PLAN_TOOLS`,
@@ -216,6 +223,14 @@ def _new_toolkit(folder: Optional[str]):
     # ask could reach the toolkit with one (a name its resolver maps to a
     # .dxf path) and must still be answered as before
     kw["dxf_plots"] = lambda: _asked_for_dxf_plots(_host())
+    # and the reading options (PL-09), asked of the CALLING host at each
+    # call: a document read with one on is another document, and a handle
+    # is answered with the calling host's options, so a host that did not
+    # ask is never handed one a host that asked opened
+    from planlens.tools.toolkit import READING_OPTIONS
+    for option in READING_OPTIONS:
+        kw[option] = (lambda option=option:
+                      _asked_for_reading(_host(), option))
     # the plan tools are the toolkit's own for every toolkit; asking for
     # them is this layer's option, not the toolkit's
     kw.pop("plan_tools", None)
