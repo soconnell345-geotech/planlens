@@ -315,5 +315,20 @@ budget allows that tile) is cut in two while that is under
   tile; one stray tiny text object makes its region look unreadable.
 - Cuts are in two, greedily: the result is not the fewest tiles, and on a
   sparse sheet the uniform grid can need fewer.
+- **Where the grid reads better it is the answer** (`method="grid"`, with
+  `capped` as the regions left it). When the cutting ends with tiles under
+  the line (the ceiling, or a region with no text-free place to cut: one
+  plan with notes all through it, a line longer than a tile), the uniform
+  grid of no more tiles than `max_tiles` is measured the same way, each
+  line in the tile that holds it whole and shows it largest. It is
+  returned when its smallest lettering is larger AND its lines are on the
+  whole no smaller (the sum of their heights in px, each counted at no
+  more than `LEGIBLE_TEXT_PX` and at 0 where no tile holds it whole). Its
+  edges cut text
+  lines: the guarantees above are those of `"regions"` and `"whole"`.
+- `RULE_THIN_PT` (1 pt across) is what makes a drawn piece a straight line;
+  `SECOND_CUT_BAND` (a quarter of the region from each end) is where a
+  second-level cut may not fall. "No text line cut" is to `CUT_TOL_PT`
+  (1 pt): an edge may shave that much of a line's box.
 - Nothing here has been run on a real drawing set or through a model: the
   misread rate with either kind of tile is not measured.

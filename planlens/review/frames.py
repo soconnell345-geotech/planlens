@@ -921,8 +921,11 @@ class RegionTiles(NamedTuple):
     for an uncut page or a grid tile; ``under`` the tiles (indices) still
     under :data:`LEGIBLE_TEXT_PX`; ``method`` ``"regions"``, ``"whole"``
     (one tile) or ``"grid"`` (:func:`tile_boxes`: no text to cut by, and
-    ``lettering_px`` is then :data:`ASSUMED_CAD_LETTERING_PT`); ``capped``
-    when the ceiling on tiles stopped the cutting."""
+    ``lettering_px`` is then :data:`ASSUMED_CAD_LETTERING_PT`; or the
+    regions left tiles under the line and the grid reads better: its
+    smallest lettering is larger and its lines are on the whole no
+    smaller, though its edges do cut text lines); ``capped`` when the ceiling on
+    tiles stopped the cutting."""
     boxes: List[Tuple[float, float, float, float]]
     lettering_px: List[Optional[float]]
     level: List[int]
@@ -1214,14 +1217,44 @@ def region_tiles(marks: Optional[PageMarks], budget, clip=None,
         leaves.remove(worst)
         leaves += [leaf(h, level) for h in halves(core, best)]
     leaves.sort(key=lambda t: (t["core"][1], t["core"][0]))
+    capped = any(is_under(t) and not t["stuck"] for t in leaves)
+    # Tiles still under the line (the ceiling, or a region with no place to
+    # cut): where the uniform grid of no more tiles than the ceiling reads
+    # better, it is the answer: its smallest lettering is larger and its
+    # lines are on the whole no smaller (each line in the tile that holds
+    # it whole and shows it largest, counted at no more than the line and
+    # at nothing where no tile holds it whole).
+    n = min(MAX_TILES_PER_SIDE, int(max(1, int(max_tiles)) ** 0.5))
+    mids = (text[:, :2] + text[:, 2:4]) / 2.0
+    mine = np.zeros(len(text))
+    for t in leaves:
+        c = t["core"]
+        own = ((mids[:, 0] >= c[0]) & (mids[:, 0] <= c[2])
+               & (mids[:, 1] >= c[1]) & (mids[:, 1] <= c[3]))
+        mine[own] = text[own, 4] * scale(t["box"])
+    if n > 1 and any(is_under(t) for t in leaves) and (mine > 0).any():
+        boxes = tile_boxes(clip, n)
+        best, small = np.zeros(len(text)), []
+        for b in boxes:
+            px = np.where((text[:, 0] >= b[0]) & (text[:, 1] >= b[1])
+                          & (text[:, 2] <= b[2]) & (text[:, 3] <= b[3]),
+                          text[:, 4] * scale(b), 0.0)
+            small.append(round(float(px[px > 0].min()), 1)
+                         if (px > 0).any() else None)
+            best = np.maximum(best, px)
+        if ((best > 0).any() and best[best > 0].min() > mine[mine > 0].min()
+                and np.minimum(best, LEGIBLE_TEXT_PX).sum()
+                >= np.minimum(mine, LEGIBLE_TEXT_PX).sum()):
+            return RegionTiles(boxes, small, [0] * len(boxes), [
+                k for k, v in enumerate(small)
+                if v is not None and v < LEGIBLE_TEXT_PX], "grid", capped)
     whole = len(leaves) == 1
     return RegionTiles(
         [t["box"] for t in leaves],
         [None if t["px"] is None else round(t["px"], 1) for t in leaves],
         [0 if whole else t["level"] for t in leaves],
         [k for k, t in enumerate(leaves) if is_under(t)],
-        "whole" if whole else "regions",
-        any(is_under(t) and not t["stuck"] for t in leaves))
+        "whole" if whole else "regions", capped)
 
 
 __all__ = ["LEGIBLE_TEXT_PX", "TARGET_TEXT_PX", "LOCATION_ERROR_FRAC",
