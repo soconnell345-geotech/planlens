@@ -65,3 +65,43 @@ def test_folding_maps_back_to_the_page_characters():
     assert folded.text == "the contractor's"
     i = folded.text.index("'")
     assert text[slice(*folded.span(i, i + 1))] == "’"
+
+
+# -- a page number printed alone at the foot of the page -----------------------
+
+def _numbered_report(numbers):
+    pdf = pymupdf.open()
+    font = pymupdf.Font("helv")
+    for n in numbers:
+        page = pdf.new_page(width=612, height=792)
+        writer = pymupdf.TextWriter(page.rect)
+        writer.append((72, 40), "Zorvex Ridge Report - Project 4471",
+                      font=font, fontsize=8)
+        for i in range(20):
+            writer.append((72, 100 + 14 * i),
+                          f"Line {i} of the narrative about blorite fill.",
+                          font=font, fontsize=10)
+        writer.append((72, 762), "Quillfen Associates", font=font,
+                      fontsize=8)
+        writer.append((300, 762), n, font=font, fontsize=9)
+        writer.write_text(page)
+    data = pdf.tobytes()
+    pdf.close()
+    return open_document(data, name="made-up-numbered-report")
+
+
+def test_a_bare_number_in_the_footer_is_the_printed_page():
+    d = _numbered_report(["1", "2", "- 3 -"])
+    try:
+        assert [d.summary(i).printed_page for i in range(3)] == [1, 2, 3]
+        assert d.segments()[0].get("printed_pages") == "1-3"
+    finally:
+        d.close()
+
+
+def test_a_year_or_a_letter_number_is_not_read_as_one():
+    d = _numbered_report(["2026", "A-1", "ii"])
+    try:
+        assert [d.summary(i).printed_page for i in range(3)] == [None] * 3
+    finally:
+        d.close()

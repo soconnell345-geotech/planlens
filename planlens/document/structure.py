@@ -43,6 +43,9 @@ BAND_FRACTION = 0.08
 BAND_MAX_CHARS = 120
 
 _PAGE_OF = re.compile(r"\bpage\s+(\d{1,4})(?:\s+of\s+(\d{1,4}))?\b", re.I)
+#: A page number printed alone in the header or footer ("7", "- 7 -"), the
+#: way most reports number their pages; up to 999, so a year is not one.
+_BARE_PAGE = re.compile(r"\s*(?:-\s*)?([1-9]\d{0,2})(?:\s*-)?\s*")
 _SHEET_OF = re.compile(r"\bsheet\s+(\d{1,3})\s+of\s+(\d{1,3})\b", re.I)
 #: A sheet number straight after a bare SHEET / SHT / DWG at the start of a
 #: line ("SHEET A-101"): the one form the old reading took that the sheet
@@ -207,6 +210,13 @@ def printed_numbers(texts: Sequence[str], lines: Optional[Sequence[TextLine]]
         # "Page N of M" beats a bare "Page N" (the stamp that spans a package).
         if best is None or (cand[1] is not None and best[1] is None):
             best = cand
+    if best is None and not is_sheet and "sheet" not in joined.lower():
+        # No "Page N": a number standing alone in a band is the page's own
+        # (audit 2026-11-18: a report numbered 1, 2, 3 at its foot was
+        # given no printed page at all). A band that says SHEET counts
+        # sheets ("SHEET", "3", "OF 24"), read below.
+        best = next(((int(m.group(1)), None) for t in texts
+                     for m in [_BARE_PAGE.fullmatch(t or "")] if m), None)
     if best is not None:
         out["printed_page"] = best[0]
         if best[1] is not None:
