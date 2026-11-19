@@ -24,7 +24,7 @@ planlens/ir/
   results.py   # DrawingIR + Entity types (Line/Polyline/Arc/Circle/TextItem/
                # Region/Leader/Dimension)
   ingest.py    # from_dxf / from_pdf_vector / from_raster
-  raster.py    # the OpenCV tracing leg (isolated so cv2 stays optional)
+  raster.py    # the OpenCV tracing leg (isolated; cv2 is core since 0.4.0)
   queries.py   # the LLM-facing slice queries + the construct finders
   render.py    # render_region — the region-snip "zoom in" vision primitive
   align.py     # fit_plot_transform — model space -> plotted page
@@ -278,7 +278,7 @@ and revision-delta proposals — and every corpus figure in this document is
 unchanged by it (`doc_claims_check.py`, before and after: identical).
 
 ### `from_raster` (OpenCV) — confidence < 1.0
-Delegates to `drawing_ir.raster.trace_raster` (keeps `cv2` optional). See below.
+Delegates to `planlens.ir.raster.trace_raster` (`cv2` is loaded there, when a raster is traced). See below.
 
 ### The import ruling
 
