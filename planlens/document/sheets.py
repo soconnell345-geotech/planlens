@@ -47,7 +47,10 @@ on two pages is one note; :meth:`SheetIndex.duplicates` lists them.
 THE TITLE is the text of the title block that changes from sheet to sheet
 (the project name does not), under a title label where there is one, else
 the largest such lettering; wrapped lines are joined. THE REVISION is the
-highest entry under a "REVISIONS" heading.
+highest entry under a "REVISIONS" heading. THE SCALE is what the title block
+prints after, beside or under its scale label, as printed ("1:100",
+"AS NOTED", "NTS"); a view title's scale is never the sheet's, and a title
+block with no scale gives none (:func:`_scale`).
 
 Positions are the displayed frame (top-left origin, y down, PDF points), as
 everywhere in :mod:`planlens.document`.
@@ -95,6 +98,14 @@ _REV_ROW = re.compile(r"^\(?([A-Z]|\d{1,2})\)?\s+(?=\d{1,4}[-/.]\d{1,2})")
 _COLUMN_HEADS = {"NO", "NO.", "REV", "REV.", "DATE", "DESCRIPTION", "BY",
                  "MARK", "#", "CHK", "APPD", "APP'D"}
 
+#: A scale label as a title block prints one: "SCALE", "SCALE:", "DWG SCALE".
+SCALE_LABEL = re.compile(
+    r"^\s*(?:(?:SHEET|SHT|DWG|DRAWING|PLOT)\.?\s+)?SCALE\b\s*[:=]?\s*", re.I)
+#: What a title block prints where the sheet has no one scale, or none.
+SCALE_WORDS = re.compile(
+    r"^(?:AS\s+(?:NOTED|SHOWN|INDICATED)|VARIES|NONE|NO\s+SCALE|N/A|"
+    r"N\.?\s?T\.?\s?S\.?|NOT\s+TO\s+SCALE)$", re.I)
+
 #: The right band and the bottom band a title block sits in, as fractions of
 #: the sheet (standard drafting: along the right edge or across the bottom).
 BAND_RIGHT = 0.68
@@ -127,6 +138,14 @@ HOW_SIZE = "largest lettering in the title-block corner"
 HOW_PAGE_LABEL = "PDF page label"
 #: The slot of a second title-block layout in the set (a consultant's).
 HOW_FURTHER_SLOT = "slot of a second title-block layout"
+#: How a row's scale was read (:attr:`SheetRow.scale_how`): on its label's
+#: line, or alone in the cell beside or under the label.
+HOW_SCALE_LINE = "after the title block's scale label"
+HOW_SCALE_CELL = "in the cell by the title block's scale label"
+#: Where the set shows no title block (one sheet on its own), the label is
+#: taken only in the sheet's lower right corner, and the row says so.
+HOW_SCALE_CORNER = ("by a scale label in the sheet's lower right corner "
+                    "(title block not located)")
 #: The reason a readable sheet has no number.
 NO_NUMBER = "no sheet number found in the title block's text"
 
@@ -148,11 +167,16 @@ class SheetRow:
     #: ``False`` for a sheet with no usable text layer: nothing on it was
     #: read, whatever its page label says.
     readable: bool = True
+    #: The sheet's scale as its title block prints it ("1:100", "AS NOTED",
+    #: "NTS"), ``None`` where it prints none; ``scale_how`` says how it
+    #: was read.
+    scale: Optional[str] = None
+    scale_how: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {"page": self.page}
         for key in ("number", "title", "revision", "revision_note", "count",
-                    "how", "reason"):
+                    "how", "reason", "scale", "scale_how"):
             value = getattr(self, key)
             if value:
                 out[key] = value
@@ -841,6 +865,67 @@ def _revision(sheet: _Sheet) -> Tuple[Optional[str], Optional[str]]:
     return mark, (note or None)
 
 
+def _scale_value(text: str) -> Optional[str]:
+    """``text`` as printed, where the whole of it is a scale: a ratio or
+    an equation the measuring tools' own reader takes
+    (:func:`planlens.document.scale.parse_ratio`: "1:100", "1/4 in = 1 ft",
+    '1" = 20\''), or the words a title block prints instead ("AS NOTED",
+    "NTS", "NONE"). Else ``None``."""
+    from planlens.document.scale import parse_ratio
+    value = _clean(text)
+    if SCALE_WORDS.match(value) or parse_ratio(value):
+        return value
+    return None
+
+
+def _scale(sheet: _Sheet, block: Optional[BBox],
+           places: Dict[str, List[Tuple[float, float]]]
+           ) -> Tuple[Optional[str], Optional[str]]:
+    """``(scale, how)``: the scale the title block prints, as printed, and
+    how it was read. Only the value of a scale label inside the title block
+    (``block``, :func:`_block_box`) counts: on the label's line, or alone
+    in the cell beside or under it. A view title's "SCALE 1:20" out on the
+    sheet is the view's; so the block is cut to the band that holds most
+    of the set's fixed wording (``places``), the right one or the bottom
+    one, and a view the set repeats in the other band is left out. Where the set shows no title block (``block`` is
+    ``None``), a label in the sheet's lower right corner is taken and the
+    row says so. Two labels with different values, or none: ``(None,
+    None)``; nothing is guessed."""
+    spots = [spot for held in places.values() for spot in held]
+    right = (sum(1 for x, _y in spots if x >= BAND_RIGHT)
+             >= sum(1 for _x, y in spots if y >= BAND_BOTTOM))
+
+    def inside(ln) -> bool:
+        cx, cy = _at(ln.bbox, sheet)
+        if block is not None:
+            return _inside(ln.bbox, block) and (
+                cx >= BAND_RIGHT if right else cy >= BAND_BOTTOM)
+        return cx >= CORNER_X and cy >= CORNER_Y
+
+    lines = [ln for ln in sheet.lines if inside(ln)]
+    found: Dict[str, Tuple[str, str]] = {}
+    for lab in lines:
+        m = SCALE_LABEL.match(lab.text)
+        if m is None:
+            continue
+        value, how = _scale_value(lab.text[m.end():]), HOW_SCALE_LINE
+        if not lab.text[m.end():].strip():
+            near = [ln for ln in lines if ln is not lab
+                    and _scale_value(ln.text)
+                    and _beside_label(ln.bbox, lab.bbox, ln.rotation)]
+            if near:
+                value = _scale_value(min(near, key=lambda ln: abs(
+                    ln.bbox[0] - lab.bbox[0]) + abs(
+                    ln.bbox[1] - lab.bbox[1])).text)
+            how = HOW_SCALE_CELL
+        if value:
+            found.setdefault(value.upper(), (value, how))
+    if len(found) != 1:
+        return None, None
+    value, how = next(iter(found.values()))
+    return value, (how if block is not None else HOW_SCALE_CORNER)
+
+
 def _count(sheet: _Sheet) -> Optional[str]:
     for ln in sheet.lines:
         if not _in_band(ln.bbox, sheet.width, sheet.height):
@@ -918,6 +1003,9 @@ def sheet_index(doc) -> SheetIndex:
                     if piece is not None:
                         how = HOW_SIZE
                         confidence = 0.5
+            if s.has_text:
+                row.scale, row.scale_how = _scale(
+                    s, _block_box(s, places, piece), places)
             if piece is None:
                 if s.has_text:
                     row.reason = NO_NUMBER + (
@@ -996,4 +1084,5 @@ __all__ = ["SheetRow", "SheetIndex", "sheet_index", "page_sheet_number",
            "normalize_number",
            "number_shape", "discipline", "SHEET_NUMBER", "WHOLE_SHEET_NUMBER",
            "SHEET_COUNT", "HOW_SLOT", "HOW_LABEL", "HOW_SIZE",
-           "HOW_PAGE_LABEL", "HOW_FURTHER_SLOT"]
+           "HOW_PAGE_LABEL", "HOW_FURTHER_SLOT", "SCALE_LABEL",
+           "HOW_SCALE_LINE", "HOW_SCALE_CELL", "HOW_SCALE_CORNER"]

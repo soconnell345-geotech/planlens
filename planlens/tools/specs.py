@@ -806,9 +806,9 @@ SHEET_TOOL_SPECS = [
         "name": "sheet_index",
         "description": (
             "The drawing set's sheets, read from their title blocks: for "
-            "each sheet its page, its sheet number, its title and latest "
-            "revision as the title block prints them, and the view marks "
-            "recognised on it. Use it to turn a sheet number into a page "
+            "each sheet its page, its sheet number, its title, scale and "
+            "latest revision as the title block prints them, and the view "
+            "marks recognised on it. Use it to turn a sheet number into a page "
             "(\"the callouts on S-201\") and to check the document against "
             "the index printed on its cover sheet. A row with from was not "
             "read from the place the set's title blocks print the number "

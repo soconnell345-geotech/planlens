@@ -1677,6 +1677,9 @@ class ReviewToolkit:
                 shown["title"] = r.title
             if r.revision:
                 shown["rev"] = r.revision
+            if r.scale:
+                shown["scale"] = r.scale
+                shown["scale_from"] = r.scale_how
             views = refs.views.get(r.number)
             if views:
                 shown["views"] = _compact(views)
