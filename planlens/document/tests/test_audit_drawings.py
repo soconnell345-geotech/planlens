@@ -70,3 +70,16 @@ def test_a_note_at_the_sheet_edge_stays_on_the_sheet(tmp_path, rotation):
     assert edge.x0 >= w - 40 and edge.y0 >= h - 40
     inside = shown["inside note"]
     assert (round(inside.x0), round(inside.y0)) == (300, 300)
+
+
+def test_a_line_on_a_plan_with_a_scale_is_not_told_there_is_none(tmp_path):
+    path = tmp_path / "plan.pdf"
+    _detail_sheet(path, 'SCALE: 1/4" = 1\'-0"')
+    with open_document(str(path)) as doc:
+        listed = measure(doc, 0)
+        got = measure(doc, 0, [198, 398, 274, 402], kind="line", pad=1)
+    assert listed["scales"]["frames"][0]["scales"]
+    assert got["value"] is None
+    assert got["scale_known"] is True
+    assert "no scale on this page" not in got.get("note", "")
+    assert "kind='distance'" in got["note"]

@@ -641,6 +641,12 @@ def _convert(ps: PageScales, axis: str, point: Point, snap_pm: float,
                 "position_pt": _rb(point, 2),
                 "refused": f"the position is outside the region the scale "
                            f"governs ({_rb(ext)}); it is given in points"}
+    # A plan's distance scale reads no single position, but the page has
+    # one: a line or an edge on a plan says so, as a point does.
+    plan = _plan_point(ps, point, named)
+    if plan is not None:
+        return {"value": None, "scale_known": True,
+                "position_pt": _rb(point, 2), "note": plan["note"]}
     return {"value": None, "scale_known": False,
             "position_pt": _rb(point, 2),
             "note": "no scale on this page: the position is in page points"}
