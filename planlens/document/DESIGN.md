@@ -113,7 +113,11 @@ against `ir_to_page_point` on a rotated page.
   the end of this item) and has not been run over real pages or put in
   front of a model; a warning that is sometimes wrong is not put on every
   host's pages. The toolkit and the review host open their documents
-  without it (neither passes a `Document` option through). Columns are measured on lines of prose only (20
+  without it unless asked: `ReviewToolkit(column_warning=True)`, or
+  `ReviewHost(toolkit_options={"column_warning": True})` in the host
+  layer, passes it through, as `continued_tables` and
+  `captions_on_every_page` are passed (`planlens/review/DESIGN.md`, "The
+  reading options"). Columns are measured on lines of prose only (20
   characters and four words, horizontal; a word has a letter, so a row of
   dot leaders is not prose): a gap at least 0.6 of a line
   height wide that no more than a fifth of them cross, four lines a side,
