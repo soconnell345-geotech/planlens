@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Tiles cut along a sheet's own regions, beside the uniform grid (app
+  BACKLOG VIS-30, first slice; not wired).** `planlens.review.frames`
+  gains `region_tiles(marks, budget)` and `page_marks(doc, page)`: a page
+  is cut along its borders and gutters, found from its text lines and
+  drawn lines, while a region's lettering is under `LEGIBLE_TEXT_PX` at
+  the size its tile is sent, and a second time where a region has neither
+  left. The tiles cover the page, no tile edge passes through a text
+  line, and the result names the tiles still under the line when its
+  ceiling on tiles stops the cutting. `tile_boxes` is unchanged and is
+  still what every caller gets: no tool, spec or result moves. Two
+  made-up E-size sheets for tests are in
+  `planlens.testing.esize_fixtures`. See `planlens/review/DESIGN.md`,
+  "Tiles cut along the sheet's own regions".
+
 ## 0.17.0 — 2026-11-18
 
 - **Sheet numbers where a page is taken, for a host that asks for the
