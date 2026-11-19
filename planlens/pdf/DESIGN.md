@@ -42,7 +42,7 @@ Maps PDF drawing attributes (stroke color, line style) to geometric roles:
 
 ## Dependencies
 
-- **PyMuPDF** (`fitz`) — optional, same pattern as ezdxf in dxf_import
+- **PyMuPDF** (`pymupdf`) — a core dependency (`PyMuPDF>=1.27.2`)
 - No dependency on any specific LLM provider — `image_fn` is a callable
 
 ## Units
