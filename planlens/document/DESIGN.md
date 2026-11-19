@@ -389,7 +389,7 @@ two of those three), so adopting it would not have closed the gap. Reading it
 needs the label grammar of those programs and is deliberately left for when
 that is measured rather than guessed.
 
-**Since PL-11 (unreleased) that form is read.** `_RE_LABEL_UNIT` takes a
+**Since PL-11 (0.15.0) that form is read.** `_RE_LABEL_UNIT` takes a
 parenthesis holding exactly one unit from the table, then `:` or `=`, then a
 number or a range not followed by `:digit`, `/digit` or `+digit`; the label
 is read back from the words before the parenthesis up to a line break (the
@@ -1737,7 +1737,7 @@ Not built: finding the control points themselves (grid lines and coordinate
 labels are read by the model and passed in); a leader drawn from a label to
 its symbol; an affine fit for a distorted scan.
 
-## Sheet index and cross-references (unreleased; app BACKLOG PL-37, DR-07)
+## Sheet index and cross-references (0.16.0; app BACKLOG PL-37, DR-07)
 
 A reviewer names a sheet by its number; a PDF knows page indexes, and most
 sets carry no page labels. `sheets.py` reads the title block, for the whole
@@ -1930,7 +1930,7 @@ get a share of the limit, and what does not fit is counted
 (`not_indexed_left_out`, `notes_left_out`), so the result fits any limit
 and the rows page on.
 
-**Sheet numbers as addresses** (unreleased, app BACKLOG PL-37;
+**Sheet numbers as addresses** (0.17.0, app BACKLOG PL-37;
 `planlens/tools/sheet_addresses.py`). With the sheet tools served, every
 toolkit tool that takes `pages` also takes `sheets` ("S-201" or
 "S-201, A-101", or a list), and every one that takes `page` also takes
@@ -1999,7 +1999,7 @@ sheet is), nor does a markup's `page` in `annotate_document`.
   here. Whether a detail suits the place it is called from is not
   attempted.
 
-## Schedules and the marks on the sheets (0.16.0, app BACKLOG PL-42; three limits settled and one narrowed in PL-43, unreleased)
+## Schedules and the marks on the sheets (0.16.0, app BACKLOG PL-42; three limits settled and one narrowed in PL-43, 0.17.0)
 
 **Why.** A schedule (doors, windows, equipment, panels, footings) lists
 marks; the plans draw them. A mark drawn with no row, or a row drawn
