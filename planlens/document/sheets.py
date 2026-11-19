@@ -879,7 +879,8 @@ def _scale_value(text: str) -> Optional[str]:
 
 
 def _scale(sheet: _Sheet, block: Optional[BBox],
-           places: Dict[str, List[Tuple[float, float]]]
+           places: Dict[str, List[Tuple[float, float]]],
+           repeated: Optional[set] = None
            ) -> Tuple[Optional[str], Optional[str]]:
     """``(scale, how)``: the scale the title block prints, as printed, and
     how it was read. Only the value of a scale label inside the title block
@@ -890,7 +891,10 @@ def _scale(sheet: _Sheet, block: Optional[BBox],
     one, and a view the set repeats in the other band is left out. Where the set shows no title block (``block`` is
     ``None``), a label in the sheet's lower right corner is taken and the
     row says so. Two labels with different values, or none: ``(None,
-    None)``; nothing is guessed."""
+    None)``; nothing is guessed. A scale line the set prints the same at
+    one place on every sheet, beside a scale that is the sheet's own, is a
+    view the set repeats in the block's band (a key plan): it is left out
+    and added to ``repeated``, for the sheets whose block prints none."""
     spots = [spot for held in places.values() for spot in held]
     right = (sum(1 for x, _y in spots if x >= BAND_RIGHT)
              >= sum(1 for _x, y in spots if y >= BAND_BOTTOM))
@@ -903,26 +907,34 @@ def _scale(sheet: _Sheet, block: Optional[BBox],
         return cx >= CORNER_X and cy >= CORNER_Y
 
     lines = [ln for ln in sheet.lines if inside(ln)]
-    found: Dict[str, Tuple[str, str]] = {}
+    found: Dict[str, Tuple[str, str, bool]] = {}
     for lab in lines:
         m = SCALE_LABEL.match(lab.text)
         if m is None:
             continue
-        value, how = _scale_value(lab.text[m.end():]), HOW_SCALE_LINE
+        value, how, src = _scale_value(lab.text[m.end():]), HOW_SCALE_LINE, lab
         if not lab.text[m.end():].strip():
             near = [ln for ln in lines if ln is not lab
                     and _scale_value(ln.text)
                     and _beside_label(ln.bbox, lab.bbox, ln.rotation)]
             if near:
-                value = _scale_value(min(near, key=lambda ln: abs(
+                src = min(near, key=lambda ln: abs(
                     ln.bbox[0] - lab.bbox[0]) + abs(
-                    ln.bbox[1] - lab.bbox[1])).text)
+                    ln.bbox[1] - lab.bbox[1]))
+                value = _scale_value(src.text)
             how = HOW_SCALE_CELL
         if value:
-            found.setdefault(value.upper(), (value, how))
+            fixed = any(_near(_at(src.bbox, sheet), spot)
+                        for spot in places.get(_clean(src.text), ()))
+            found.setdefault(value.upper(), (value, how, fixed))
+    own = {key: got for key, got in found.items() if not got[2]}
+    if own and len(own) < len(found):
+        if repeated is not None:
+            repeated.update(set(found) - set(own))
+        found = own
     if len(found) != 1:
         return None, None
-    value, how = next(iter(found.values()))
+    value, how, _fixed = next(iter(found.values()))
     return value, (how if block is not None else HOW_SCALE_CORNER)
 
 
@@ -978,6 +990,7 @@ def sheet_index(doc) -> SheetIndex:
     for group in by_size.values():
         slotted = _slots_for(group)
         static, places = _static_texts(group)
+        repeated: set = set()
         for s in group:
             row = SheetRow(page=s.page, count=_count(s) if s.has_text
                            else None, readable=s.has_text)
@@ -1005,7 +1018,7 @@ def sheet_index(doc) -> SheetIndex:
                         confidence = 0.5
             if s.has_text:
                 row.scale, row.scale_how = _scale(
-                    s, _block_box(s, places, piece), places)
+                    s, _block_box(s, places, piece), places, repeated)
             if piece is None:
                 if s.has_text:
                     row.reason = NO_NUMBER + (
@@ -1024,6 +1037,11 @@ def sheet_index(doc) -> SheetIndex:
             row.how, row.confidence, row.bbox = how, confidence, piece.bbox
             row.title = _title(s, piece, static, places)
             row.revision, row.revision_note = _revision(s)
+        pages = {s.page for s in group}
+        for row in index.rows:
+            # the repeated view's scale is no sheet's, where it stands alone
+            if row.page in pages and (row.scale or "").upper() in repeated:
+                row.scale = row.scale_how = None
     index.rows.sort(key=lambda r: r.page)
     note = _duplicate_note(index)
     if note:
