@@ -730,9 +730,11 @@ def _viewer_ranges(text: str) -> str:
 
 def _is_pages_key(key: Any) -> bool:
     """A key that holds page indexes (``pages``, ``pages_to_view``,
-    ``duplicate_pages``, ``pages_with_hits`` ...), never a cursor."""
+    ``duplicate_pages``, ``pages_with_hits`` ...), never a cursor, and
+    never the numbers printed ON the pages (``printed_pages``: a viewer's
+    twin of those, one higher, was a page number no one printed)."""
     k = str(key)
-    return k != "next" and not k.startswith("pdf_") and (
+    return k != "next" and not k.startswith(("pdf_", "printed_")) and (
         k == "pages" or k.startswith("pages_") or k.endswith("_pages"))
 
 
